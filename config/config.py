@@ -177,6 +177,8 @@ config.bind("gd", "spawn --userscript qute-zoom load", mode="normal")   # noqa
 # ---------------------------------------------------------------------------
 # Per-domain tweaks
 # ---------------------------------------------------------------------------
-config.set("content.autoplay", True, "*.youtube.com")          # noqa
-config.set("content.autoplay", True, "*.twitch.tv")            # noqa
-config.set("content.notifications.enabled", True, "*.github.com")  # noqa
+config.set("content.autoplay", True, "*.youtube.com")                    # noqa
+config.set("content.autoplay", True, "*.twitch.tv")                       # noqa
+config.set("content.notifications.enabled", True, "*.github.com")         # noqa
+# Spotify web player uses cross-origin iframes for auth — needs full referer
+config.set("content.headers.referer", "always", "*.spotify.com")          # noqa
