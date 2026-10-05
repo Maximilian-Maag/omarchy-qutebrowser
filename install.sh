@@ -15,7 +15,7 @@ echo "omarchy-qutebrowser: installing from $PLUGIN_DIR"
 
 # ── 1. Dependencies ──────────────────────────────────────────────────────────
 echo "Checking dependencies..."
-omarchy pkg add qutebrowser keepassxc yt-dlp ffmpeg
+omarchy pkg add qutebrowser keepassxc yt-dlp ffmpeg python-adblock
 if ! python3 -c "import nacl" 2>/dev/null; then
   pip install --quiet pynacl
   echo "  Installed pynacl."
