@@ -86,6 +86,6 @@ fi
 # xdg-terminal-exec launches foot; Omarchy's Hyprland config auto-floats
 # windows whose app-id matches org.omarchy.yt-dl.
 # setsid + disown ensure qutebrowser is not blocked.
-setsid uwsm-app -- xdg-terminal-exec --app-id=org.omarchy.yt-dl -T 'yt-dlp' -- \
+setsid uwsm-app -- xdg-terminal-exec --app-id=org.omarchy.yt-dl --title='yt-dlp' -- \
   bash -c "$YTDLP_CMD; echo; echo 'Done. Press Enter to close.'; read" &
 disown
