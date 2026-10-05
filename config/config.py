@@ -53,6 +53,8 @@ c.fonts.prompts = f"12pt {mono}"
 c.fonts.tabs.selected = f"12pt {mono}"
 c.fonts.tabs.unselected = f"12pt {mono}"
 
+config.load_autoconfig(False)  # noqa
+
 # ---------------------------------------------------------------------------
 # General behaviour
 # ---------------------------------------------------------------------------
@@ -60,7 +62,6 @@ c.auto_save.session = True
 c.session.lazy_restore = True
 c.content.autoplay = False
 c.content.notifications.enabled = False   # sites must ask
-c.downloads.location.ask = True
 c.downloads.location.prompt = True
 c.scrolling.smooth = True
 c.tabs.show = "multiple"
