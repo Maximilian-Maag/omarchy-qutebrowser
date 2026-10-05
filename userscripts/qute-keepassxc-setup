@@ -6,27 +6,37 @@ set -euo pipefail
 
 fifo="${QUTE_FIFO:?QUTE_FIFO not set}"
 
-msg_info()  { printf "message-info '%s'\n"  "$*" >> "$fifo"; }
-msg_error() { printf "message-error '%s'\n" "$*" >> "$fifo"; }
+msg_info()  { printf "message-info '%s'\n"  "${*//\'/\'\\\'\'}" >> "$fifo"; }
+msg_error() { printf "message-error '%s'\n" "${*//\'/\'\\\'\'}" >> "$fifo"; }
 
-# 1. Check installation
+# 1. Check KeePassXC installation (not KeePass2/Mono)
 if ! command -v keepassxc &>/dev/null; then
-    msg_error "KeePassXC not installed — run: sudo pacman -S keepassxc"
+    # Check if the user has KeePass2 (Mono) running instead
+    if pgrep -f "KeePass.exe" &>/dev/null || pgrep -f "keepass" &>/dev/null; then
+        msg_error "KeePass2 (Mono) is running but qutebrowser needs KeePassXC. Install it: omarchy pkg add keepassxc"
+    else
+        msg_error "KeePassXC not installed — install with: omarchy pkg add keepassxc"
+    fi
     exit 0
 fi
 
-# 2. Check process is running
+# 2. Check KeePassXC process is running
+# Use pgrep -x for exact binary name match (avoids matching script args)
 if ! pgrep -x keepassxc &>/dev/null; then
-    msg_info "KeePassXC is not running — start KeePassXC first, then try again"
+    if pgrep -f "KeePass.exe" &>/dev/null; then
+        msg_error "KeePass2 (Mono) is running but qutebrowser needs KeePassXC. Launch it: Super+Shift+/"
+    else
+        msg_info "KeePassXC is not running — launch it with Super+Shift+/ then try again"
+    fi
     exit 0
 fi
 
 # 3. Check browser integration socket
 socket="/run/user/$(id -u)/org.keepassxc.KeePassXC.BrowserServer"
 if [[ ! -S "$socket" ]]; then
-    msg_info "Enable Browser Integration: KeePassXC > Tools > Settings > Browser Integration > Enable"
+    msg_info "Browser Integration not enabled. In KeePassXC: Tools > Settings > Browser Integration > Enable browser integration > tick Chromium-based"
     exit 0
 fi
 
 # All checks passed
-msg_info "KeePassXC ready — press pw on a login page to fill"
+msg_info "KeePassXC ready — press pw on a login page to fill passwords"
