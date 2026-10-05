@@ -105,12 +105,12 @@ c.content.blocking.hosts.lists = [
 
 # ---------------------------------------------------------------------------
 # KeePassXC password fill
-# Requires qute-keepassxc userscript (ships with qutebrowser) and pynacl.
-#   pip install pynacl
+# Uses --insecure to skip GPG (stores the association key in plaintext).
 # On first use KeePassXC will ask you to allow this client.
+# Enable Browser Integration in KeePassXC: Tools > Settings > Browser Integration
 # ---------------------------------------------------------------------------
-config.bind("<Alt-Shift-u>", "spawn --userscript qute-keepassxc", mode="insert")  # noqa
-config.bind("pw", "spawn --userscript qute-keepassxc", mode="normal")             # noqa
+config.bind("<Alt-Shift-u>", "spawn --userscript qute-keepassxc --insecure", mode="insert")  # noqa
+config.bind("pw", "spawn --userscript qute-keepassxc --insecure", mode="normal")             # noqa
 
 # ---------------------------------------------------------------------------
 # Keybindings
@@ -130,6 +130,10 @@ config.bind("F", "hint all tab", mode="normal")       # noqa
 
 # Quick YouTube shortcut
 config.bind(",y", "open https://youtube.com", mode="normal")  # noqa
+
+# yt-dlp download userscript
+config.bind(",dv", "spawn --userscript qute-yt-dl video", mode="normal")  # noqa  download video
+config.bind(",dm", "spawn --userscript qute-yt-dl mp3",   mode="normal")  # noqa  download mp3
 
 # ---------------------------------------------------------------------------
 # YouTube userscript injection

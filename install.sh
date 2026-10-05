@@ -9,46 +9,52 @@ PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUTE_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/qutebrowser"
 QUTE_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/qutebrowser"
 GREASEMONKEY_DIR="$QUTE_DATA_DIR/greasemonkey"
+USERSCRIPTS_DIR="$QUTE_DATA_DIR/userscripts"
 
 echo "omarchy-qutebrowser: installing from $PLUGIN_DIR"
 
-# ── 1. Config ────────────────────────────────────────────────────────────────
+# ── 1. Dependencies ──────────────────────────────────────────────────────────
+echo "Checking dependencies..."
+omarchy pkg add qutebrowser keepassxc yt-dlp ffmpeg
+if ! python3 -c "import nacl" 2>/dev/null; then
+  pip install --quiet pynacl
+  echo "  Installed pynacl."
+fi
+echo "  Dependencies OK."
+
+# ── 2. Config ────────────────────────────────────────────────────────────────
 mkdir -p "$QUTE_CONFIG_DIR"
 
-# Back up any existing config
 if [[ -f "$QUTE_CONFIG_DIR/config.py" && ! -L "$QUTE_CONFIG_DIR/config.py" ]]; then
   ts=$(date +%s)
   mv "$QUTE_CONFIG_DIR/config.py" "$QUTE_CONFIG_DIR/config.py.bak.$ts"
   echo "  Backed up existing config.py to config.py.bak.$ts"
 fi
 
-# Symlink config.py and themes.py
 ln -sf "$PLUGIN_DIR/config/config.py" "$QUTE_CONFIG_DIR/config.py"
 ln -sf "$PLUGIN_DIR/config/themes.py" "$QUTE_CONFIG_DIR/themes.py"
 echo "  Linked config.py and themes.py -> $QUTE_CONFIG_DIR/"
 
-# ── 2. Greasemonkey userscript ───────────────────────────────────────────────
+# ── 3. Greasemonkey (YouTube ad-block) ───────────────────────────────────────
 mkdir -p "$GREASEMONKEY_DIR"
 ln -sf "$PLUGIN_DIR/userscripts/youtube-adblock.js" \
        "$GREASEMONKEY_DIR/youtube-adblock.js"
 echo "  Linked youtube-adblock.js -> $GREASEMONKEY_DIR/"
 
-# ── 3. KeePassXC userscript ──────────────────────────────────────────────────
-# qute-keepassxc ships with qutebrowser and is already on the userscript PATH.
-# Check pynacl is available.
-if ! python3 -c "import nacl" 2>/dev/null; then
-  echo "  WARNING: pynacl not found. Installing..."
-  pip install --quiet pynacl
-  echo "  Installed pynacl."
-fi
-echo "  KeePassXC userscript: qute-keepassxc (ships with qutebrowser) — OK"
+# ── 4. qute-yt-dl userscript ─────────────────────────────────────────────────
+mkdir -p "$USERSCRIPTS_DIR"
+ln -sf "$PLUGIN_DIR/userscripts/qute-yt-dl" "$USERSCRIPTS_DIR/qute-yt-dl"
+chmod +x "$PLUGIN_DIR/userscripts/qute-yt-dl"
+# Also link into ~/.config/qutebrowser/userscripts (qutebrowser checks both dirs)
+mkdir -p "$QUTE_CONFIG_DIR/userscripts"
+ln -sf "$PLUGIN_DIR/userscripts/qute-yt-dl" "$QUTE_CONFIG_DIR/userscripts/qute-yt-dl"
+echo "  Linked qute-yt-dl -> $USERSCRIPTS_DIR/ and $QUTE_CONFIG_DIR/userscripts/"
 
-# ── 4. Theme-set hook ────────────────────────────────────────────────────────
+# ── 5. Theme-set hook ────────────────────────────────────────────────────────
 omarchy hook install theme-set "$PLUGIN_DIR/hooks/theme-set"
 echo "  Installed theme-set hook -> ~/.config/omarchy/hooks/theme-set.d/theme-set"
 
-# ── 5. Set qutebrowser as the default browser ────────────────────────────────
-
+# ── 6. Default browser ───────────────────────────────────────────────────────
 QUTE_DESKTOP="org.qutebrowser.qutebrowser.desktop"
 BROWSER_MIMES=(
   x-scheme-handler/http
@@ -60,7 +66,7 @@ BROWSER_MIMES=(
   application/xml
 )
 
-# 5a. User-level XDG default (~/.config/mimeapps.list via xdg-settings/xdg-mime)
+# 6a. User-level
 CURRENT=$(xdg-settings get default-web-browser 2>/dev/null || echo "")
 if [[ $CURRENT != "$QUTE_DESKTOP" ]]; then
   xdg-settings set default-web-browser "$QUTE_DESKTOP"
@@ -73,8 +79,7 @@ for mime in "${BROWSER_MIMES[@]}"; do
 done
 echo "  Registered MIME types for user."
 
-# 5b. System-wide default — requires root
-# Writes /etc/xdg/mimeapps.list and patches /usr/share/applications/mimeapps.list
+# 6b. System-wide (requires root)
 echo "  Setting system-wide default browser (requires sudo)..."
 if [[ $EUID -eq 0 ]]; then
   bash "$PLUGIN_DIR/bin/set-system-default"
@@ -84,20 +89,22 @@ else
   pkexec bash "$PLUGIN_DIR/bin/set-system-default"
 fi
 
-# ── 6. Write initial theme state ─────────────────────────────────────────────
+# ── 7. Initial theme state ────────────────────────────────────────────────────
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-qutebrowser"
 mkdir -p "$STATE_DIR"
 CURRENT_THEME=$(omarchy theme current 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "catppuccin")
 echo "$CURRENT_THEME" > "$STATE_DIR/active-theme"
 echo "  Initial theme: $CURRENT_THEME"
 
-# ── Done ─────────────────────────────────────────────────────────────────────
+# ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
-echo "Done! Start qutebrowser with:"
-echo "  qutebrowser"
+echo "Done! Start qutebrowser with: qutebrowser"
 echo ""
-echo "KeePassXC bindings:"
-echo "  Alt+Shift+U  (insert mode) — fill password from KeePassXC"
-echo "  pw           (normal mode) — fill password from KeePassXC"
+echo "Bindings:"
+echo "  Alt+Shift+U / pw  — KeePassXC password fill (enable Browser Integration in KeePassXC first)"
+echo "  ,dv               — download current page as video (yt-dlp)"
+echo "  ,dm               — download current page as MP3  (yt-dlp + ffmpeg)"
+echo "  ,y                — open YouTube"
+echo "  ,ab               — update ad block lists"
 echo ""
-echo "The theme will switch automatically when you run: omarchy theme set <name>"
+echo "Theme switches automatically with: omarchy theme set <name>"

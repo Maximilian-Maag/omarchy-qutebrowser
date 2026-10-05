@@ -7,10 +7,11 @@
 | Feature | Details |
 |---------|---------|
 | **22 Omarchy themes** | Every stock theme (catppuccin, nord, tokyo-night, gruvbox, …) plus automatic live switching when you run `omarchy theme set` |
-| **KeePassXC** | Fill passwords with `Alt+Shift+U` (insert) or `pw` (normal) via the bundled `qute-keepassxc` userscript |
-| **Ad-free YouTube** | Greasemonkey script skips pre-roll ads, removes overlays, and intercepts ad network requests |
+| **KeePassXC** | Fill passwords with `Alt+Shift+U` (insert) or `pw` (normal) via the bundled `qute-keepassxc` userscript (`--insecure` mode, no GPG required) |
+| **YouTube ad-free** | Greasemonkey script skips pre-roll ads, removes overlays, intercepts ad network requests, and handles SPA navigation (`yt-navigate-finish`) |
 | **Built-in ad blocker** | Brave + EasyList + EasyPrivacy + uBlock Origin filter lists, host-based blocking |
-| **Default browser** | `install.sh` registers qutebrowser as the system default via `xdg-settings` |
+| **yt-dlp download** | `,dv` downloads the current page as video (best mp4), `,dm` extracts MP3 — works on YouTube, Vimeo, Twitter, and 1000+ other sites |
+| **Default browser** | `install.sh` sets qutebrowser at all three levels: user `~/.config/mimeapps.list`, system `/etc/xdg/mimeapps.list`, and Omarchy `/usr/share/applications/mimeapps.list` |
 
 ## Installation
 
@@ -84,6 +85,8 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 | `,ab` | normal | Update ad block filter lists |
 | `,d` | normal | Toggle dark mode on current page |
 | `,y` | normal | Open YouTube |
+| `,dv` | normal | Download current page as video (yt-dlp) |
+| `,dm` | normal | Download current page as MP3 (yt-dlp + ffmpeg) |
 
 ## Search engines
 

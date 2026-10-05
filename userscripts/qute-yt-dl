@@ -1,0 +1,108 @@
+#!/bin/bash
+# qute-yt-dl — download a video or extract MP3 via yt-dlp
+#
+# Usage (from qutebrowser config.py):
+#   config.bind(",dv", "spawn --userscript qute-yt-dl video", mode="normal")
+#   config.bind(",dm", "spawn --userscript qute-yt-dl mp3",   mode="normal")
+#
+# $1 = "video" (default) or "mp3"
+# QUTE_URL = current page URL (set by qutebrowser)
+# QUTE_FIFO = path to qutebrowser command FIFO
+
+set -euo pipefail
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+msg() {
+  [[ -n "${QUTE_FIFO:-}" ]] && printf "message-info '%s'\n" "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true
+}
+err() {
+  [[ -n "${QUTE_FIFO:-}" ]] && printf "message-error '%s'\n" "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true
+}
+
+# ── Validate env ──────────────────────────────────────────────────────────────
+URL="${QUTE_URL:-}"
+if [[ -z "$URL" ]]; then
+  err "qute-yt-dl: QUTE_URL is not set — run this as a qutebrowser userscript"
+  exit 1
+fi
+
+MODE="${1:-}"
+if [[ -z "$MODE" ]]; then
+  msg "qute-yt-dl: use  ,dv  to download video  or  ,dm  for MP3"
+  exit 0
+fi
+
+if [[ "$MODE" != "video" && "$MODE" != "mp3" ]]; then
+  err "qute-yt-dl: unknown mode '$MODE' — use 'video' or 'mp3'"
+  exit 1
+fi
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+YTDLP="${YTDLP:-$(command -v yt-dlp 2>/dev/null)}"
+FFMPEG="${FFMPEG:-$(command -v ffmpeg 2>/dev/null)}"
+
+if [[ -z "$YTDLP" ]]; then
+  err "qute-yt-dl: yt-dlp not found — install with: omarchy pkg add yt-dlp"
+  exit 1
+fi
+if [[ "$MODE" == "mp3" && -z "$FFMPEG" ]]; then
+  err "qute-yt-dl: ffmpeg not found — install with: omarchy pkg add ffmpeg"
+  exit 1
+fi
+
+# ── Output directory ──────────────────────────────────────────────────────────
+DOWNLOAD_DIR="${DOWNLOAD_DIR:-$HOME/Downloads}"
+mkdir -p "$DOWNLOAD_DIR"
+
+# ── Download ──────────────────────────────────────────────────────────────────
+LOGFILE=$(mktemp /tmp/qute-yt-dl-XXXXXX.log)
+
+cleanup() { rm -f "$LOGFILE"; }
+trap cleanup EXIT
+
+if [[ "$MODE" == "mp3" ]]; then
+  msg "qute-yt-dl: extracting MP3 from $URL …"
+  (
+    "$YTDLP" \
+      --extract-audio \
+      --audio-format mp3 \
+      --audio-quality 0 \
+      --embed-thumbnail \
+      --add-metadata \
+      --output "$DOWNLOAD_DIR/%(uploader)s - %(title)s.%(ext)s" \
+      -- "$URL" \
+      >> "$LOGFILE" 2>&1
+    RC=$?
+    if [[ $RC -eq 0 ]]; then
+      FNAME=$(grep -oP "(?<=Destination: ).*\.mp3" "$LOGFILE" | tail -1 || echo "$DOWNLOAD_DIR/")
+      printf "message-info 'qute-yt-dl: MP3 saved → %s'\n" "${FNAME//\'/\'\\\'\'}" >> "${QUTE_FIFO:-/dev/null}" 2>/dev/null || true
+    else
+      ERRLINE=$(grep -i "error\|ERROR" "$LOGFILE" | tail -1 || echo "unknown error")
+      printf "message-error 'qute-yt-dl: MP3 failed — %s'\n" "${ERRLINE//\'/\'\\\'\'}" >> "${QUTE_FIFO:-/dev/null}" 2>/dev/null || true
+    fi
+  ) &
+  disown
+else
+  msg "qute-yt-dl: downloading video from $URL …"
+  (
+    "$YTDLP" \
+      --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+      --merge-output-format mp4 \
+      --embed-thumbnail \
+      --add-metadata \
+      --output "$DOWNLOAD_DIR/%(uploader)s - %(title)s.%(ext)s" \
+      -- "$URL" \
+      >> "$LOGFILE" 2>&1
+    RC=$?
+    if [[ $RC -eq 0 ]]; then
+      FNAME=$(grep -oP "(?<=Destination: ).*\.mp4" "$LOGFILE" | tail -1 \
+              || grep -oP '(?<=Merging formats into ").*(?=")' "$LOGFILE" | tail -1 \
+              || echo "$DOWNLOAD_DIR/")
+      printf "message-info 'qute-yt-dl: video saved → %s'\n" "${FNAME//\'/\'\\\'\'}" >> "${QUTE_FIFO:-/dev/null}" 2>/dev/null || true
+    else
+      ERRLINE=$(grep -i "error\|ERROR" "$LOGFILE" | tail -1 || echo "unknown error")
+      printf "message-error 'qute-yt-dl: download failed — %s'\n" "${ERRLINE//\'/\'\\\'\'}" >> "${QUTE_FIFO:-/dev/null}" 2>/dev/null || true
+    fi
+  ) &
+  disown
+fi
