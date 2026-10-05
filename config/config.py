@@ -14,7 +14,12 @@ import os
 # ---------------------------------------------------------------------------
 # Path: make the config dir importable so we can import themes.py
 # ---------------------------------------------------------------------------
-config_dir = os.path.dirname(os.path.abspath(__file__))
+# qutebrowser execs config.py without __file__; use config.configdir instead.
+try:
+    config_dir = str(config.configdir)  # noqa: F821
+except Exception:
+    import pathlib
+    config_dir = str(pathlib.Path.home() / ".config" / "qutebrowser")
 if config_dir not in sys.path:
     sys.path.insert(0, config_dir)
 

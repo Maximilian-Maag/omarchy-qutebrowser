@@ -40,26 +40,10 @@ def _apply_site_fixes(c):  # noqa: F821
         if fixes.get("js_allow"):
             config.set("content.javascript.enabled", True, url_pattern)  # noqa
 
-        # 2. Inject fix data as window.__omarchyFixes so site-fixes.js can apply CSS
-        css_hide    = fixes.get("css_hide", [])
+        # 2. Inject fix CSS into user stylesheet (applied at page load)
+        css_hide     = fixes.get("css_hide", [])
         css_override = fixes.get("css_override", [])
-
         if css_hide or css_override:
-            fix_json = json.dumps({"css_hide": css_hide, "css_override": css_override})
-            # Escape for JS string literal
-            fix_json_escaped = fix_json.replace("\\", "\\\\").replace("'", "\\'")
-            js_inject = (
-                f"(function(){{"
-                f"try{{window.__omarchyFixes=JSON.parse('{fix_json_escaped}');}}catch(e){{}}"
-                f"}})();"
-            )
-            config.set(  # noqa
-                "content.javascript.extra_urls",
-                [f"javascript:{js_inject}"],
-                url_pattern,
-            )
-
-            # Also add to user stylesheet for pre-JS-load hiding
             if css_hide:
                 css_rules.append(
                     f"/* {domain} — qute-ai-fix */\n"
