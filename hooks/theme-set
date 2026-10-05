@@ -1,0 +1,33 @@
+#!/bin/bash
+# omarchy hook: theme-set — reload qutebrowser theme when omarchy theme changes
+#
+# Called by: omarchy-hook theme-set <theme-name>
+# $1 = the new theme name (e.g. "nord", "catppuccin", "Tokyo Night")
+
+set -euo pipefail
+
+# Normalise to lowercase to match the THEMES dict keys
+THEME=$(echo "${1:-}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+if [[ -z $THEME ]]; then
+  exit 0
+fi
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-qutebrowser"
+mkdir -p "$STATE_DIR"
+
+# Write the active theme name so config.py can read it at next reload
+echo "$THEME" > "$STATE_DIR/active-theme"
+
+# Tell every running qutebrowser instance to reload its config
+if command -v qutebrowser >/dev/null 2>&1; then
+  # qutebrowser IPC: send a command to all running instances
+  # The socket lives at $XDG_RUNTIME_DIR/qutebrowser/ipc-*
+  IPC_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/qutebrowser"
+  if [[ -d $IPC_DIR ]]; then
+    for sock in "$IPC_DIR"/ipc-*; do
+      [[ -S $sock ]] || continue
+      printf '{"args": [":config-source"], "target_arg": null, "version": "1", "protocol_version": 1}\n' \
+        | socat - "UNIX-CONNECT:$sock" 2>/dev/null || true
+    done
+  fi
+fi
