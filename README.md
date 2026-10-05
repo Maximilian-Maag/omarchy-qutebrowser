@@ -15,15 +15,23 @@
 
 ## Installation
 
-```bash
-# 1. Install qutebrowser and keepassxc if not already present
-omarchy pkg add qutebrowser keepassxc
+### Via `omarchy plugin add` (recommended)
 
-# 2. Clone the plugin
+```bash
+omarchy plugin add https://github.com/Maximilian-Maag/omarchy-qutebrowser --yes
+```
+
+Then run the install script once to wire up symlinks and set the default browser:
+
+```bash
+bash ~/.config/omarchy/plugins/Maximilian-Maag.qutebrowser/install.sh
+```
+
+### Manual
+
+```bash
 git clone https://github.com/Maximilian-Maag/omarchy-qutebrowser \
     ~/.config/omarchy/plugins/Maximilian-Maag.qutebrowser
-
-# 3. Run the install script
 bash ~/.config/omarchy/plugins/Maximilian-Maag.qutebrowser/install.sh
 ```
 

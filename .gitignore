@@ -2,3 +2,4 @@ config/__pycache__/
 *.pyc
 *.pyo
 .DS_Store
+userscripts/__pycache__/

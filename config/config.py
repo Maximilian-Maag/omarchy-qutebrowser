@@ -2,8 +2,10 @@
 omarchy-qutebrowser: main configuration
 - Omarchy theme integration (all 22 stock themes + user themes)
 - KeePassXC password fill (Alt+Shift+u in insert mode, pw in normal mode)
-- Built-in ad blocker (hosts + Brave lists)
-- YouTube ad-free via userscript injection
+- Built-in ad blocker (hosts + Brave/uBlock lists)
+- YouTube ad-free via Greasemonkey script
+- yt-dlp video/MP3 download with live progress terminal
+- Per-domain zoom persistence
 """
 
 import sys
@@ -80,14 +82,12 @@ c.content.headers.do_not_track = True
 c.content.headers.referer = "same-domain"
 
 # ---------------------------------------------------------------------------
-# Ad blocking — built-in host blocker + Brave filter lists
+# Ad blocking — built-in host blocker + Brave/uBlock filter lists
 # ---------------------------------------------------------------------------
 c.content.blocking.enabled = True
 c.content.blocking.method = "both"      # hosts + adblock filter lists
 c.content.blocking.hosts.block_subdomains = True
 c.content.blocking.adblock.lists = [
-    # Brave's curated lists (same ones uBlock Origin uses by default)
-    "https://raw.githubusercontent.com/nicehash/ublock-filters/master/filters.txt",
     "https://easylist.to/easylist/easylist.txt",
     "https://easylist.to/easylist/easyprivacy.txt",
     "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
@@ -96,69 +96,24 @@ c.content.blocking.adblock.lists = [
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/badware.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/resource-abuse.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/unbreak.txt",
-    "https://raw.githubusercontent.com/nicehash/ublock-filters/master/annoyances.txt",
 ]
 c.content.blocking.hosts.lists = [
     "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
-    "https://raw.githubusercontent.com/nicehash/ublock-filters/master/filters.txt",
 ]
 
 # ---------------------------------------------------------------------------
-# KeePassXC password fill
-# Uses --insecure to skip GPG (stores the association key in plaintext).
-# On first use KeePassXC will ask you to allow this client.
-# Enable Browser Integration in KeePassXC: Tools > Settings > Browser Integration
-# ---------------------------------------------------------------------------
-config.bind("<Alt-Shift-u>", "spawn --userscript qute-keepassxc --insecure", mode="insert")  # noqa
-config.bind("pw", "spawn --userscript qute-keepassxc --insecure", mode="normal")             # noqa
-
-# ---------------------------------------------------------------------------
-# Keybindings
-# ---------------------------------------------------------------------------
-# Open new tab / close tab
-config.bind("t", "open -t", mode="normal")            # noqa
-config.bind("X", "tab-close", mode="normal")          # noqa
-
-# Reload filter lists
-config.bind(",ab", "adblock-update", mode="normal")   # noqa
-
-# Toggle dark mode on current page
-config.bind(",d", "config-cycle colors.webpage.darkmode.enabled true false", mode="normal")  # noqa
-
-# Hint mode: open in new tab
-config.bind("F", "hint all tab", mode="normal")       # noqa
-
-# Quick YouTube shortcut
-config.bind(",y", "open https://youtube.com", mode="normal")  # noqa
-
-# yt-dlp download userscript
-config.bind(",dv", "spawn --userscript qute-yt-dl video", mode="normal")  # noqa  download video
-config.bind(",dm", "spawn --userscript qute-yt-dl mp3",   mode="normal")  # noqa  download mp3
-
-# ---------------------------------------------------------------------------
-# YouTube userscript injection
-# Injects a content script on YouTube that prevents the page from showing
-# ads. This uses qutebrowser's greasemonkey support; the actual script is
-# in userscripts/youtube-adblock.js and is auto-loaded from
-# ~/.local/share/qutebrowser/greasemonkey/ (symlinked by install.sh).
-# ---------------------------------------------------------------------------
-# No Python config needed — Greasemonkey scripts are discovered automatically.
-# The script declares @match *://*.youtube.com/* so it runs only there.
-
-# ---------------------------------------------------------------------------
-# Per-domain tweaks
-# ---------------------------------------------------------------------------
-# Allow autoplay on media sites where it makes sense
-config.set("content.autoplay", True, "*.youtube.com")          # noqa
-config.set("content.autoplay", True, "*.twitch.tv")            # noqa
-config.set("content.notifications.enabled", True, "*.github.com")  # noqa
-
-# ---------------------------------------------------------------------------
 # Search engines
+# Override DEFAULT to change the search engine used when typing in the bar.
 # ---------------------------------------------------------------------------
+_default_search = os.environ.get(
+    "QUTE_DEFAULT_SEARCH",
+    "https://search.brave.com/search?q={}"
+)
+
 c.url.searchengines = {                                         # noqa
-    "DEFAULT": "https://search.brave.com/search?q={}",
+    "DEFAULT": _default_search,
     "g":       "https://google.com/search?q={}",
+    "dd":      "https://duckduckgo.com/?q={}",
     "yt":      "https://youtube.com/search?q={}",
     "gh":      "https://github.com/search?q={}",
     "arch":    "https://archlinux.org/packages/?q={}",
@@ -167,5 +122,61 @@ c.url.searchengines = {                                         # noqa
     "wp":      "https://en.wikipedia.org/w/index.php?search={}",
 }
 
-c.url.start_pages = ["https://search.brave.com"]               # noqa
-c.url.default_page = "https://search.brave.com"                # noqa
+_start_page = os.environ.get("QUTE_START_PAGE", "https://search.brave.com")
+c.url.start_pages = [_start_page]                               # noqa
+c.url.default_page = _start_page                                # noqa
+
+# ---------------------------------------------------------------------------
+# KeePassXC password fill
+# Uses --insecure (no GPG required — association key stored in plaintext).
+# First-time setup: run  :spawn --userscript qute-keepassxc-setup
+# Enable Browser Integration in KeePassXC: Tools > Settings > Browser Integration
+# ---------------------------------------------------------------------------
+config.bind("<Alt-Shift-u>", "spawn --userscript qute-keepassxc --insecure", mode="insert")  # noqa
+config.bind("pw",            "spawn --userscript qute-keepassxc --insecure", mode="normal")  # noqa
+config.bind(",kp",           "spawn --userscript qute-keepassxc-setup",      mode="normal")  # noqa  check setup
+
+# ---------------------------------------------------------------------------
+# Keybindings
+# ---------------------------------------------------------------------------
+# Tabs
+config.bind("t", "open -t",   mode="normal")  # noqa
+config.bind("X", "tab-close", mode="normal")  # noqa
+
+# Private window (opens current URL in a temp profile)
+config.bind(",p", "open -p {url}", mode="normal")  # noqa
+
+# Reload filter lists
+config.bind(",ab", "adblock-update", mode="normal")  # noqa
+
+# Toggle dark mode on current page
+config.bind(",d", "config-cycle colors.webpage.darkmode.enabled true false", mode="normal")  # noqa
+
+# Hint mode: open in new tab
+config.bind("F", "hint all tab", mode="normal")  # noqa
+
+# Quick YouTube shortcut
+config.bind(",y", "open https://youtube.com", mode="normal")  # noqa
+
+# yt-dlp download (floating terminal with live progress)
+config.bind(",dv", "spawn --userscript qute-yt-dl video", mode="normal")  # noqa  download video
+config.bind(",dm", "spawn --userscript qute-yt-dl mp3",   mode="normal")  # noqa  download mp3
+
+# Per-domain zoom persistence
+# ,z  = save current zoom for this domain
+# ,zl = restore saved zoom for this domain
+# ,zr = reset zoom to 1.0 for this domain
+config.bind(",z",  "spawn --userscript qute-zoom",       mode="normal")  # noqa
+config.bind(",zl", "spawn --userscript qute-zoom load",  mode="normal")  # noqa
+config.bind(",zr", "spawn --userscript qute-zoom reset", mode="normal")  # noqa
+
+# Auto-restore zoom on every page load via Greasemonkey (see userscripts/qute-zoom)
+# qutebrowser also calls zoom load via this hook:
+config.bind("gd", "spawn --userscript qute-zoom load", mode="normal")   # noqa
+
+# ---------------------------------------------------------------------------
+# Per-domain tweaks
+# ---------------------------------------------------------------------------
+config.set("content.autoplay", True, "*.youtube.com")          # noqa
+config.set("content.autoplay", True, "*.twitch.tv")            # noqa
+config.set("content.notifications.enabled", True, "*.github.com")  # noqa

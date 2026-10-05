@@ -54,55 +54,38 @@ fi
 DOWNLOAD_DIR="${DOWNLOAD_DIR:-$HOME/Downloads}"
 mkdir -p "$DOWNLOAD_DIR"
 
-# ── Download ──────────────────────────────────────────────────────────────────
-LOGFILE=$(mktemp /tmp/qute-yt-dl-XXXXXX.log)
-
-cleanup() { rm -f "$LOGFILE"; }
-trap cleanup EXIT
+# ── Build yt-dlp command string (safely shell-quoted) ─────────────────────────
+# printf %q escapes each argument so the resulting string is safe to eval in
+# the bash -c payload even when paths or the URL contain spaces/special chars.
+OUT_TEMPLATE="$DOWNLOAD_DIR/%(title)s.%(ext)s"
 
 if [[ "$MODE" == "mp3" ]]; then
   msg "qute-yt-dl: extracting MP3 from $URL …"
-  (
+  YTDLP_CMD=$(printf '%q ' \
     "$YTDLP" \
-      --extract-audio \
-      --audio-format mp3 \
-      --audio-quality 0 \
-      --embed-thumbnail \
-      --add-metadata \
-      --output "$DOWNLOAD_DIR/%(uploader)s - %(title)s.%(ext)s" \
-      -- "$URL" \
-      >> "$LOGFILE" 2>&1
-    RC=$?
-    if [[ $RC -eq 0 ]]; then
-      FNAME=$(grep -oP "(?<=Destination: ).*\.mp3" "$LOGFILE" | tail -1 || echo "$DOWNLOAD_DIR/")
-      printf "message-info 'qute-yt-dl: MP3 saved → %s'\n" "${FNAME//\'/\'\\\'\'}" >> "${QUTE_FIFO:-/dev/null}" 2>/dev/null || true
-    else
-      ERRLINE=$(grep -i "error\|ERROR" "$LOGFILE" | tail -1 || echo "unknown error")
-      printf "message-error 'qute-yt-dl: MP3 failed — %s'\n" "${ERRLINE//\'/\'\\\'\'}" >> "${QUTE_FIFO:-/dev/null}" 2>/dev/null || true
-    fi
-  ) &
-  disown
+    --extract-audio \
+    --audio-format mp3 \
+    --audio-quality 0 \
+    --embed-thumbnail \
+    --add-metadata \
+    --output "$OUT_TEMPLATE" \
+    -- "$URL")
 else
   msg "qute-yt-dl: downloading video from $URL …"
-  (
+  YTDLP_CMD=$(printf '%q ' \
     "$YTDLP" \
-      --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-      --merge-output-format mp4 \
-      --embed-thumbnail \
-      --add-metadata \
-      --output "$DOWNLOAD_DIR/%(uploader)s - %(title)s.%(ext)s" \
-      -- "$URL" \
-      >> "$LOGFILE" 2>&1
-    RC=$?
-    if [[ $RC -eq 0 ]]; then
-      FNAME=$(grep -oP "(?<=Destination: ).*\.mp4" "$LOGFILE" | tail -1 \
-              || grep -oP '(?<=Merging formats into ").*(?=")' "$LOGFILE" | tail -1 \
-              || echo "$DOWNLOAD_DIR/")
-      printf "message-info 'qute-yt-dl: video saved → %s'\n" "${FNAME//\'/\'\\\'\'}" >> "${QUTE_FIFO:-/dev/null}" 2>/dev/null || true
-    else
-      ERRLINE=$(grep -i "error\|ERROR" "$LOGFILE" | tail -1 || echo "unknown error")
-      printf "message-error 'qute-yt-dl: download failed — %s'\n" "${ERRLINE//\'/\'\\\'\'}" >> "${QUTE_FIFO:-/dev/null}" 2>/dev/null || true
-    fi
-  ) &
-  disown
+    --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+    --merge-output-format mp4 \
+    --embed-thumbnail \
+    --add-metadata \
+    --output "$OUT_TEMPLATE" \
+    -- "$URL")
 fi
+
+# ── Launch floating terminal with live yt-dlp output ─────────────────────────
+# xdg-terminal-exec launches foot; Omarchy's Hyprland config auto-floats
+# windows whose app-id matches org.omarchy.yt-dl.
+# setsid + disown ensure qutebrowser is not blocked.
+setsid uwsm-app -- xdg-terminal-exec --app-id=org.omarchy.yt-dl -T 'yt-dlp' -- \
+  bash -c "$YTDLP_CMD; echo; echo 'Done. Press Enter to close.'; read" &
+disown

@@ -41,14 +41,14 @@ ln -sf "$PLUGIN_DIR/userscripts/youtube-adblock.js" \
        "$GREASEMONKEY_DIR/youtube-adblock.js"
 echo "  Linked youtube-adblock.js -> $GREASEMONKEY_DIR/"
 
-# ── 4. qute-yt-dl userscript ─────────────────────────────────────────────────
-mkdir -p "$USERSCRIPTS_DIR"
-ln -sf "$PLUGIN_DIR/userscripts/qute-yt-dl" "$USERSCRIPTS_DIR/qute-yt-dl"
-chmod +x "$PLUGIN_DIR/userscripts/qute-yt-dl"
-# Also link into ~/.config/qutebrowser/userscripts (qutebrowser checks both dirs)
-mkdir -p "$QUTE_CONFIG_DIR/userscripts"
-ln -sf "$PLUGIN_DIR/userscripts/qute-yt-dl" "$QUTE_CONFIG_DIR/userscripts/qute-yt-dl"
-echo "  Linked qute-yt-dl -> $USERSCRIPTS_DIR/ and $QUTE_CONFIG_DIR/userscripts/"
+# ── 4. Userscripts ───────────────────────────────────────────────────────────
+mkdir -p "$USERSCRIPTS_DIR" "$QUTE_CONFIG_DIR/userscripts"
+for script in qute-yt-dl qute-keepassxc-setup qute-zoom; do
+  chmod +x "$PLUGIN_DIR/userscripts/$script"
+  ln -sf "$PLUGIN_DIR/userscripts/$script" "$USERSCRIPTS_DIR/$script"
+  ln -sf "$PLUGIN_DIR/userscripts/$script" "$QUTE_CONFIG_DIR/userscripts/$script"
+done
+echo "  Linked userscripts (qute-yt-dl, qute-keepassxc-setup, qute-zoom)"
 
 # ── 5. Theme-set hook ────────────────────────────────────────────────────────
 omarchy hook install theme-set "$PLUGIN_DIR/hooks/theme-set"

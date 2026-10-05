@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# qute-keepassxc-setup — check KeePassXC browser integration and guide the user
+# Invoked as a qutebrowser userscript; communicates via QUTE_FIFO.
+
+set -euo pipefail
+
+fifo="${QUTE_FIFO:?QUTE_FIFO not set}"
+
+msg_info()  { printf "message-info '%s'\n"  "$*" >> "$fifo"; }
+msg_error() { printf "message-error '%s'\n" "$*" >> "$fifo"; }
+
+# 1. Check installation
+if ! command -v keepassxc &>/dev/null; then
+    msg_error "KeePassXC not installed — run: sudo pacman -S keepassxc"
+    exit 0
+fi
+
+# 2. Check process is running
+if ! pgrep -x keepassxc &>/dev/null; then
+    msg_info "KeePassXC is not running — start KeePassXC first, then try again"
+    exit 0
+fi
+
+# 3. Check browser integration socket
+socket="/run/user/$(id -u)/org.keepassxc.KeePassXC.BrowserServer"
+if [[ ! -S "$socket" ]]; then
+    msg_info "Enable Browser Integration: KeePassXC > Tools > Settings > Browser Integration > Enable"
+    exit 0
+fi
+
+# All checks passed
+msg_info "KeePassXC ready — press pw on a login page to fill"
