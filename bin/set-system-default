@@ -1,0 +1,83 @@
+#!/bin/bash
+# Set qutebrowser as the system-wide default browser.
+#
+# Writes /etc/xdg/mimeapps.list and patches the Omarchy system MIME defaults
+# at /usr/share/applications/mimeapps.list so every user and every app that
+# reads system-level XDG defaults (display managers, portals, etc.) gets
+# qutebrowser.
+#
+# Requires root. Called by install.sh via sudo/pkexec.
+
+set -euo pipefail
+
+QUTE_DESKTOP="org.qutebrowser.qutebrowser.desktop"
+
+BROWSER_MIME_TYPES=(
+  "x-scheme-handler/http"
+  "x-scheme-handler/https"
+  "x-scheme-handler/qute"
+  "text/html"
+  "text/xml"
+  "application/xhtml+xml"
+  "application/xml"
+)
+
+# ── 1. /etc/xdg/mimeapps.list — system XDG default ──────────────────────────
+ETC_MIMEAPPS="/etc/xdg/mimeapps.list"
+
+# Build or update the file
+if [[ ! -f $ETC_MIMEAPPS ]]; then
+  printf '[Default Applications]\n' > "$ETC_MIMEAPPS"
+fi
+
+# Ensure [Default Applications] section exists
+grep -q '^\[Default Applications\]' "$ETC_MIMEAPPS" || \
+  sed -i '1i[Default Applications]' "$ETC_MIMEAPPS"
+
+for mime in "${BROWSER_MIME_TYPES[@]}"; do
+  # Remove any existing assignment for this MIME type, then add ours
+  sed -i "/^${mime//\//\\/}=/d" "$ETC_MIMEAPPS"
+  # Insert after [Default Applications] header
+  sed -i "/^\[Default Applications\]/a ${mime}=${QUTE_DESKTOP}" "$ETC_MIMEAPPS"
+done
+
+echo "  Written $ETC_MIMEAPPS"
+
+# ── 2. /usr/share/applications/mimeapps.list — Omarchy system MIME defaults ─
+# This is the file omarchy ships and reads via xdg-mime/xdg-settings at the
+# system level. Patch the browser MIME types in-place.
+OMARCHY_MIMEAPPS="/usr/share/applications/mimeapps.list"
+
+if [[ -f $OMARCHY_MIMEAPPS ]]; then
+  # Back up if not already backed up
+  if [[ ! -f "${OMARCHY_MIMEAPPS}.bak.qutebrowser" ]]; then
+    cp "$OMARCHY_MIMEAPPS" "${OMARCHY_MIMEAPPS}.bak.qutebrowser"
+  fi
+
+  for mime in "${BROWSER_MIME_TYPES[@]}"; do
+    if grep -q "^${mime}=" "$OMARCHY_MIMEAPPS"; then
+      # Replace existing assignment
+      sed -i "s|^${mime//\//\\/}=.*|${mime}=${QUTE_DESKTOP}|" "$OMARCHY_MIMEAPPS"
+    else
+      # Add after [Default Applications] header
+      sed -i "/^\[Default Applications\]/a ${mime}=${QUTE_DESKTOP}" "$OMARCHY_MIMEAPPS"
+    fi
+  done
+  echo "  Patched $OMARCHY_MIMEAPPS"
+else
+  echo "  WARNING: $OMARCHY_MIMEAPPS not found — skipping"
+fi
+
+# ── 3. /usr/bin/x-www-browser symlink ────────────────────────────────────────
+# Some apps (terminals, scripts) exec x-www-browser directly. Point it at qute.
+QUTE_BIN=$(command -v qutebrowser)
+if [[ -n $QUTE_BIN ]]; then
+  ln -sf "$QUTE_BIN" /usr/bin/x-www-browser
+  ln -sf "$QUTE_BIN" /usr/bin/xdg-open-browser 2>/dev/null || true
+  echo "  Linked /usr/bin/x-www-browser -> $QUTE_BIN"
+fi
+
+# ── 4. update-desktop-database ───────────────────────────────────────────────
+update-desktop-database /usr/share/applications 2>/dev/null || true
+
+echo "  System-wide default browser set to qutebrowser."

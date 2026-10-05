@@ -48,14 +48,40 @@ omarchy hook install theme-set "$PLUGIN_DIR/hooks/theme-set"
 echo "  Installed theme-set hook -> ~/.config/omarchy/hooks/theme-set.d/theme-set"
 
 # ── 5. Set qutebrowser as the default browser ────────────────────────────────
+
+QUTE_DESKTOP="org.qutebrowser.qutebrowser.desktop"
+BROWSER_MIMES=(
+  x-scheme-handler/http
+  x-scheme-handler/https
+  x-scheme-handler/qute
+  text/html
+  text/xml
+  application/xhtml+xml
+  application/xml
+)
+
+# 5a. User-level XDG default (~/.config/mimeapps.list via xdg-settings/xdg-mime)
 CURRENT=$(xdg-settings get default-web-browser 2>/dev/null || echo "")
-if [[ $CURRENT != "org.qutebrowser.qutebrowser.desktop" ]]; then
-  xdg-settings set default-web-browser org.qutebrowser.qutebrowser.desktop
-  xdg-mime default org.qutebrowser.qutebrowser.desktop x-scheme-handler/http
-  xdg-mime default org.qutebrowser.qutebrowser.desktop x-scheme-handler/https
-  echo "  Set qutebrowser as default browser (was: ${CURRENT:-none})"
+if [[ $CURRENT != "$QUTE_DESKTOP" ]]; then
+  xdg-settings set default-web-browser "$QUTE_DESKTOP"
+  echo "  Set user-level default browser (was: ${CURRENT:-none})"
 else
-  echo "  qutebrowser is already the default browser."
+  echo "  User default browser already set."
+fi
+for mime in "${BROWSER_MIMES[@]}"; do
+  xdg-mime default "$QUTE_DESKTOP" "$mime"
+done
+echo "  Registered MIME types for user."
+
+# 5b. System-wide default — requires root
+# Writes /etc/xdg/mimeapps.list and patches /usr/share/applications/mimeapps.list
+echo "  Setting system-wide default browser (requires sudo)..."
+if [[ $EUID -eq 0 ]]; then
+  bash "$PLUGIN_DIR/bin/set-system-default"
+elif command -v sudo >/dev/null 2>&1; then
+  sudo bash "$PLUGIN_DIR/bin/set-system-default"
+else
+  pkexec bash "$PLUGIN_DIR/bin/set-system-default"
 fi
 
 # ── 6. Write initial theme state ─────────────────────────────────────────────
