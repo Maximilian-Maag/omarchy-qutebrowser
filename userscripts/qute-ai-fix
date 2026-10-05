@@ -1,0 +1,168 @@
+#!/bin/bash
+# qute-ai-fix — AI-powered per-site fix engine for qutebrowser
+#
+# Analyzes the current page for broken hint mode, overblocked JS,
+# missing ad-block rules, or cookie banners slipping through.
+# Saves fixes per domain and applies them automatically on next visit.
+#
+# Keybinding: ,af  (AI Fix)
+# Usage: spawn --userscript qute-ai-fix
+#
+# What it fixes:
+#   - Cookie banners not caught by filter lists (adds CSS hide rules)
+#   - JavaScript blocked causing hint mode to fail (adds JS allow exceptions)
+#   - Missing adblock rules for ads still showing (adds cosmetic filter rules)
+#   - Consent overlays preventing scroll (adds CSS overrides)
+#
+# Fixes are stored in:
+#   ~/.local/state/omarchy-qutebrowser/site-fixes/<domain>.json
+# and applied automatically by site-fixes.js Greasemonkey script.
+
+set -euo pipefail
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+msg()  { [[ -n "${QUTE_FIFO:-}" ]] && printf "message-info '%s'\n"  "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true; }
+err()  { [[ -n "${QUTE_FIFO:-}" ]] && printf "message-error '%s'\n" "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true; }
+warn() { [[ -n "${QUTE_FIFO:-}" ]] && printf "message-warning '%s'\n" "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true; }
+
+# ── Validate env ──────────────────────────────────────────────────────────────
+URL="${QUTE_URL:-}"
+HTML_FILE="${QUTE_HTML:-}"
+[[ -z "$URL" ]]       && { err "qute-ai-fix: no URL (run as userscript)"; exit 1; }
+[[ -z "$HTML_FILE" ]] && { err "qute-ai-fix: no QUTE_HTML (run as userscript)"; exit 1; }
+[[ ! -f "$HTML_FILE" ]] && { err "qute-ai-fix: HTML file missing"; exit 1; }
+
+# ── Domain extraction ─────────────────────────────────────────────────────────
+DOMAIN=$(python3 -c "from urllib.parse import urlparse; print(urlparse('$URL').netloc)" 2>/dev/null)
+[[ -z "$DOMAIN" ]] && { err "qute-ai-fix: could not extract domain from $URL"; exit 1; }
+
+# ── State directory ───────────────────────────────────────────────────────────
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-qutebrowser/site-fixes"
+mkdir -p "$STATE_DIR"
+FIX_FILE="$STATE_DIR/${DOMAIN}.json"
+OVERRIDE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/qutebrowser/site-overrides.py"
+
+msg "qute-ai-fix: analyzing $DOMAIN …"
+
+# ── Prepare page sample for LLM ──────────────────────────────────────────────
+# Extract a compact representation: head + body start (avoid sending megabytes)
+PAGE_SAMPLE=$(python3 << 'PYEOF'
+import sys, re, os
+
+html_file = os.environ.get("QUTE_HTML", "")
+if not html_file or not os.path.exists(html_file):
+    print("(no html)")
+    sys.exit(0)
+
+with open(html_file, encoding="utf-8", errors="replace") as f:
+    html = f.read(80000)  # max 80KB
+
+# Strip scripts and styles content (keep tags for analysis)
+html = re.sub(r'<script[^>]*>.*?</script>', '<script>…</script>', html, flags=re.DOTALL|re.I)
+html = re.sub(r'<style[^>]*>.*?</style>', '<style>…</style>', html, flags=re.DOTALL|re.I)
+# Collapse whitespace
+html = re.sub(r'\s{3,}', ' ', html)
+
+print(html[:15000])
+PYEOF
+)
+
+# ── Call LLM ──────────────────────────────────────────────────────────────────
+PROMPT=$(cat << PROMPT
+You are a qutebrowser site-fix assistant. Analyze the page below and return a JSON object with fixes.
+
+URL: $URL
+Domain: $DOMAIN
+
+PAGE HTML (truncated):
+$PAGE_SAMPLE
+
+Return ONLY valid JSON in this exact format (no markdown, no explanation):
+{
+  "domain": "$DOMAIN",
+  "notes": "one-line summary of what was found and fixed",
+  "css_hide": [
+    "CSS selector for element to hide (e.g. #cookie-banner)"
+  ],
+  "css_override": [
+    "CSS rule to inject verbatim (e.g. body { overflow: auto !important; }"
+  ],
+  "js_allow": true or false,
+  "adblock_rules": [
+    "uBlock/EasyList syntax rule to add (e.g. ##.ad-container)"
+  ],
+  "hint_mode_broken": true or false,
+  "hint_fix_note": "why hint mode might be broken and what was done"
+}
+
+Rules:
+- css_hide: selectors for cookie banners, consent overlays, paywall walls, ad containers that slipped through
+- css_override: CSS fixes for scroll-lock (overflow:hidden on body/html), position:fixed overlays, pointer-events blocking
+- js_allow: set true ONLY if JS appears to be blocked/broken and the page needs it (e.g. hint mode fails because no DOM is accessible)
+- adblock_rules: uBlock cosmetic filter syntax for elements still showing
+- hint_mode_broken: true if the page structure suggests qutebrowser hint mode would fail (iframe-only content, JS-rendered with no static elements, full-page overlay)
+- Keep css_hide and adblock_rules arrays small (max 10 each) and precise — overly broad selectors break pages
+- If nothing needs fixing, return empty arrays and false for booleans
+PROMPT
+)
+
+RESPONSE=$(hermes -z "$PROMPT" --cli 2>/dev/null | grep -A999 "^{" | head -100 || echo "")
+
+# ── Parse and validate response ───────────────────────────────────────────────
+if [[ -z "$RESPONSE" ]]; then
+  err "qute-ai-fix: LLM returned no response"
+  exit 1
+fi
+
+# Extract JSON (handle case where LLM wraps in markdown)
+JSON=$(echo "$RESPONSE" | python3 -c "
+import sys, json, re
+raw = sys.stdin.read()
+# Try to find JSON object
+m = re.search(r'\{.*\}', raw, re.DOTALL)
+if not m:
+    sys.exit(1)
+try:
+    d = json.loads(m.group())
+    # Ensure required keys
+    d.setdefault('domain', '')
+    d.setdefault('notes', '')
+    d.setdefault('css_hide', [])
+    d.setdefault('css_override', [])
+    d.setdefault('js_allow', False)
+    d.setdefault('adblock_rules', [])
+    d.setdefault('hint_mode_broken', False)
+    d.setdefault('hint_fix_note', '')
+    print(json.dumps(d, indent=2))
+except Exception as e:
+    sys.exit(1)
+" 2>/dev/null) || { err "qute-ai-fix: could not parse LLM response"; exit 1; }
+
+# ── Save fix file ─────────────────────────────────────────────────────────────
+echo "$JSON" > "$FIX_FILE"
+
+# ── Apply JS allow override if needed ────────────────────────────────────────
+JS_ALLOW=$(echo "$JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d.get('js_allow',False)).lower())" 2>/dev/null)
+if [[ "$JS_ALLOW" == "true" ]]; then
+  # Add per-domain JS allow to site-overrides.py
+  touch "$OVERRIDE_FILE"
+  ESCAPED_DOMAIN=$(python3 -c "import re; print(re.escape('$DOMAIN').replace(r'\.', '.'))" 2>/dev/null)
+  if ! grep -q "javascript.enabled.*$ESCAPED_DOMAIN" "$OVERRIDE_FILE" 2>/dev/null; then
+    printf "config.set('content.javascript.enabled', True, '*://%s/*')  # qute-ai-fix\n" "$DOMAIN" >> "$OVERRIDE_FILE"
+  fi
+  # Ensure site-overrides.py is sourced from config.py
+  CONFIG_PY="${XDG_CONFIG_HOME:-$HOME/.config}/qutebrowser/config.py"
+  if ! grep -q "site-overrides" "$CONFIG_PY" 2>/dev/null; then
+    printf "\n# Per-site AI fixes (auto-generated)\nconfig.source('site-overrides.py')  # noqa\n" >> "$CONFIG_PY"
+  fi
+  # Reload config in running instance
+  [[ -n "${QUTE_FIFO:-}" ]] && printf "config-source\n" >> "$QUTE_FIFO"
+fi
+
+# ── Report ────────────────────────────────────────────────────────────────────
+NOTES=$(echo "$JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('notes',''))" 2>/dev/null)
+CSS_COUNT=$(echo "$JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('css_hide',[]))+len(d.get('css_override',[])))" 2>/dev/null)
+RULE_COUNT=$(echo "$JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('adblock_rules',[])))" 2>/dev/null)
+
+msg "qute-ai-fix [$DOMAIN]: $NOTES (${CSS_COUNT} CSS fixes, ${RULE_COUNT} adblock rules, JS allow: $JS_ALLOW)"
+msg "qute-ai-fix: fixes saved — reload page to apply (r)"

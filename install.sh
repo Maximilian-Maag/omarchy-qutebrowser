@@ -39,16 +39,24 @@ echo "  Linked config.py and themes.py -> $QUTE_CONFIG_DIR/"
 mkdir -p "$GREASEMONKEY_DIR"
 ln -sf "$PLUGIN_DIR/userscripts/youtube-adblock.js" \
        "$GREASEMONKEY_DIR/youtube-adblock.js"
-echo "  Linked youtube-adblock.js -> $GREASEMONKEY_DIR/"
+ln -sf "$PLUGIN_DIR/userscripts/cookie-banner-remover.js" \
+       "$GREASEMONKEY_DIR/cookie-banner-remover.js"
+ln -sf "$PLUGIN_DIR/userscripts/site-fixes.js" \
+       "$GREASEMONKEY_DIR/site-fixes.js"
+echo "  Linked Greasemonkey scripts -> $GREASEMONKEY_DIR/"
 
 # ── 4. Userscripts ───────────────────────────────────────────────────────────
 mkdir -p "$USERSCRIPTS_DIR" "$QUTE_CONFIG_DIR/userscripts"
-for script in qute-yt-dl qute-keepassxc-setup qute-zoom; do
+for script in qute-yt-dl qute-keepassxc-setup qute-zoom qute-ai-fix; do
   chmod +x "$PLUGIN_DIR/userscripts/$script"
   ln -sf "$PLUGIN_DIR/userscripts/$script" "$USERSCRIPTS_DIR/$script"
   ln -sf "$PLUGIN_DIR/userscripts/$script" "$QUTE_CONFIG_DIR/userscripts/$script"
 done
-echo "  Linked userscripts (qute-yt-dl, qute-keepassxc-setup, qute-zoom)"
+echo "  Linked userscripts (qute-yt-dl, qute-keepassxc-setup, qute-zoom, qute-ai-fix)"
+
+# ── 4b. Config modules ────────────────────────────────────────────────────────
+ln -sf "$PLUGIN_DIR/config/site-overrides.py" "$QUTE_CONFIG_DIR/site-overrides.py"
+echo "  Linked site-overrides.py -> $QUTE_CONFIG_DIR/"
 
 # ── 5. Theme-set hook ────────────────────────────────────────────────────────
 omarchy hook install theme-set "$PLUGIN_DIR/hooks/theme-set"

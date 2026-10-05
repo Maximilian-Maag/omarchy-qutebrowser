@@ -57,6 +57,13 @@ c.fonts.tabs.unselected = f"12pt {mono}"
 
 config.load_autoconfig(False)  # noqa
 
+# Per-site AI fixes — populated by :spawn --userscript qute-ai-fix
+# Reads ~/.local/state/omarchy-qutebrowser/site-fixes/<domain>.json
+try:
+    config.source("site-overrides.py")  # noqa
+except Exception:
+    pass
+
 # ---------------------------------------------------------------------------
 # General behaviour
 # ---------------------------------------------------------------------------
@@ -96,6 +103,10 @@ c.content.blocking.adblock.lists = [
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/badware.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/resource-abuse.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/unbreak.txt",
+    # Cookie consent banners
+    "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt",
+    "https://www.fanboy.co.nz/fanboy-cookiemonster.txt",
+    "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances.txt",
 ]
 c.content.blocking.hosts.lists = [
     "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
@@ -161,6 +172,9 @@ config.bind(",y", "open https://youtube.com", mode="normal")  # noqa
 # yt-dlp download (floating terminal with live progress)
 config.bind(",dv", "spawn --userscript qute-yt-dl video", mode="normal")  # noqa  download video
 config.bind(",dm", "spawn --userscript qute-yt-dl mp3",   mode="normal")  # noqa  download mp3
+
+# AI site fix — analyze current page and save per-domain CSS/JS/adblock fixes
+config.bind(",af", "spawn --userscript qute-ai-fix", mode="normal")  # noqa
 
 # Per-domain zoom persistence
 # ,z  = save current zoom for this domain
