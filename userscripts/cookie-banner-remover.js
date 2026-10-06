@@ -80,13 +80,16 @@
   // ── 4. Auto-click "Accept" / "Reject" / "Close" buttons ──────────────────
   // Prefer "Reject all" > "Necessary only" > "Close" > "Accept"
   // We never auto-accept — we reject or dismiss.
+  // Patterns are deliberately specific: bare words like "no"/"refuse"/"close"
+  // matched unrelated page buttons, so exact/qualified phrases are required.
   var REJECT_PATTERNS = [
-    /reject\s*all/i, /decline\s*all/i, /deny\s*all/i,
-    /refuse\s*all/i, /refuse/i, /decline/i,
+    /reject\s*all/i, /decline\s*all/i, /deny\s*all/i, /refuse\s*all/i,
+    /reject\s*(optional|non[-\s]?essential|all\s*optional)/i,
     /necessary\s*only/i, /only\s*necessary/i, /essential\s*only/i,
-    /only\s*essential/i, /manage\s*preferences/i,
-    /save\s*(preferences|settings)/i,
-    /close/i, /dismiss/i, /\bno\b/i,
+    /only\s*essential/i,
+    /manage\s*(options|preferences|consent|settings)/i,
+    /save\s*(preferences|settings|choices|selection)/i,
+    /^(close|dismiss|no,?\s*thanks|not\s*now|got\s*it)[.!]?$/i,
   ];
   var ACCEPT_PATTERNS = [
     /accept\s*all/i, /allow\s*all/i, /agree/i, /i\s*accept/i,

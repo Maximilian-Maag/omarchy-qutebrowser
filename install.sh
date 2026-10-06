@@ -15,11 +15,10 @@ echo "omarchy-qutebrowser: installing from $PLUGIN_DIR"
 
 # ── 1. Dependencies ──────────────────────────────────────────────────────────
 echo "Checking dependencies..."
-omarchy pkg add qutebrowser keepassxc yt-dlp ffmpeg python-adblock
-if ! python3 -c "import nacl" 2>/dev/null; then
-  pip install --quiet pynacl
-  echo "  Installed pynacl."
-fi
+# python-adblock and python-pynacl must come from pacman: qutebrowser runs on
+# the system Python (/usr/bin/python3), while pip installs into the mise-managed
+# interpreter, so a pip-installed nacl would never be importable by qutebrowser.
+omarchy pkg add qutebrowser keepassxc yt-dlp ffmpeg python-adblock python-pynacl
 echo "  Dependencies OK."
 
 # ── 2. Config ────────────────────────────────────────────────────────────────
@@ -35,14 +34,15 @@ ln -sf "$PLUGIN_DIR/config/config.py" "$QUTE_CONFIG_DIR/config.py"
 ln -sf "$PLUGIN_DIR/config/themes.py" "$QUTE_CONFIG_DIR/themes.py"
 echo "  Linked config.py and themes.py -> $QUTE_CONFIG_DIR/"
 
-# ── 3. Greasemonkey (YouTube ad-block) ───────────────────────────────────────
+# ── 3. Greasemonkey (YouTube ad-block + cookie banners) ──────────────────────
 mkdir -p "$GREASEMONKEY_DIR"
 ln -sf "$PLUGIN_DIR/userscripts/youtube-adblock.js" \
        "$GREASEMONKEY_DIR/youtube-adblock.js"
 ln -sf "$PLUGIN_DIR/userscripts/cookie-banner-remover.js" \
        "$GREASEMONKEY_DIR/cookie-banner-remover.js"
-ln -sf "$PLUGIN_DIR/userscripts/site-fixes.js" \
-       "$GREASEMONKEY_DIR/site-fixes.js"
+# site-fixes.js is gone — per-domain fixes are generated scripts now
+# (config/site-overrides.py -> greasemonkey/omarchy-sitefix-<domain>.js).
+rm -f "$GREASEMONKEY_DIR/site-fixes.js"
 echo "  Linked Greasemonkey scripts -> $GREASEMONKEY_DIR/"
 
 # ── 4. Userscripts ───────────────────────────────────────────────────────────

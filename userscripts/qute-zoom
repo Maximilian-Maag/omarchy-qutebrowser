@@ -24,7 +24,8 @@ if not QUTE_FIFO:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-ZOOM_FILE = Path.home() / ".local" / "state" / "omarchy-qutebrowser" / "zoom.json"
+_state_home = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+ZOOM_FILE = Path(_state_home) / "omarchy-qutebrowser" / "zoom.json"
 
 
 def fifo_cmd(command: str) -> None:

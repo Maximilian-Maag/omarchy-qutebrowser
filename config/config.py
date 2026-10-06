@@ -33,6 +33,7 @@ apply_theme(c)  # noqa: F821  (c is injected by qutebrowser)
 # ---------------------------------------------------------------------------
 # Fonts — pick up the system monospace font; falls back to a sane default
 # ---------------------------------------------------------------------------
+import re
 import subprocess
 
 def _system_monofont(fallback: str = "monospace") -> str:
@@ -41,9 +42,15 @@ def _system_monofont(fallback: str = "monospace") -> str:
             ["gsettings", "get", "org.gnome.desktop.interface", "monospace-font-name"],
             stderr=subprocess.DEVNULL, text=True,
         ).strip().strip("'\"")
-        return out if out else fallback
     except Exception:
         return fallback
+    if not out:
+        return fallback
+    # gsettings returns e.g. "Adwaita Mono 11" — the trailing point size is not
+    # part of the family name, and Qt would treat the whole string as the family
+    # (falling back to a default font), so strip it.
+    out = re.sub(r"\s+\d+(?:\.\d+)?$", "", out).strip()
+    return out or fallback
 
 mono = _system_monofont()
 
@@ -63,11 +70,12 @@ c.fonts.tabs.unselected = f"12pt {mono}"
 config.load_autoconfig(False)  # noqa
 
 # Per-site AI fixes — populated by :spawn --userscript qute-ai-fix
-# Reads ~/.local/state/omarchy-qutebrowser/site-fixes/<domain>.json
+# Reads ~/.local/state/omarchy-qutebrowser/site-fixes/<domain>.json and emits
+# per-domain Greasemonkey scripts (see config/site-overrides.py).
 try:
     config.source("site-overrides.py")  # noqa
-except Exception:
-    pass
+except Exception as _exc:
+    print(f"omarchy-qutebrowser: could not source site-overrides.py: {_exc}", file=sys.stderr)
 
 # ---------------------------------------------------------------------------
 # General behaviour
@@ -185,13 +193,12 @@ config.bind(",af", "spawn --userscript qute-ai-fix", mode="normal")  # noqa
 # ,z  = save current zoom for this domain
 # ,zl = restore saved zoom for this domain
 # ,zr = reset zoom to 1.0 for this domain
+# Zoom is restored manually (no automatic per-load restore): use ,zl (or the
+# convenience binding gd) after opening a page.
 config.bind(",z",  "spawn --userscript qute-zoom",       mode="normal")  # noqa
 config.bind(",zl", "spawn --userscript qute-zoom load",  mode="normal")  # noqa
 config.bind(",zr", "spawn --userscript qute-zoom reset", mode="normal")  # noqa
-
-# Auto-restore zoom on every page load via Greasemonkey (see userscripts/qute-zoom)
-# qutebrowser also calls zoom load via this hook:
-config.bind("gd", "spawn --userscript qute-zoom load", mode="normal")   # noqa
+config.bind("gd",  "spawn --userscript qute-zoom load",  mode="normal")  # noqa
 
 # ---------------------------------------------------------------------------
 # Per-domain tweaks
