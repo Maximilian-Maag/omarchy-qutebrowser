@@ -152,13 +152,18 @@ c.url.default_page = _start_page                                # noqa
 
 # ---------------------------------------------------------------------------
 # KeePassXC password fill
-# Uses --insecure (no GPG required — association key stored in plaintext).
+# Uses our own qute-keepassxc-fill userscript (MIT): it speaks the same
+# KeePassXC-Browser socket protocol and reuses the existing association, but
+# fills forms robustly — visible-field-only (never a hidden decoy password
+# field), works on multi-step username/password pages (Google, Microsoft,
+# Apple), and sets values so React/Vue/Angular frameworks register them.
 # First-time setup: run  :spawn --userscript qute-keepassxc-setup
 # Enable Browser Integration in KeePassXC: Tools > Settings > Browser Integration
 # ---------------------------------------------------------------------------
-config.bind("<Alt-Shift-u>", "spawn --userscript qute-keepassxc --insecure", mode="insert")  # noqa
-config.bind("pw",            "spawn --userscript qute-keepassxc --insecure", mode="normal")  # noqa
-config.bind(",kp",           "spawn --userscript qute-keepassxc-setup",      mode="normal")  # noqa  check setup
+config.bind("<Alt-Shift-u>", "spawn --userscript qute-keepassxc-fill",        mode="insert")  # noqa
+config.bind("pw",            "spawn --userscript qute-keepassxc-fill",        mode="normal")  # noqa
+config.bind("pt",            "spawn --userscript qute-keepassxc-fill --totp", mode="normal")  # noqa  TOTP into focused field
+config.bind(",kp",           "spawn --userscript qute-keepassxc-setup",       mode="normal")  # noqa  check setup
 
 # ---------------------------------------------------------------------------
 # Keybindings

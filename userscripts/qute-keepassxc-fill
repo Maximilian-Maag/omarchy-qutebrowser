@@ -1,0 +1,416 @@
+#!/usr/bin/env python3
+"""qute-keepassxc-fill — fill website logins from KeePassXC in qutebrowser.
+
+A focused, MIT-licensed replacement for qutebrowser's bundled `qute-keepassxc`
+userscript. It speaks the same KeePassXC-Browser socket protocol (so it reuses
+your existing association) but fills forms far more robustly — which is what the
+multi-step Google / Microsoft / Apple sign-in pages need:
+
+  * hides are respected — never writes into a hidden/aria-hidden decoy password
+    field (Google's identifier page ships one: <input name="hiddenPassword">)
+  * fills a username/email field even when it lives on a page without any
+    password field (Google step 1, Microsoft `loginfmt`), by scoring visible
+    fields on autocomplete/type/name/id instead of "first form with a password"
+  * fills only VISIBLE password fields
+  * sets values through the native value setter and dispatches input/change/
+    keyup/blur so React/Vue/Angular-style frameworks register the value
+  * multi-account selection uses `gum`/`fzf` in a floating terminal when rofi
+    is not installed
+
+Usage (config.py):
+    config.bind("pw",  "spawn --userscript qute-keepassxc-fill", mode="normal")
+    config.bind("<Alt-Shift-u>", "spawn --userscript qute-keepassxc-fill", mode="insert")
+    config.bind("pt",  "spawn --userscript qute-keepassxc-fill --totp", mode="normal")
+"""
+
+import argparse
+import base64
+import json
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+import nacl.public
+import nacl.utils
+
+SOCKET_DEFAULT = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()),
+    "org.keepassxc.KeePassXC.BrowserServer",
+)
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Fill logins from KeePassXC")
+    p.add_argument("url", nargs="?", default=os.environ.get("QUTE_URL"))
+    p.add_argument("--totp", action="store_true", help="fill the focused TOTP field")
+    p.add_argument("--socket", "-s", default=SOCKET_DEFAULT)
+    p.add_argument("--key-file", default=None,
+                   help="association key file (default: $QUTE_DATA_DIR/keepassxc.key)")
+    p.add_argument("--insecure", action="store_true",
+                   help="accepted for compatibility; the plugin stores the key unencrypted")
+    return p.parse_args()
+
+
+class KpError(Exception):
+    def __init__(self, code, desc):
+        super().__init__("KeePassXC error [%s]: %s" % (code, desc))
+        self.code = code
+        self.description = desc
+
+
+class KeePassXC:
+    """Minimal client for the KeePassXC-Browser socket protocol."""
+
+    def __init__(self, *, key_seed, client_id=None, socket_path):
+        self.socket_path = socket_path
+        self.client_id = client_id
+        self.client_key = nacl.public.PrivateKey.generate()
+        self.id_key = nacl.public.PrivateKey.from_seed(key_seed)
+        self.box = None
+        self.sock = None
+
+    # -- transport ---------------------------------------------------------
+    def connect(self):
+        if not os.path.exists(self.socket_path):
+            raise KpError(-1, "KeePassXC browser socket not found (is Browser Integration enabled?)")
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(self.socket_path)
+        self.client_id = base64.b64encode(nacl.utils.random(nacl.public.Box.NONCE_SIZE)).decode()
+
+        self._send_plain({
+            "action": "change-public-keys",
+            "publicKey": base64.b64encode(self.client_key.public_key.encode()).decode(),
+            "nonce": base64.b64encode(nacl.utils.random(nacl.public.Box.NONCE_SIZE)).decode(),
+            "clientID": self.client_id,
+        })
+        resp = self._recv_plain()
+        if resp.get("action") != "change-public-keys" or str(resp.get("success")) != "true":
+            raise KpError(-1, "handshake failed: %s" % resp)
+        self.box = nacl.public.Box(self.client_key,
+                                   nacl.public.PublicKey(base64.b64decode(resp["publicKey"])))
+
+    def _send_plain(self, payload):
+        self.sock.send(json.dumps(payload).encode())
+
+    def _recv_plain(self):
+        return json.loads(self.sock.recv(65536).decode())
+
+    def _send(self, payload, **top):
+        nonce = nacl.utils.random(nacl.public.Box.NONCE_SIZE)
+        cipher = self.box.encrypt(json.dumps(payload).encode(), nonce).ciphertext
+        msg = {"action": payload["action"],
+               "message": base64.b64encode(cipher).decode(),
+               "nonce": base64.b64encode(nonce).decode(),
+               "clientID": self.client_id}
+        msg.update(top)
+        self._send_plain(msg)
+
+    def _recv(self):
+        resp = self._recv_plain()
+        if "error" in resp:
+            raise KpError(resp.get("errorCode", -1), resp.get("error", "unknown"))
+        return json.loads(self.box.decrypt(base64.b64decode(resp["message"]),
+                                           base64.b64decode(resp["nonce"])).decode())
+
+    # -- actions -----------------------------------------------------------
+    def test_associate(self, assoc_id):
+        if not assoc_id:
+            return False
+        self._send({"action": "test-associate", "id": assoc_id,
+                    "key": base64.b64encode(self.id_key.public_key.encode()).decode()},
+                   triggerUnlock="true")
+        return str(self._recv().get("success")) == "true"
+
+    def associate(self):
+        self._send({"action": "associate",
+                    "key": base64.b64encode(self.client_key.public_key.encode()).decode(),
+                    "idKey": base64.b64encode(self.id_key.public_key.encode()).decode()})
+        return self._recv()["id"]
+
+    def get_logins(self, url):
+        self._send({"action": "get-logins", "url": url,
+                    "keys": [{"id": self.assoc_id,
+                              "key": base64.b64encode(self.id_key.public_key.encode()).decode()}]})
+        return self._recv().get("entries") or []
+
+    def get_totp(self, uuid):
+        self._send({"action": "get-totp", "uuid": uuid})
+        resp = self._recv()
+        if str(resp.get("success")) != "true" or not resp.get("totp"):
+            return None
+        return resp["totp"]
+
+
+class KeyStore:
+    """Reuse the association key qutebrowser's bundled qute-keepassxc stored."""
+
+    def __init__(self, path=None):
+        data_dir = os.environ.get("QUTE_DATA_DIR") or os.path.join(
+            os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "qutebrowser")
+        self.path = path or os.path.join(data_dir, "keepassxc.key")
+
+    def exists(self):
+        return os.path.isfile(self.path)
+
+    def load(self):
+        data = json.loads(open(self.path).read())
+        return data["id"], base64.b64decode(data["key"])
+
+    def store(self, assoc_id, key_seed):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w") as fh:
+            json.dump({"id": assoc_id, "key": base64.b64encode(key_seed).decode()}, fh)
+        os.chmod(self.path, 0o600)
+
+
+# --------------------------------------------------------------------------- #
+# qutebrowser plumbing
+# --------------------------------------------------------------------------- #
+def qute(cmd):
+    with open(os.environ["QUTE_FIFO"], "w") as fifo:
+        fifo.write(cmd + "\n")
+        fifo.flush()
+
+
+def error(msg):
+    print(msg, file=sys.stderr)
+    qute('message-error "%s"' % msg.replace('"', '\\"'))
+
+
+# --------------------------------------------------------------------------- #
+# Account selection (gum/fzf in a floating terminal; rofi is usually absent)
+# --------------------------------------------------------------------------- #
+def pick_account(creds, url):
+    if len(creds) == 1:
+        return creds[0]
+
+    labels = []
+    for i, c in enumerate(creds):
+        name = c.get("name") or c.get("login") or "(unnamed)"
+        labels.append("%d\t%s" % (i, name))
+    listfile = tempfile.NamedTemporaryFile("w", prefix="kpxc-list-", suffix=".txt", delete=False)
+    listfile.write("\n".join(labels) + "\n")
+    listfile.close()
+    outfile = listfile.name + ".out"
+
+    cmd = ("gum choose --header 'KeePassXC — select account for %s' < %s > %s"
+           % (url.split('/')[2] if '//' in url else url, listfile.name, outfile))
+    try:
+        subprocess.Popen(
+            ["setsid", "uwsm-app", "--", "xdg-terminal-exec",
+             "--app-id=org.omarchy.keepassxc-fill", "--title=KeePassXC — select account",
+             "--", "bash", "-c", "%s || command -v fzf >/dev/null && fzf < %s > %s" % (cmd, listfile.name, outfile)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except FileNotFoundError:
+        error("No account picker available (install gum or rofi); using first entry")
+        return creds[0]
+
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        try:
+            if os.path.getsize(outfile) > 0:
+                break
+        except OSError:
+            pass
+        time.sleep(0.3)
+
+    try:
+        with open(outfile) as fh:
+            choice = fh.read().strip()
+    except OSError:
+        choice = ""
+    finally:
+        for p in (listfile.name, outfile):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+    if choice and "\t" in choice:
+        try:
+            return creds[int(choice.split("\t", 1)[0])]
+        except (ValueError, IndexError):
+            pass
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Field filling
+# --------------------------------------------------------------------------- #
+FILL_JS_TEMPLATE = r"""
+(function () {
+  var USER = __USER__, PASS = __PASS__;
+
+  function visible(el) {
+    try {
+      if (!el || el.disabled || el.readOnly) return false;
+      if (el.type === 'hidden') return false;
+      if (el.getAttribute('aria-hidden') === 'true') return false;
+      if (el.tabIndex === -1) return false;
+      var s = el.ownerDocument.defaultView.getComputedStyle(el);
+      if (!s || s.display === 'none' || s.visibility !== 'visible' || s.opacity === '0') return false;
+      var r = el.getBoundingClientRect();
+      if (!el.offsetWidth || !el.offsetHeight || r.width === 0 || r.height === 0) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function setValue(el, value) {
+    try {
+      var proto = (el.tagName === 'TEXTAREA') ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+      if (desc && desc.set) { desc.set.call(el, value); } else { el.value = value; }
+    } catch (e) { el.value = value; }
+    ['input', 'change', 'keyup', 'blur'].forEach(function (type) {
+      try {
+        var ev = (type === 'keyup')
+          ? new KeyboardEvent(type, { bubbles: true })
+          : new Event(type, { bubbles: true });
+        el.dispatchEvent(ev);
+      } catch (e) {}
+    });
+  }
+
+  function textish(el) {
+    return el.tagName === 'INPUT' &&
+      ['text', 'email', 'tel', ''].indexOf(el.type) !== -1;
+  }
+
+  function scoreUsername(el) {
+    var ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+    var hay = ((el.id || '') + ' ' + (el.name || '') + ' ' +
+               (el.getAttribute('aria-label') || '') + ' ' +
+               (el.getAttribute('placeholder') || '')).toLowerCase();
+    var s = 0;
+    if (/\busername\b/.test(ac)) s += 100;
+    if (el.type === 'email') s += 60;
+    if (/(user|email|login|ident|account|phone|userid|user_name|mail)/.test(hay)) s += 50;
+    if (/(search|query|otp|totp|code|captcha|verify|password)/.test(hay)) s -= 200;
+    return s;
+  }
+
+  var inputs = Array.prototype.slice.call(document.querySelectorAll('input, textarea'));
+  var vis = inputs.filter(visible);
+  var pwEl = vis.filter(function (e) { return e.type === 'password'; })[0] || null;
+
+  var best = -1, bestEl = null;
+  vis.forEach(function (e) {
+    if (!textish(e) || e === pwEl) return;
+    var s = scoreUsername(e);
+    if (s > best) { best = s; bestEl = e; }
+  });
+
+  var userEl = null;
+  if (best > 0) {
+    userEl = bestEl;                                            // strong username signal
+  } else if (pwEl) {
+    // A login form is present (visible password field) but no well-labelled
+    // username field: use the first visible text-ish field.
+    userEl = vis.filter(function (e) { return textish(e) && e !== pwEl; })[0] || null;
+  }
+
+  var done = [];
+  if (userEl) { setValue(userEl, USER); done.push('username'); }
+  if (pwEl)   { setValue(pwEl, PASS); done.push('password'); }
+
+  if (done.length === 0) {
+    return 'no-fields';
+  }
+  return 'filled:' + done.join('+');
+})();
+"""
+
+
+def fill_js(user, password):
+    return (FILL_JS_TEMPLATE
+            .replace("__USER__", json.dumps(user))
+            .replace("__PASS__", json.dumps(password)))
+
+
+def totp_js(token):
+    return (
+        "(function(){var i=document.activeElement;"
+        "if(!i||i.tagName!=='INPUT'){return 'no-input';}"
+        "i.value=%s;"
+        "['input','change','keyup'].forEach(function(t){try{i.dispatchEvent(new Event(t,{bubbles:true}));}catch(e){}});"
+        "return 'filled:totp';})();" % json.dumps(token)
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Main
+# --------------------------------------------------------------------------- #
+def connect_keepassxc(args):
+    store = KeyStore(args.key_file)
+    if store.exists():
+        assoc_id, key_seed = store.load()
+        kp = KeePassXC(key_seed=key_seed, client_id=assoc_id, socket_path=args.socket)
+        kp.assoc_id = assoc_id
+        kp.connect()
+        if not kp.test_associate(assoc_id):
+            error("No KeePassXC association — run again to re-associate")
+            return None
+        return kp
+    key_seed = nacl.utils.random(32)
+    kp = KeePassXC(key_seed=key_seed, socket_path=args.socket)
+    kp.connect()
+    assoc_id = kp.associate()
+    kp.assoc_id = assoc_id
+    if not kp.test_associate(assoc_id):
+        error("Could not associate with KeePassXC")
+        return None
+    store.store(assoc_id, key_seed)
+    return kp
+
+
+def main():
+    if "QUTE_FIFO" not in os.environ:
+        print("qute-keepassxc-fill must be run as a qutebrowser userscript", file=sys.stderr)
+        return 1
+
+    try:
+        args = parse_args()
+        if not args.url:
+            error("No URL available")
+            return 1
+
+        kp = connect_keepassxc(args)
+        if not kp:
+            return 1
+
+        creds = kp.get_logins(args.url)
+        if not creds:
+            error("No KeePassXC credentials match %s" % (args.url.split('/')[2] if '//' in args.url else args.url))
+            return 1
+
+        cred = pick_account(creds, args.url)
+        if not cred:
+            error("No account selected")
+            return 1
+
+        if args.totp:
+            token = kp.get_totp(cred.get("uuid"))
+            if not token:
+                error("No TOTP configured for this entry")
+                return 1
+            qute("jseval -q " + totp_js(token))
+            return 0
+
+        user = cred.get("login") or ""
+        password = cred.get("password") or ""
+        qute("jseval -q " + fill_js(user, password))
+        qute('message-info "KeePassXC: filled credentials for %s"' % (cred.get("name") or user or "entry"))
+        return 0
+    except KpError as exc:
+        error(str(exc))
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        error("qute-keepassxc-fill: %s" % exc)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

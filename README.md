@@ -68,6 +68,21 @@ automatically from their `colors.toml`.
 3. Press `Alt+Shift+U` (insert mode) or type `pw` (normal mode)
 4. KeePassXC will ask you to confirm the connection on first use
 
+Password fill uses our own `qute-keepassxc-fill` userscript (MIT), which speaks
+the KeePassXC-Browser socket protocol and reuses the association qutebrowser's
+bundled `qute-keepassxc` already stored. It fills far more reliably than the
+bundled script on modern sign-in pages:
+
+- **Multi-step logins** (Google, Microsoft): fills the username/email field even
+  on a page with no password field, so `pw` → *Next* → `pw` works
+- **No hidden-field writes**: never fills an invisible/`aria-hidden` decoy
+  password field (Google's identifier page ships one, `name="hiddenPassword"`)
+- **Visible fields only**, and values are set via the native setter with
+  `input`/`change`/`keyup`/`blur` events so React/Vue/Angular register them
+- **TOTP**: press `pt` with the code field focused
+- **Multiple accounts**: picked with `gum`/`fzf` in a floating terminal when
+  `rofi` is not installed
+
 Requires `python-pynacl` (`omarchy pkg add python-pynacl`) — the install script handles this automatically.
 
 ## Ad-free YouTube
@@ -87,6 +102,7 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 |-----|------|--------|
 | `Alt+Shift+U` | insert | Fill password from KeePassXC |
 | `pw` | normal | Fill password from KeePassXC |
+| `pt` | normal | Fill TOTP code into the focused field |
 | `t` | normal | Open new tab |
 | `X` | normal | Close tab |
 | `F` | normal | Open link in new tab (hint mode) |
@@ -137,6 +153,7 @@ omarchy-qutebrowser/
 │   └── theme-set           — omarchy hook: reloads qutebrowser on theme change
 ├── userscripts/
 │   ├── qute-keepassxc-setup — KeePassXC setup check (,kp)
+│   ├── qute-keepassxc-fill  — robust KeePassXC password/TOTP fill (pw / Alt+Shift+U / pt)
 │   ├── qute-yt-dl           — yt-dlp download (,dv / ,dm)
 │   ├── qute-zoom            — per-domain zoom persistence (,z / ,zl / ,zr)
 │   ├── qute-ai-fix          — AI per-site fix engine (,af)

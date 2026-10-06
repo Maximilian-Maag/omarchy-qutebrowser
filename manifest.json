@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "Maximilian-Maag.qutebrowser",
   "name": "Qutebrowser",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Maximilian-Maag",
   "license": "MIT",
   "description": "Qutebrowser as the default Omarchy browser — all 22 stock themes, KeePassXC password fill, ad-free YouTube, and built-in ad blocking.",
@@ -15,6 +15,7 @@
     "features": [
       "22 Omarchy themes with automatic switching on omarchy theme set",
       "KeePassXC password fill via qute-keepassxc userscript",
+      "Robust KeePassXC fill (qute-keepassxc-fill): multi-step Google/Microsoft/Apple logins, hidden-field safe, TOTP",
       "YouTube ad-free via Greasemonkey script + fetch/XHR interception",
       "Built-in host + Adblock filter-list ad blocker (Brave + EasyList)",
       "AI per-site fixes (qute-ai-fix) applied via generated per-domain Greasemonkey scripts",

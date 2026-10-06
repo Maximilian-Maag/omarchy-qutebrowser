@@ -2,6 +2,22 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.2.0] — 2026-10-06
+
+### Added
+- `qute-keepassxc-fill` userscript (MIT): a robust KeePassXC password/TOTP fill
+  that speaks the same KeePassXC-Browser socket protocol and reuses the existing
+  association, replacing the bundled `qute-keepassxc` in the `pw` / `Alt+Shift+U`
+  bindings and adding `pt` for TOTP
+  - fills the username/email field even on a step with no password field, so
+    multi-step Google / Microsoft sign-in works (`pw` → Next → `pw`)
+  - never writes into hidden / `aria-hidden` / `tabindex=-1` decoy fields
+    (Google's identifier page ships a hidden `name="hiddenPassword"`)
+  - fills visible password fields only
+  - sets values through the native value setter and dispatches
+    `input`/`change`/`keyup`/`blur` so React/Vue/Angular register them
+  - multi-account selection via `gum`/`fzf` in a floating terminal (rofi absent)
+
 ## [1.1.0] — 2026-10-06
 
 ### Added
