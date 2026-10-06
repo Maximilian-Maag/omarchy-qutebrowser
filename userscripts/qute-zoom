@@ -1,10 +1,27 @@
 #!/usr/bin/env python3
-"""qute-zoom — persist per-domain zoom levels for qutebrowser.
+"""qute-zoom — per-domain zoom persistence for qutebrowser.
 
-Usage (bind in qutebrowser config):
-  :spawn --userscript qute-zoom          # save current zoom for this domain
-  :spawn --userscript qute-zoom load     # restore saved zoom for this domain
-  :spawn --userscript qute-zoom reset    # remove saved zoom, restore 1.0
+WHY THIS IS WRITTEN THE WAY IT IS
+qutebrowser does **not** export the current zoom level to userscripts (there is
+no `QUTE_ZOOM`; the documented env is QUTE_URL/HTML/TEXT/FIFO/TITLE/CONFIG_DIR/
+DATA_DIR/DOWNLOAD_DIR/MODE/COUNT/TAB_INDEX/SELECTED_*/COMMANDLINE_TEXT/
+USER_AGENT/VERSION/CURRENT_URL), and there is no read-back channel. So a
+userscript cannot read the level a user set with the native +/- keys, and
+`zoom.default` supports no URL patterns. This script therefore *owns* the zoom
+level for a domain: stepping through the ladder with `in`/`out` applies AND
+remembers the new level.
+
+Also note qutebrowser's `:zoom` command takes an INTEGER PERCENTAGE
+(`zoom 150`), not a factor — this script always sends the percentage.
+
+Bindings (config.py):
+  ,z+   zoom in  (remembered per domain)
+  ,z-   zoom out (remembered per domain)
+  ,zl   apply the saved level for this domain
+  ,zr   forget this domain and go back to 100%
+  gd    same as ,zl
+
+Usage:  :spawn --userscript qute-zoom [in|out|load|reset]
 """
 
 import json
@@ -15,18 +32,23 @@ from urllib.parse import urlparse
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
-QUTE_URL  = os.environ.get("QUTE_URL", "")
+QUTE_URL = os.environ.get("QUTE_URL", "")
 QUTE_FIFO = os.environ.get("QUTE_FIFO", "")
-QUTE_ZOOM = os.environ.get("QUTE_ZOOM", "1.0")
 
 if not QUTE_FIFO:
     sys.exit("QUTE_FIFO not set")
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Constants ────────────────────────────────────────────────────────────────
+
+# Mirrors qutebrowser's default zoom.levels ladder.
+LEVELS = [25, 33, 50, 67, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500]
+DEFAULT_LEVEL = 100
 
 _state_home = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
 ZOOM_FILE = Path(_state_home) / "omarchy-qutebrowser" / "zoom.json"
 
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def fifo_cmd(command: str) -> None:
     with open(QUTE_FIFO, "w") as f:
@@ -34,8 +56,8 @@ def fifo_cmd(command: str) -> None:
 
 
 def msg_info(text: str) -> None:
-    # Escape single quotes to avoid breaking the qutebrowser command parser
-    fifo_cmd(f"message-info '{text.replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'")
+    # Escape single quotes for qutebrowser's command parser
+    fifo_cmd("message-info '%s'" % text.replace("'", "'\\''"))
 
 
 def get_domain(url: str) -> str:
@@ -46,7 +68,8 @@ def get_domain(url: str) -> str:
 def load_zoom_db() -> dict:
     if ZOOM_FILE.exists():
         try:
-            return json.loads(ZOOM_FILE.read_text())
+            data = json.loads(ZOOM_FILE.read_text())
+            return data if isinstance(data, dict) else {}
         except (json.JSONDecodeError, OSError):
             return {}
     return {}
@@ -57,27 +80,55 @@ def save_zoom_db(db: dict) -> None:
     ZOOM_FILE.write_text(json.dumps(db, indent=2, sort_keys=True))
 
 
-# ── Commands ──────────────────────────────────────────────────────────────────
+def _as_percent(value) -> int:
+    """Normalise a stored value to an integer percentage.
 
-def cmd_save() -> None:
-    """Save current zoom level for the current domain."""
+    Older versions stored a *factor* (1.5); convert those transparently.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_LEVEL
+    if number <= 10:  # a factor, not a percentage
+        number *= 100
+    return int(round(number))
+
+
+def _stored_percent(db: dict, domain: str) -> int:
+    if domain not in db:
+        return DEFAULT_LEVEL
+    return _as_percent(db[domain])
+
+
+def _neighbour(percent: int, direction: int) -> int:
+    if direction > 0:
+        for level in LEVELS:
+            if level > percent:
+                return level
+        return LEVELS[-1]
+    for level in reversed(LEVELS):
+        if level < percent:
+            return level
+    return LEVELS[0]
+
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+def cmd_step(direction: int) -> None:
     domain = get_domain(QUTE_URL)
     if not domain:
         msg_info("qute-zoom: cannot determine domain from URL")
         return
-    try:
-        zoom = float(QUTE_ZOOM)
-    except ValueError:
-        msg_info(f"qute-zoom: invalid zoom value '{QUTE_ZOOM}'")
-        return
     db = load_zoom_db()
-    db[domain] = zoom
+    level = _neighbour(_stored_percent(db, domain), direction)
+    db[domain] = level
     save_zoom_db(db)
-    msg_info(f"qute-zoom: saved {zoom:.0%} for {domain}")
+    fifo_cmd(f"zoom {level}")
+    arrow = "▲" if direction > 0 else "▼"
+    msg_info(f"qute-zoom: {arrow} {level}% for {domain} (saved)")
 
 
 def cmd_load() -> None:
-    """Restore saved zoom level for the current domain."""
     domain = get_domain(QUTE_URL)
     if not domain:
         msg_info("qute-zoom: cannot determine domain from URL")
@@ -86,13 +137,12 @@ def cmd_load() -> None:
     if domain not in db:
         msg_info(f"qute-zoom: no saved zoom for {domain}")
         return
-    zoom = db[domain]
-    fifo_cmd(f"zoom {zoom}")
-    msg_info(f"qute-zoom: restored {zoom:.0%} for {domain}")
+    level = _stored_percent(db, domain)
+    fifo_cmd(f"zoom {level}")
+    msg_info(f"qute-zoom: restored {level}% for {domain}")
 
 
 def cmd_reset() -> None:
-    """Remove saved zoom for the current domain and reset to 1.0."""
     domain = get_domain(QUTE_URL)
     if not domain:
         msg_info("qute-zoom: cannot determine domain from URL")
@@ -100,20 +150,22 @@ def cmd_reset() -> None:
     db = load_zoom_db()
     removed = db.pop(domain, None)
     save_zoom_db(db)
-    fifo_cmd("zoom 1.0")
+    fifo_cmd(f"zoom {DEFAULT_LEVEL}")
     if removed is not None:
-        msg_info(f"qute-zoom: reset zoom for {domain} (was {removed:.0%})")
+        msg_info(f"qute-zoom: reset {domain} to {DEFAULT_LEVEL}% (was {_as_percent(removed)}%)")
     else:
-        msg_info(f"qute-zoom: no saved zoom for {domain}, reset to 100%")
+        msg_info(f"qute-zoom: no saved zoom for {domain}, reset to {DEFAULT_LEVEL}%")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point ──────────────────────────────────────────────────────────────
 
 COMMANDS = {
+    "in":    lambda: cmd_step(+1),
+    "out":   lambda: cmd_step(-1),
     "load":  cmd_load,
     "reset": cmd_reset,
 }
 
 if __name__ == "__main__":
-    arg = sys.argv[1] if len(sys.argv) > 1 else ""
-    COMMANDS.get(arg, cmd_save)()
+    arg = sys.argv[1] if len(sys.argv) > 1 else "load"
+    COMMANDS.get(arg, cmd_load)()

@@ -45,8 +45,11 @@ def _cosmetic_selectors(adblock_rules) -> list:
 
     Handles `domain##selector` and `##selector`. Network rules (`||...`,
     `@@...`, `/regex/`, anything containing `$`) cannot be expressed as CSS
-    and are dropped.
+    and are dropped, as are rules using unsupported *procedural* pseudos
+    (`:has-text()`, `:matches-css()`, `:style()`, `-abp-...`) which are not
+    valid CSS and would poison a stylesheet.
     """
+    procedural = (":has-text(", ":matches-css(", ":style(", ":remove(", "-abp-", ":-abp-")
     selectors = []
     for rule in adblock_rules or []:
         if not isinstance(rule, str):
@@ -54,10 +57,12 @@ def _cosmetic_selectors(adblock_rules) -> list:
         rule = rule.strip()
         if not rule or "$" in rule:
             continue
-        if rule.startswith(("||", "@@", "/", "#@", "#$#", "#@#")):
+        if rule.startswith(("||", "@@", "/", "#@", "#$#", "#@#", "#?#")):
             continue
         if "##" in rule:
             rule = rule.split("##", 1)[1].strip()
+        if any(tok in rule for tok in procedural):
+            continue
         if rule:
             selectors.append(rule)
     return selectors
@@ -67,9 +72,12 @@ def _build_css(fixes) -> str:
     parts = []
 
     hide = list(fixes.get("css_hide") or []) + _cosmetic_selectors(fixes.get("adblock_rules"))
-    hide = [s.strip() for s in hide if isinstance(s, str) and s.strip()]
-    if hide:
-        parts.append(", ".join(hide) + " { display: none !important; visibility: hidden !important; }")
+    # Emit one rule PER selector: a single invalid selector in a comma-joined
+    # list would invalidate the whole rule and silently drop every other hide.
+    for selector in hide:
+        if isinstance(selector, str) and selector.strip():
+            parts.append("%s { display: none !important; visibility: hidden !important; }"
+                         % selector.strip())
 
     for rule in fixes.get("css_override") or []:
         if isinstance(rule, str) and rule.strip():

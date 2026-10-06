@@ -199,15 +199,16 @@ config.bind(",af", "spawn --userscript qute-ai-fix", mode="normal")  # noqa
 config.bind(",r", "spawn --userscript qute-reader", mode="normal")  # noqa
 
 # Per-domain zoom persistence
-# ,z  = save current zoom for this domain
-# ,zl = restore saved zoom for this domain
-# ,zr = reset zoom to 1.0 for this domain
-# Zoom is restored manually (no automatic per-load restore): use ,zl (or the
-# convenience binding gd) after opening a page.
-config.bind(",z",  "spawn --userscript qute-zoom",       mode="normal")  # noqa
-config.bind(",zl", "spawn --userscript qute-zoom load",  mode="normal")  # noqa
-config.bind(",zr", "spawn --userscript qute-zoom reset", mode="normal")  # noqa
-config.bind("gd",  "spawn --userscript qute-zoom load",  mode="normal")  # noqa
+# qutebrowser does not expose the current zoom to userscripts, so zoom is
+# remembered by stepping with ,z+ / ,z- (which apply AND save the new level).
+# ,z+ = zoom in one step (remembered)   ,z- = zoom out one step (remembered)
+# ,zl = apply the saved level           ,zr = forget domain, back to 100%
+# gd  = convenience alias for ,zl
+config.bind(",z+",  "spawn --userscript qute-zoom in",    mode="normal")  # noqa
+config.bind(",z-",  "spawn --userscript qute-zoom out",   mode="normal")  # noqa
+config.bind(",zl",  "spawn --userscript qute-zoom load",  mode="normal")  # noqa
+config.bind(",zr",  "spawn --userscript qute-zoom reset", mode="normal")  # noqa
+config.bind("gd",   "spawn --userscript qute-zoom load",  mode="normal")  # noqa
 
 # ---------------------------------------------------------------------------
 # Per-domain tweaks

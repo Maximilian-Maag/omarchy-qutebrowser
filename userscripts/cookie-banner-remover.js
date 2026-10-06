@@ -64,15 +64,16 @@
       // Remove overflow:hidden / position:fixed that banners apply to body
       var htmlStyle = window.getComputedStyle(html);
       var bodyStyle = window.getComputedStyle(body);
+      // Capture any scroll offset the CMP stashed in body.top BEFORE clearing it
+      var offset = body.style.top && bodyStyle.position === 'fixed'
+        ? parseInt(body.style.top || '0', 10) : null;
       if (htmlStyle.overflow === 'hidden') html.style.overflow = '';
       if (bodyStyle.overflow === 'hidden') body.style.overflow = '';
       if (htmlStyle.position === 'fixed')  html.style.position = '';
       if (bodyStyle.position === 'fixed')  body.style.position = '';
-      if (body.style.top && body.style.position === 'fixed') {
-        var scrollY = parseInt(body.style.top || '0', 10) * -1;
-        body.style.position = '';
+      if (offset !== null && !isNaN(offset)) {
         body.style.top = '';
-        window.scrollTo(0, scrollY);
+        window.scrollTo(0, offset * -1);
       }
     } catch(e) {}
   }

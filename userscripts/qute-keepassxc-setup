@@ -11,8 +11,10 @@ msg_error() { printf "message-error '%s'\n" "${*//\'/\'\\\'\'}" >> "$fifo"; }
 
 # 1. Check KeePassXC installation (not KeePass2/Mono)
 if ! command -v keepassxc &>/dev/null; then
-    # Check if the user has KeePass2 (Mono) running instead
-    if pgrep -f "KeePass.exe" &>/dev/null || pgrep -f "keepass" &>/dev/null; then
+    # Check if the user has KeePass2 (Mono) running instead.
+    # Anchor on "KeePass.exe" so this does not match our own cmdline
+    # (.../qute-keepassxc-setup), which pgrep -f "keepass" would.
+    if pgrep -f 'KeePass\.exe' &>/dev/null; then
         msg_error "KeePass2 (Mono) is running but qutebrowser needs KeePassXC. Install it: omarchy pkg add keepassxc"
     else
         msg_error "KeePassXC not installed — install with: omarchy pkg add keepassxc"
@@ -21,9 +23,9 @@ if ! command -v keepassxc &>/dev/null; then
 fi
 
 # 2. Check KeePassXC process is running
-# Use pgrep -x for exact binary name match (avoids matching script args)
+# pgrep -x for exact binary name match (never matches script arguments)
 if ! pgrep -x keepassxc &>/dev/null; then
-    if pgrep -f "KeePass.exe" &>/dev/null; then
+    if pgrep -f 'KeePass\.exe' &>/dev/null; then
         msg_error "KeePass2 (Mono) is running but qutebrowser needs KeePassXC. Launch it: Super+Shift+/"
     else
         msg_info "KeePassXC is not running — launch it with Super+Shift+/ then try again"

@@ -113,7 +113,9 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 | `,dm` | normal | Download current page as MP3 (yt-dlp + ffmpeg) |
 | `,af` | normal | AI site fix — analyze page and save per-domain fixes |
 | `,r` | normal | Open the current page in reader mode |
-| `,z` / `,zl` / `,zr` | normal | Save / restore / reset per-domain zoom |
+| `,z+` / `,z-` | normal | Zoom in / out (remembered per domain) |
+| `,zl` / `gd` | normal | Apply the saved zoom for this domain |
+| `,zr` | normal | Forget this domain's zoom (back to 100%) |
 | `,p` | normal | Open current URL in a private window |
 | `,kp` | normal | Check KeePassXC setup status |
 

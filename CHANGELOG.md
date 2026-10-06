@@ -2,6 +2,33 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.3.1] — 2026-10-06
+
+### Fixed
+- **Per-domain zoom was non-functional.** qutebrowser does not export the
+  current zoom to userscripts (there is no `QUTE_ZOOM`), so `,z` always saved
+  100%; and `:zoom` takes an integer percentage, so `,zl`/`,zr` emitted an
+  invalid `zoom 1.5`. `qute-zoom` now *owns* the zoom level: `,z+`/`,z-` step
+  through the ladder and remember the level, `,zl` (alias `gd`) applies it, and
+  `,zr` resets to 100%. Legacy factor values in `zoom.json` migrate on read.
+- KeePassXC multi-account picker ran `fzf` even after `gum` succeeded (shell
+  `||`/`&&` precedence) — no fallback chain now.
+- Per-site fixes: a single invalid uBlock cosmetic selector (procedural pseudos
+  like `:has-text()`) could invalidate the whole comma-joined hide rule and drop
+  every other hide; each selector is now emitted as its own rule and procedural
+  selectors are filtered out.
+- The initial theme seeded by `install.sh` normalised spaces differently from
+  the `theme-set` hook (`` `tokyo night` `` vs `tokyo-night`), showing the wrong
+  palette for multi-word themes until the next theme switch.
+- Reader page now sends `Referrer-Policy: no-referrer` so its session token
+  cannot leak to third-party article-image hosts.
+- `qute-keepassxc-setup` no longer false-positives "KeePass2 (Mono)" via
+  `pgrep -f keepass` matching its own cmdline.
+- Cookie-banner remover's scroll-position restore was dead code; it now
+  captures the offset before clearing `body.style.position`.
+- `qute-keepassxc-fill` reports a clear, actionable error if PyNaCl is missing
+  for the interpreter that runs it.
+
 ## [1.3.0] — 2026-10-06
 
 ### Added

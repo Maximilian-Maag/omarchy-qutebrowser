@@ -102,7 +102,7 @@ fi
 # ── 7. Initial theme state ────────────────────────────────────────────────────
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-qutebrowser"
 mkdir -p "$STATE_DIR"
-CURRENT_THEME=$(omarchy theme current 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "catppuccin")
+CURRENT_THEME=$(omarchy theme current 2>/dev/null | tr '[:upper:] ' '[:lower:]-' || echo "catppuccin")
 echo "$CURRENT_THEME" > "$STATE_DIR/active-theme"
 echo "  Initial theme: $CURRENT_THEME"
 

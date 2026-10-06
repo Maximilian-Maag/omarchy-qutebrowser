@@ -33,8 +33,22 @@ import sys
 import tempfile
 import time
 
-import nacl.public
-import nacl.utils
+try:
+    import nacl.public
+    import nacl.utils
+except ImportError:  # pragma: no cover - depends on the runtime interpreter
+    _hint = ("qute-keepassxc-fill needs PyNaCl for the interpreter that runs it "
+             "(%s). Install it: for /usr/bin/python3 run 'omarchy pkg add python-pynacl'; "
+             "for a PATH python3 run 'python3 -m pip install pynacl'." % sys.executable)
+    print(_hint, file=sys.stderr)
+    _fifo = os.environ.get("QUTE_FIFO")
+    if _fifo:
+        try:
+            with open(_fifo, "w") as _fh:
+                _fh.write('message-error "%s"\n' % _hint.replace('"', '\\"'))
+        except OSError:
+            pass
+    sys.exit(1)
 
 SOCKET_DEFAULT = os.path.join(
     os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()),
@@ -187,6 +201,7 @@ def pick_account(creds, url):
     if len(creds) == 1:
         return creds[0]
 
+    domain = url.split("/")[2] if "//" in url else url
     labels = []
     for i, c in enumerate(creds):
         name = c.get("name") or c.get("login") or "(unnamed)"
@@ -196,16 +211,16 @@ def pick_account(creds, url):
     listfile.close()
     outfile = listfile.name + ".out"
 
-    cmd = ("gum choose --header 'KeePassXC — select account for %s' < %s > %s"
-           % (url.split('/')[2] if '//' in url else url, listfile.name, outfile))
+    cmd = "gum choose --header 'KeePassXC — select account for %s' < %s > %s" % (
+        domain, listfile.name, outfile)
     try:
         subprocess.Popen(
             ["setsid", "uwsm-app", "--", "xdg-terminal-exec",
              "--app-id=org.omarchy.keepassxc-fill", "--title=KeePassXC — select account",
-             "--", "bash", "-c", "%s || command -v fzf >/dev/null && fzf < %s > %s" % (cmd, listfile.name, outfile)],
+             "--", "bash", "-c", cmd],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except FileNotFoundError:
-        error("No account picker available (install gum or rofi); using first entry")
+        error("No account picker available (install gum); using first entry")
         return creds[0]
 
     deadline = time.time() + 60
