@@ -2,6 +2,22 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.3.0] — 2026-10-06
+
+### Added
+- Reader mode (`,r`): a distraction-free view of the current article, extracted
+  with Mozilla Readability and served from a local loopback page
+  - paragraph-wise reading: focus mode (`f`) with `j`/`k` / `↑`/`↓` navigation
+  - per-paragraph `AI?` button and a whole-article mark (`M`) that ask the
+    **local** agent (`hermes -z … --cli`) whether text looks AI-written
+    (human / mixed / AI + likelihood), shown as coloured borders and badges
+  - AI summary (`s`) with an overall AI-likelihood badge
+  - colours follow the active Omarchy theme; no text leaves the machine
+- `bin/reader-server`: loopback bridge (127.0.0.1, per-session token) serving the
+  reader page and `POST /ai`, which runs the local agent
+- `userscripts/qute-reader`: ingests the current page and opens the reader tab
+- Bundled `reader/readability.js` (Mozilla Readability, Apache-2.0)
+
 ## [1.2.0] — 2026-10-06
 
 ### Added

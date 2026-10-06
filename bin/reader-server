@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+"""omarchy-qutebrowser reader-server — localhost bridge for the distraction-free reader.
+
+A tiny HTTP server bound to 127.0.0.1 that:
+
+  * serves the reader page (reader/index.html + reader.css + reader.js +
+    readability.js) for a page the qute-reader userscript ingested, and
+  * exposes POST /ai, which runs the *local* AI agent (`hermes -z … --cli`) and
+    returns JSON, so the reader page can mark paragraphs / the whole article as
+    possibly AI-written and generate a summary.
+
+Security: bound to loopback only, and every /reader + /ai request must carry the
+per-session token written to server.json. Article HTML lives under the state dir.
+
+Started on demand by userscripts/qute-reader; writes server.json and stays up.
+"""
+
+import html
+import json
+import os
+import pathlib
+import re
+import secrets
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
+
+PLUGIN_DIR = pathlib.Path(__file__).resolve().parent.parent
+READER_DIR = PLUGIN_DIR / "reader"
+STATE_DIR = pathlib.Path(
+    os.environ.get("XDG_STATE_HOME") or (pathlib.Path.home() / ".local/state")
+) / "omarchy-qutebrowser" / "reader"
+ARTICLES_DIR = STATE_DIR / "articles"
+SERVER_JSON = STATE_DIR / "server.json"
+
+HERMES = os.environ.get("QUTE_READER_AI", "hermes")
+AI_TIMEOUT = int(os.environ.get("QUTE_READER_AI_TIMEOUT", "180"))
+
+
+# --------------------------------------------------------------------------- #
+# Theme colours (so the reader matches the active Omarchy theme)
+# --------------------------------------------------------------------------- #
+def theme_colors():
+    fallback = {"mode": "dark", "bg": "#0B0C16", "fg": "#ddf7ff",
+                "bg_dark": "#080910", "bg_light": "#161b22",
+                "fg_dim": "#6a6e95", "accent": "#82FB9C", "selection": "#1f253a",
+                "red": "#ff5555", "green": "#82FB9C", "yellow": "#f1fa8c"}
+    try:
+        name = (STATE_DIR.parent / "active-theme").read_text().strip()
+    except OSError:
+        return fallback
+    if not name:
+        return fallback
+    for base in (pathlib.Path.home() / ".config/omarchy/themes",
+                 pathlib.Path("/usr/share/omarchy/themes")):
+        colors = base / name / "colors.toml"
+        if colors.exists():
+            try:
+                import tomllib
+                raw = tomllib.loads(colors.read_text())
+                return {
+                    "mode": raw.get("mode", "dark"),
+                    "bg": raw.get("background", fallback["bg"]),
+                    "fg": raw.get("foreground", fallback["fg"]),
+                    "bg_dark": raw.get("dark_background", fallback["bg_dark"]),
+                    "bg_light": raw.get("lighter_background", fallback["bg_light"]),
+                    "fg_dim": raw.get("dark_foreground", fallback["fg_dim"]),
+                    "accent": raw.get("accent", fallback["accent"]),
+                    "selection": raw.get("selection", fallback["selection"]),
+                    "red": raw.get("red", "#ff5555"),
+                    "green": raw.get("green", "#82FB9C"),
+                    "yellow": raw.get("yellow", "#f1fa8c"),
+                }
+            except Exception:
+                return fallback
+    return fallback
+
+
+# --------------------------------------------------------------------------- #
+# Local AI
+# --------------------------------------------------------------------------- #
+PARA_PROMPT = """You are a text-provenance analyst. Judge whether the passage below was written by an AI (LLM) or a human.
+Return ONLY compact JSON, no markdown:
+{"ai_likelihood": <int 0-100>, "verdict": "human"|"mixed"|"ai", "reason": "<max 15 words>"}
+
+Passage:
+%s"""
+
+ARTICLE_PROMPT = """You are a text-provenance analyst. Below are numbered paragraphs from one article.
+For EACH paragraph estimate how likely it was written by an AI (LLM) rather than a human.
+Return ONLY a JSON array, one object per paragraph, in the same order, no markdown:
+[{"index": <int>, "ai_likelihood": <int 0-100>, "verdict": "human"|"mixed"|"ai", "reason": "<max 12 words>"}]
+
+Paragraphs:
+%s"""
+
+# Combined: AI-ness per paragraph AND an overall summary in one call.
+SUMMARY_PROMPT = """Summarize the article below for a reader who wants the gist.
+Return ONLY compact JSON, no markdown:
+{"summary": ["<short bullet>", "<short bullet>", "..."], "ai_likelihood": <int 0-100>, "verdict": "human"|"mixed"|"ai", "reason": "<max 15 words>"}
+
+Article:
+%s"""
+
+
+def extract_json(text):
+    """Pull the JSON object/array out of an LLM response.
+
+    Tries the whole string first, then parses from the EARLIEST opening bracket
+    (so `{"summary": [...]}` yields the object, not the inner array)."""
+    text = text.strip()
+    text = re.sub(r"^```[a-zA-Z]*\s*|```$", "", text, flags=re.M).strip()
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    starts = [(text.find(c), c) for c in "[{" if text.find(c) != -1]
+    for pos, opener in sorted(starts):
+        closer = "]" if opener == "[" else "}"
+        end = text.rfind(closer)
+        if end > pos:
+            try:
+                return json.loads(text[pos:end + 1])
+            except ValueError:
+                continue
+    raise ValueError("no JSON found in model output")
+
+
+def run_ai(prompt):
+    proc = subprocess.run([HERMES, "-z", prompt, "--cli"],
+                          capture_output=True, text=True, timeout=AI_TIMEOUT)
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or "hermes failed").strip()[:300])
+    return extract_json(proc.stdout)
+
+
+def ai_answer(payload):
+    mode = payload.get("mode")
+    if mode == "paragraph":
+        para = (payload.get("text") or "").strip()
+        if not para:
+            raise ValueError("empty paragraph")
+        return run_ai(PARA_PROMPT % para)
+    if mode == "article_marks":
+        paras = payload.get("paragraphs") or []
+        numbered = "\n".join("%d. %s" % (i, p) for i, p in enumerate(paras))
+        return run_ai(ARTICLE_PROMPT % numbered)
+    if mode == "summary":
+        text = (payload.get("text") or "").strip()
+        if not text:
+            raise ValueError("empty article")
+        # keep the prompt payload sane
+        return run_ai(SUMMARY_PROMPT % text[:20000])
+    raise ValueError("unknown mode %r" % mode)
+
+
+# --------------------------------------------------------------------------- #
+# HTTP
+# --------------------------------------------------------------------------- #
+class Handler(BaseHTTPRequestHandler):
+    server_version = "omarchyReader/1.0"
+    token = None
+
+    def log_message(self, *a):  # silence
+        pass
+
+    # -- helpers --
+    def _send(self, code, body, ctype="application/json"):
+        if isinstance(body, (dict, list)):
+            data = json.dumps(body).encode()
+        elif isinstance(body, bytes):
+            data = body
+        else:
+            data = str(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _authed(self, query):
+        return query.get("t", [""])[0] == self.token
+
+    def _asset(self, name, ctype):
+        path = (READER_DIR / name).resolve()
+        if READER_DIR.resolve() not in path.parents or not path.exists():
+            return self._send(404, "not found", "text/plain")
+        return self._send(200, path.read_bytes(), ctype)
+
+    def _reader_page(self, article_id):
+        meta_path = ARTICLES_DIR / ("%s.json" % article_id)
+        html_path = ARTICLES_DIR / ("%s.html" % article_id)
+        if not meta_path.exists() or not html_path.exists():
+            return self._send(404, "article not found", "text/plain")
+        meta = json.loads(meta_path.read_text())
+        article_html = html_path.read_text(errors="replace")
+        template = (READER_DIR / "index.html").read_text()
+        # JSON embedded in <script>: escape "</" so "</script>" in the article
+        # cannot break out of the element.
+        def jdump(obj):
+            return json.dumps(obj).replace("</", "<\\/")
+        page = (template
+                .replace("__TOKEN__", self.token)
+                .replace("__TITLE__", html.escape(meta.get("title", ""), quote=True))
+                .replace("__URL__", html.escape(meta.get("url", ""), quote=True))
+                .replace("__COLORS__", jdump(theme_colors()))
+                .replace("__ARTICLE_JSON__", jdump(article_html)))
+        return self._send(200, page, "text/html; charset=utf-8")
+
+    # -- routes --
+    def do_GET(self):
+        url = urlparse(self.path)
+        q = parse_qs(url.query)
+        p = url.path
+        if p == "/health":
+            return self._send(200, {"ok": True})
+        if p in ("/readability.js", "/reader.css", "/reader.js"):
+            ctype = "application/javascript" if p.endswith(".js") else "text/css"
+            return self._asset(p.lstrip("/"), ctype)
+        if p.startswith("/reader/"):
+            if not self._authed(q):
+                return self._send(403, {"error": "bad token"})
+            return self._reader_page(p.split("/")[-1])
+        return self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        url = urlparse(self.path)
+        q = parse_qs(url.query)
+        if url.path != "/ai":
+            return self._send(404, {"error": "not found"})
+        if not self._authed(q):
+            return self._send(403, {"error": "bad token"})
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            result = ai_answer(payload)
+            return self._send(200, {"ok": True, "result": result})
+        except subprocess.TimeoutExpired:
+            return self._send(504, {"ok": False, "error": "AI request timed out"})
+        except Exception as exc:  # noqa: BLE001
+            return self._send(500, {"ok": False, "error": str(exc)})
+
+
+def main():
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # prune old articles
+    cutoff = time.time() - 24 * 3600
+    for f in ARTICLES_DIR.glob("*"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
+
+    token = secrets.token_urlsafe(24)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    Handler.token = token
+    port = httpd.server_address[1]
+    SERVER_JSON.write_text(json.dumps({"port": port, "token": token, "pid": os.getpid()}))
+    try:
+        httpd.serve_forever()
+    finally:
+        try:
+            SERVER_JSON.unlink()
+        except OSError:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

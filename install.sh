@@ -47,12 +47,14 @@ echo "  Linked Greasemonkey scripts -> $GREASEMONKEY_DIR/"
 
 # ── 4. Userscripts ───────────────────────────────────────────────────────────
 mkdir -p "$USERSCRIPTS_DIR" "$QUTE_CONFIG_DIR/userscripts"
-for script in qute-yt-dl qute-keepassxc-setup qute-keepassxc-fill qute-zoom qute-ai-fix; do
+for script in qute-yt-dl qute-keepassxc-setup qute-keepassxc-fill qute-zoom qute-ai-fix qute-reader; do
   chmod +x "$PLUGIN_DIR/userscripts/$script"
   ln -sf "$PLUGIN_DIR/userscripts/$script" "$USERSCRIPTS_DIR/$script"
   ln -sf "$PLUGIN_DIR/userscripts/$script" "$QUTE_CONFIG_DIR/userscripts/$script"
 done
-echo "  Linked userscripts (qute-yt-dl, qute-keepassxc-setup, qute-keepassxc-fill, qute-zoom, qute-ai-fix)"
+echo "  Linked userscripts (qute-yt-dl, qute-keepassxc-setup, qute-keepassxc-fill, qute-zoom, qute-ai-fix, qute-reader)"
+chmod +x "$PLUGIN_DIR/bin/reader-server"
+echo "  Reader server: $PLUGIN_DIR/bin/reader-server (started on demand by ,r)"
 
 # ── 4b. Config modules ────────────────────────────────────────────────────────
 ln -sf "$PLUGIN_DIR/config/site-overrides.py" "$QUTE_CONFIG_DIR/site-overrides.py"

@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""qute-reader — open the current page in the distraction-free reader.
+
+Extracts the article (Mozilla Readability), opens it in a clean local page, and
+lets you read paragraph-by-paragraph with per-paragraph and whole-article
+"possibly AI-written" marking plus an AI summary — all served from the loopback
+reader-server (bin/reader-server), which runs the local agent (`hermes -z … --cli`).
+
+Keybinding: ,r   (Reader)
+Usage:      spawn --userscript qute-reader [--window]
+"""
+
+import json
+import os
+import pathlib
+import secrets
+import shutil
+import subprocess
+import sys
+import time
+import urllib.request
+
+
+def _plugin_dir() -> pathlib.Path:
+    env = os.environ.get("QUTE_READER_PLUGIN")
+    if env and pathlib.Path(env).is_dir():
+        return pathlib.Path(env)
+    # userscripts/qute-reader -> plugin dir (resolve follows the install symlink)
+    return pathlib.Path(__file__).resolve().parent.parent
+
+
+PLUGIN_DIR = _plugin_dir()
+STATE_DIR = pathlib.Path(
+    os.environ.get("XDG_STATE_HOME") or (pathlib.Path.home() / ".local/state")
+) / "omarchy-qutebrowser" / "reader"
+ARTICLES_DIR = STATE_DIR / "articles"
+SERVER_JSON = STATE_DIR / "server.json"
+SERVER_BIN = PLUGIN_DIR / "bin" / "reader-server"
+
+
+def qute(cmd: str) -> None:
+    with open(os.environ["QUTE_FIFO"], "w") as fifo:
+        fifo.write(cmd + "\n")
+        fifo.flush()
+
+
+def msg(text: str) -> None:
+    qute('message-info "%s"' % text.replace('"', '\\"'))
+
+
+def error(text: str) -> None:
+    print(text, file=sys.stderr)
+    qute('message-error "%s"' % text.replace('"', '\\"'))
+
+
+def _healthy(port: int, token: str = "") -> bool:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/health" % port, timeout=2) as r:
+            return json.loads(r.read()).get("ok") is True
+    except Exception:
+        return False
+
+
+def ensure_server():
+    """Return {port, token} for a running reader-server, starting one if needed."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    for _ in range(2):
+        if SERVER_JSON.exists():
+            try:
+                info = json.loads(SERVER_JSON.read_text())
+                if _healthy(int(info["port"])):
+                    return info
+            except Exception:
+                pass
+        log = open(STATE_DIR / "server.log", "a")
+        subprocess.Popen([sys.executable, str(SERVER_BIN)],
+                         stdout=log, stderr=log, start_new_session=True)
+        for _ in range(60):
+            time.sleep(0.2)
+            try:
+                info = json.loads(SERVER_JSON.read_text())
+                if _healthy(int(info["port"])):
+                    return info
+            except Exception:
+                continue
+    return None
+
+
+def main() -> int:
+    if "QUTE_FIFO" not in os.environ:
+        print("qute-reader must be run as a qutebrowser userscript", file=sys.stderr)
+        return 1
+
+    url = os.environ.get("QUTE_URL", "")
+    html_path = os.environ.get("QUTE_HTML", "")
+    title = os.environ.get("QUTE_TITLE", "")
+    if not url or not html_path or not os.path.isfile(html_path):
+        error("Reader: no page content available")
+        return 1
+
+    info = ensure_server()
+    if not info:
+        error("Reader: could not start the reader server")
+        return 1
+
+    ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
+    article_id = secrets.token_hex(8)
+    try:
+        shutil.copyfile(html_path, ARTICLES_DIR / ("%s.html" % article_id))
+        (ARTICLES_DIR / ("%s.json" % article_id)).write_text(
+            json.dumps({"url": url, "title": title}))
+    except OSError as exc:
+        error("Reader: could not save the article (%s)" % exc)
+        return 1
+
+    reader_url = "http://127.0.0.1:%s/reader/%s?t=%s" % (info["port"], article_id, info["token"])
+    target = "--window" if "--window" in sys.argv else "--tab"
+    qute("open %s %s" % (target, reader_url))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

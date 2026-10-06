@@ -194,6 +194,10 @@ config.bind(",dm", "spawn --userscript qute-yt-dl mp3",   mode="normal")  # noqa
 # AI site fix — analyze current page and save per-domain CSS/JS/adblock fixes
 config.bind(",af", "spawn --userscript qute-ai-fix", mode="normal")  # noqa
 
+# Reader mode — distraction-free article view (Readability) with local-AI
+# per-paragraph / whole-article "possibly AI-written" marking and a summary.
+config.bind(",r", "spawn --userscript qute-reader", mode="normal")  # noqa
+
 # Per-domain zoom persistence
 # ,z  = save current zoom for this domain
 # ,zl = restore saved zoom for this domain

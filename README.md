@@ -112,6 +112,7 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 | `,dv` | normal | Download current page as video (yt-dlp) |
 | `,dm` | normal | Download current page as MP3 (yt-dlp + ffmpeg) |
 | `,af` | normal | AI site fix — analyze page and save per-domain fixes |
+| `,r` | normal | Open the current page in reader mode |
 | `,z` / `,zl` / `,zr` | normal | Save / restore / reset per-domain zoom |
 | `,p` | normal | Open current URL in a private window |
 | `,kp` | normal | Check KeePassXC setup status |
@@ -127,6 +128,26 @@ to its own domain, a fix for one site can never leak onto another.
 
 > qutebrowser's `content.user_stylesheets` is global (no per-domain patterns),
 > which is why fixes go through Greasemonkey instead of a shared stylesheet.
+
+## Reader mode
+
+`,r` extracts the article (Mozilla Readability) and opens it in a clean,
+distraction-free page served locally — no ads, no sidebars, no chrome:
+
+- **Paragraph-wise reading** — press `f` for focus mode (the current paragraph is
+  bright, the rest dimmed) and move with `j`/`k` or `↑`/`↓`, or click a
+  paragraph to jump to it
+- **Mark possibly AI-written text** — every paragraph gets an `AI?` button that
+  asks the local model for a verdict (human / mixed / AI + likelihood), shown as
+  a coloured left border and a badge; `M` does the whole article in one pass
+- **AI summary** — `s` (or the *Summarize* button) shows a bullet summary plus an
+  overall AI-likelihood badge
+
+Everything runs against the **local** agent (`hermes -z … --cli`) via a small
+loopback HTTP server (`bin/reader-server`, started on demand, bound to 127.0.0.1
+and gated by a per-session token). No text leaves the machine. Colours follow the
+active Omarchy theme. Keys: `j`/`k`/`↑`/`↓` navigate, `m` marks the current
+paragraph, `M` marks all, `s` summarizes, `f` toggles focus, `Esc` exits focus.
 
 ## Search engines
 
@@ -157,9 +178,16 @@ omarchy-qutebrowser/
 │   ├── qute-yt-dl           — yt-dlp download (,dv / ,dm)
 │   ├── qute-zoom            — per-domain zoom persistence (,z / ,zl / ,zr)
 │   ├── qute-ai-fix          — AI per-site fix engine (,af)
+│   ├── qute-reader          — reader mode: ingest page + open the reader tab (,r)
 │   ├── youtube-adblock.js   — Greasemonkey ad-blocking for YouTube
 │   └── cookie-banner-remover.js — Greasemonkey cookie-consent remover
+├── reader/
+│   ├── index.html           — reader page template
+│   ├── reader.css           — distraction-free styling (theme-aware)
+│   ├── reader.js            — extraction, focus, AI marks, summary
+│   └── readability.js       — Mozilla Readability (Apache-2.0)
 ├── bin/
+│   ├── reader-server        — loopback bridge: serves reader page + POST /ai (local agent)
 │   └── set-system-default   — privileged: sets qutebrowser as system default browser
 ├── install.sh               — one-shot installer
 └── manifest.json            — Omarchy plugin manifest

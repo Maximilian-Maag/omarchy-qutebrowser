@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reader — __TITLE__</title>
+<link rel="stylesheet" href="/reader.css">
+</head>
+<body data-token="__TOKEN__" data-url="__URL__">
+<header id="bar">
+  <div id="bar-left">
+    <span id="brand">Reader</span>
+    <span id="doc-title" title="__URL__">__TITLE__</span>
+  </div>
+  <div id="bar-right">
+    <button id="btn-summary" title="AI summary of the article (s)">Summarize</button>
+    <button id="btn-markall" title="Mark possibly AI-written paragraphs (M)">Mark AI text</button>
+    <button id="btn-focus" title="Paragraph focus (f) — move with j/k or ↑/↓">Focus</button>
+    <a id="btn-original" href="__URL__" title="Open the original page">Original</a>
+    <button id="btn-hide" title="Toggle chrome">Aa</button>
+  </div>
+</header>
+
+<div id="status" role="status" aria-live="polite"></div>
+
+<aside id="summary" hidden>
+  <div class="summary-head">
+    <span>AI summary</span>
+    <span id="summary-verdict" class="badge"></span>
+    <button id="summary-close" title="Close">×</button>
+  </div>
+  <ul id="summary-list"></ul>
+  <div id="summary-reason" class="reason"></div>
+</aside>
+
+<main id="article" tabindex="-1"></main>
+
+<footer id="hint">
+  <span><kbd>f</kbd> focus</span>
+  <span><kbd>j</kbd>/<kbd>k</kbd> next/prev paragraph</span>
+  <span><kbd>m</kbd> mark paragraph</span>
+  <span><kbd>M</kbd> mark all</span>
+  <span><kbd>s</kbd> summary</span>
+</footer>
+
+<script>window.__READER_COLORS__ = __COLORS__;</script>
+<script>window.__READER_ARTICLE__ = __ARTICLE_JSON__;</script>
+<script src="/readability.js"></script>
+<script src="/reader.js"></script>
+</body>
+</html>
