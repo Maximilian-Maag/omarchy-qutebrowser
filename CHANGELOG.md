@@ -2,6 +2,23 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.6.0] — 2026-10-06
+
+### Changed
+- YouTube ad-block rewritten (userscript v3.0) so **pre-roll / mid-roll video ads**
+  are stopped, not just their DOM:
+  - strips `adPlacements` / `playerAds` / `adSlots` / `adBreakHeartbeatParams`
+    out of the player response *before YouTube's player reads it* — via a
+    `document-start` setter on `window.ytInitialPlayerResponse` / `ytInitialData`,
+    and by rewriting the `/youtubei/v1/player` (+ `/next`) fetch and XHR bodies.
+    The XHR hook patches at `readystatechange`/readyState 4, which fires *before*
+    the site's own `onload` (patching on `loadend` is too late).
+  - drops ad/analytics requests (`adformat=`, `/api/stats/ads`,
+    `/pcs/activeview`, pagead/ptracking/doubleclick…).
+  - fallback for anything that still plays: click Skip, else jump to the ad's end
+    and speed the player up, restoring the rate when the ad ends.
+  - more ad surfaces covered, incl. the "ad blocker detected" wall.
+
 ## [1.5.0] — 2026-10-06
 
 ### Added

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Ad-Free
-// @description  Skip and remove YouTube ads for qutebrowser
-// @version      2.0
+// @description  Remove YouTube ads, especially pre-roll/mid-roll video ads: strip ad data out of the player response before YouTube's player reads it, drop ad/analytics requests, then skip or force-end any ad that still slips through.
+// @version      3.0
 // @author       omarchy-qutebrowser
 // @namespace    https://github.com/Maximilian-Maag/omarchy-qutebrowser
 // @match        *://*.youtube.com/*
@@ -12,177 +12,266 @@
 (function () {
   'use strict';
 
-  // ── Ad URL patterns to intercept ──────────────────────────────────────────
-  var AD_URL_PATTERNS = [
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 1. Strip the ad payload out of player / next responses
+  //    This is what actually kills pre-roll ads: if adPlacements/playerAds are
+  //    gone before the player builds its ad schedule, no ad is ever requested.
+  // ═══════════════════════════════════════════════════════════════════════════
+  var AD_FIELDS = [
+    'adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams',
+    'playerLegacyDesktopWatchAdsRenderer', 'adBreakParams', 'adParams',
+  ];
+
+  function stripAds(obj) {
+    try {
+      if (!obj || typeof obj !== 'object') return obj;
+      for (var i = 0; i < AD_FIELDS.length; i++) {
+        if (Object.prototype.hasOwnProperty.call(obj, AD_FIELDS[i])) {
+          try { delete obj[AD_FIELDS[i]]; } catch (e) { obj[AD_FIELDS[i]] = undefined; }
+        }
+      }
+      if (obj.playerResponse) stripAds(obj.playerResponse);      // /youtubei/v1/next
+      if (obj.streamingData) {                                   // SSAI remnants
+        delete obj.streamingData.adPlacements;
+        delete obj.streamingData.adSlots;
+      }
+      if (obj.playerOverlays && obj.playerOverlays.playerOverlayRenderer) {
+        var por = obj.playerOverlays.playerOverlayRenderer;
+        delete por.adSlots;
+        if (por.playerOverlayRenderer) {
+          delete por.playerOverlayRenderer.adSlots;
+          delete por.playerOverlayRenderer.adPlacements;
+        }
+      }
+    } catch (e) {}
+    return obj;
+  }
+
+  function patchJson(textOrObj) {
+    try {
+      var obj = typeof textOrObj === 'string' ? JSON.parse(textOrObj) : textOrObj;
+      stripAds(obj);
+      return typeof textOrObj === 'string' ? JSON.stringify(obj) : obj;
+    } catch (e) { return textOrObj; }
+  }
+
+  // Player / watch-next endpoints that carry the ad schedule.
+  var PLAYER_RE = /\/youtubei\/v1\/(player|next|reel\/reel_watch_sequence|guide)|get_video_info/;
+
+  // ── 1a. window.ytInitialPlayerResponse / ytInitialData setter ──────────────
+  // Runs at document-start, before YouTube's inline `var ytInitialPlayerResponse
+  // = {…}` executes, so the assignment goes through our setter and comes back
+  // stripped.
+  try {
+    var _saved = {};
+    ['ytInitialPlayerResponse', 'ytInitialData'].forEach(function (name) {
+      try {
+        Object.defineProperty(window, name, {
+          configurable: true,
+          enumerable: true,
+          get: function () { return _saved[name]; },
+          set: function (v) { _saved[name] = stripAds(v); },
+        });
+      } catch (e) {}
+    });
+  } catch (e) {}
+
+  // ── 1b. fetch() interception ───────────────────────────────────────────────
+  try {
+    var _fetch = window.fetch;
+    window.fetch = function (input, init) {
+      var url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (isAdUrl(url)) {
+        return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      var p = _fetch.apply(this, arguments);
+      if (PLAYER_RE.test(url)) {
+        return p.then(function (resp) {
+          try {
+            return resp.clone().text().then(function (txt) {
+              var mod = patchJson(txt);
+              if (mod === txt) return resp;
+              return new Response(mod, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
+            }).catch(function () { return resp; });
+          } catch (e) { return resp; }
+        });
+      }
+      return p;
+    };
+  } catch (e) {}
+
+  // ── 1c. XMLHttpRequest interception ────────────────────────────────────────
+  try {
+    var _open = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      try {
+        this.__yt_url = url;
+        if (typeof url === 'string' && isAdUrl(url)) arguments[1] = 'about:blank';
+      } catch (e) {}
+      return _open.apply(this, arguments);
+    };
+
+    var _send = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function () {
+      try {
+        var self = this;
+        if (self.__yt_url && PLAYER_RE.test(self.__yt_url)) {
+          // Patch at readystatechange(4): that fires BEFORE load/onload, so the
+          // site's own onload handler already sees the stripped body.
+          var done = false;
+          self.addEventListener('readystatechange', function () {
+            if (done || self.readyState !== 4) return;
+            done = true;
+            try {
+              if (self.responseType === 'json') {
+                stripAds(self.response);                       // mutate in place
+              } else if (self.responseType === '' || self.responseType === 'text') {
+                var patched = patchJson(self.responseText);
+                if (patched !== self.responseText) {
+                  Object.defineProperty(self, 'responseText', { configurable: true, get: function () { return patched; } });
+                  Object.defineProperty(self, 'response', { configurable: true, get: function () { return patched; } });
+                }
+              }
+            } catch (e) {}
+          });
+        }
+      } catch (e) {}
+      return _send.apply(this, arguments);
+    };
+  } catch (e) {}
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 2. Drop ad / analytics requests outright
+  // ═══════════════════════════════════════════════════════════════════════════
+  var AD_URLS = [
     /doubleclick\.net/,
     /googleadservices\.com/,
     /googlesyndication\.com/,
-    /youtube\.com\/pagead\//,
-    /youtube\.com\/ptracking/,
-    /youtube\.com\/api\/stats\/ads/,
-    /youtube\.com\/get_video_info.*adformat/,
+    /\/pagead\//,
+    /\/ptracking/,
+    /\/api\/stats\/ads/,
+    /\/pcs\/activeview/,
+    /adformat=/,
+    /[?&]oad=/,
   ];
+  function isAdUrl(u) { return typeof u === 'string' && AD_URLS.some(function (r) { return r.test(u); }); }
 
-  function isAdUrl(url) {
-    if (!url || typeof url !== 'string') return false;
-    return AD_URL_PATTERNS.some(function(p) { return p.test(url); });
-  }
-
-  // ── 1. Intercept fetch — installed at document-start before YT scripts ────
-  try {
-    var _fetch = window.fetch;
-    window.fetch = function(input, init) {
-      try {
-        var url = typeof input === 'string' ? input : (input && input.url) || '';
-        if (isAdUrl(url)) {
-          return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
-        }
-      } catch(e) {}
-      return _fetch.apply(this, arguments);
-    };
-  } catch(e) {}
-
-  // ── 2. Intercept XHR — installed at document-start ───────────────────────
-  try {
-    var _xhrOpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function(method, url) {
-      try {
-        if (typeof url === 'string' && isAdUrl(url)) {
-          arguments[1] = 'about:blank';
-        }
-      } catch(e) {}
-      return _xhrOpen.apply(this, arguments);
-    };
-  } catch(e) {}
-
-  // ── Ad DOM selectors ──────────────────────────────────────────────────────
-  var AD_SELECTORS = [
-    'ytd-ad-slot-renderer',
-    'ytd-banner-promo-renderer',
-    'ytd-video-masthead-ad-v3-renderer',
-    'ytd-in-feed-ad-layout-renderer',
-    'ytd-promoted-sparkles-web-renderer',
-    'ytd-promoted-video-renderer',
-    'ytd-display-ad-renderer',
-    'ytd-search-pyv-renderer',
-    '#masthead-ad',
-    '#player-ads',
-    '.ytp-ad-overlay-container',
-    '.ytp-ad-message-container',
-    '.ytp-ad-progress-list',
-    '#ad-container',
-    '.ytd-companion-slot-renderer',
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 3. Fallback: skip / force-end any ad that still plays
+  // ═══════════════════════════════════════════════════════════════════════════
+  var AD_DOM = [
+    'ytd-ad-slot-renderer', 'ytd-banner-promo-renderer', 'ytd-video-masthead-ad-v3-renderer',
+    'ytd-in-feed-ad-layout-renderer', 'ytd-promoted-sparkles-web-renderer', 'ytd-promoted-video-renderer',
+    'ytd-display-ad-renderer', 'ytd-search-pyv-renderer', 'ytd-statement-banner-renderer',
+    'ytd-brand-video-shelf-renderer', 'ytd-brand-video-singleton-renderer', 'ytd-compact-promoted-video-renderer',
+    '#masthead-ad', '#player-ads', '#panels-full-bleed-ad-container',
+    '.ytp-ad-overlay-container', '.ytp-ad-overlay-slot', '.ytp-ad-text-overlay', '.ytp-ad-image-overlay',
+    '.ytp-ad-message-container', '.ytp-ad-progress-list', '.ytp-ad-player-overlay',
+    '#ad-container', '.ytd-companion-slot-renderer',
+    'ytd-enforcement-message-view-model',          // the "ad blocker detected" wall
+    'tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)',
   ].join(',');
 
-  // ── 3. Remove ad DOM elements ─────────────────────────────────────────────
   function removeAdElements() {
     try {
-      var els = document.querySelectorAll(AD_SELECTORS);
-      for (var i = 0; i < els.length; i++) {
-        try { els[i].remove(); } catch(e) {}
-      }
-    } catch(e) {}
+      var els = document.querySelectorAll(AD_DOM);
+      for (var i = 0; i < els.length; i++) { try { els[i].remove(); } catch (e) {} }
+    } catch (e) {}
   }
 
-  // ── 4. Skip / end the current ad ─────────────────────────────────────────
-  function skipAd() {
+  function adShowing(player) {
+    try {
+      if (player && player.classList && player.classList.contains('ad-showing')) return true;
+      if (player && typeof player.getAdState === 'function' && player.getAdState() > 0) return true;
+      return !!document.querySelector('.ad-showing, .ytp-ad-player-overlay, .ytp-ad-player-overlay-layout');
+    } catch (e) { return false; }
+  }
+
+  function clickSkip() {
     try {
       var btn = document.querySelector(
-        '.ytp-skip-ad-button, .ytp-ad-skip-button, ' +
-        '.ytp-ad-skip-button-modern, [class*="skip-button"]'
+        '.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern, ' +
+        'button.ytp-ad-skip-button-container, .ytp-ad-skip-button-container button, ' +
+        '[id^="skip-button"] button, button[class*="ytp-ad-skip"]'
       );
       if (btn) { btn.click(); return true; }
-    } catch(e) {}
+    } catch (e) {}
     return false;
   }
 
-  function endAd() {
+  var adWasOn = false;
+
+  function forceEnd(video) {
     try {
-      var adOverlay = document.querySelector('.ad-showing, .ytp-ad-player-overlay, .ytp-ad-module');
-      if (!adOverlay) return false;
-      var video = document.querySelector('video');
-      if (!video) return false;
-      var dur = video.duration;
-      if (dur && isFinite(dur) && dur > 0) {
-        video.currentTime = dur;
-        return true;
-      }
-    } catch(e) {}
-    return false;
+      if (!video) return;
+      var d = video.duration;
+      if (isFinite(d) && d > 0 && video.currentTime < d) video.currentTime = d;
+      if (video.playbackRate < 16) video.playbackRate = 16;   // blast through if seek is ignored
+    } catch (e) {}
   }
 
-  // ── 5. Poll while ad is showing ───────────────────────────────────────────
-  var skipInterval = null;
-
-  function startSkipPolling() {
-    if (skipInterval) return;
-    skipInterval = setInterval(function() {
-      try {
-        var adShowing = document.querySelector('.ad-showing, .ytp-ad-player-overlay');
-        if (!adShowing) {
-          clearInterval(skipInterval);
-          skipInterval = null;
-          return;
-        }
-        if (!skipAd()) endAd();
-      } catch(e) {
-        clearInterval(skipInterval);
-        skipInterval = null;
-      }
-    }, 200);
+  function restore(video) {
+    try { if (video && video.playbackRate !== 1) video.playbackRate = 1; } catch (e) {}
   }
 
-  // ── 6. MutationObserver for dynamically injected ads ─────────────────────
+  function tick() {
+    try {
+      var player = document.querySelector('#movie_player, .html5-video-player');
+      var video = document.querySelector('video.html5-main-video, video');
+      if (adShowing(player)) {
+        adWasOn = true;
+        if (!clickSkip()) forceEnd(video);       // non-skippable → jump to the end
+        else forceEnd(video);                    // skippable  → also finish the tail
+        removeAdElements();
+      } else if (adWasOn) {
+        adWasOn = false;
+        restore(video);
+      }
+    } catch (e) {}
+  }
+
+  // Fast poll only while an ad is on screen; cheap idle check otherwise.
+  var fastTimer = null;
+  function ensurePolling() {
+    if (fastTimer) return;
+    fastTimer = setInterval(function () {
+      tick();
+      if (!adShowing(document.querySelector('#movie_player, .html5-video-player'))) {
+        clearInterval(fastTimer);
+        fastTimer = null;
+        restore(document.querySelector('video'));
+      }
+    }, 100);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 4. MutationObserver + SPA navigation
+  // ═══════════════════════════════════════════════════════════════════════════
   function onMutation() {
-    try {
-      removeAdElements();
-      if (document.querySelector('.ad-showing, .ytp-ad-player-overlay')) {
-        startSkipPolling();
-      }
-    } catch(e) {}
+    removeAdElements();
+    if (adShowing(document.querySelector('#movie_player, .html5-video-player'))) ensurePolling();
   }
 
-  var observer = new MutationObserver(onMutation);
+  try {
+    new MutationObserver(onMutation).observe(document.documentElement, { childList: true, subtree: true });
+  } catch (e) {}
 
-  function startObserver() {
-    try {
-      observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-        attributes: false,
-      });
-    } catch(e) {}
-  }
-
-  // ── 7. SPA navigation — YouTube fires yt-navigate-finish on every page ───
-  // Re-run cleanup after each SPA navigation so ads injected post-navigation
-  // are caught immediately without waiting for the observer to fire.
-  document.addEventListener('yt-navigate-finish', function() {
-    try {
+  ['yt-navigate-finish', 'yt-page-data-updated'].forEach(function (ev) {
+    document.addEventListener(ev, function () {
       removeAdElements();
-      skipAd() || endAd();
-    } catch(e) {}
+      tick();
+      if (adShowing(document.querySelector('#movie_player, .html5-video-player'))) ensurePolling();
+    });
   });
 
-  document.addEventListener('yt-page-data-updated', function() {
-    try { removeAdElements(); } catch(e) {}
+  document.addEventListener('DOMContentLoaded', function () {
+    removeAdElements();
+    tick();
+    ensurePolling();
   });
 
-  // ── 8. Boot ───────────────────────────────────────────────────────────────
-  // DOMContentLoaded fires after document-start; by then elements exist.
-  document.addEventListener('DOMContentLoaded', function() {
-    try {
-      removeAdElements();
-      skipAd() || endAd();
-      startObserver();
-    } catch(e) {}
-  });
-
-  // Also start observer immediately if document is already interactive/complete.
   if (document.readyState !== 'loading') {
-    try {
-      removeAdElements();
-      startObserver();
-    } catch(e) {}
+    removeAdElements();
+    ensurePolling();
   }
 })();
