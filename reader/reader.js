@@ -237,6 +237,29 @@
   $('#btn-focus').addEventListener('click', function () { toggleFocus(); });
   $('#btn-hide').addEventListener('click', function () { document.body.classList.toggle('chrome-hidden'); });
   $('#summary-close').addEventListener('click', function () { $('#summary').hidden = true; });
+  $('#btn-next').addEventListener('click', function () { move(1); });
+  $('#btn-prev').addEventListener('click', function () { move(-1); });
+
+  var fontSize = 19;
+  function bumpFont(delta) {
+    fontSize = Math.max(13, Math.min(40, fontSize + delta));
+    root.style.setProperty('--font-size', fontSize + 'px');
+  }
+  $('#btn-fontinc').addEventListener('click', function () { bumpFont(2); });
+  $('#btn-fontdec').addEventListener('click', function () { bumpFont(-2); });
+
+  // Expose the actions so qutebrowser keybindings can drive them — page keydown
+  // events are consumed by qutebrowser's normal mode, so the page's own j/k/…
+  // shortcuts only fire in insert mode. config.py binds ,n/,N/,f/,m/,M/,s to
+  // these (guarded, so they no-op on non-reader pages).
+  window.omarchyReader = {
+    next: function () { move(1); },
+    prev: function () { move(-1); },
+    focus: function () { toggleFocus(); },
+    mark: function () { if (active >= 0) markParagraph(active); },
+    markAll: markAll,
+    summarize: summarize
+  };
 
   document.addEventListener('keydown', function (e) {
     var t = e.target;

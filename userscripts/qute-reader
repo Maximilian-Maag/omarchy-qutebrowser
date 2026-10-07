@@ -13,6 +13,7 @@ Usage:      spawn --userscript qute-reader [--window]
 import json
 import os
 import pathlib
+import re
 import secrets
 import shutil
 import subprocess
@@ -97,6 +98,13 @@ def main() -> int:
     if not url or not html_path or not os.path.isfile(html_path):
         error("Reader: no page content available")
         return 1
+
+    # Never re-read a reader page: it nests reader-inside-reader (hiding the real
+    # article) and the AI would analyse the reader chrome. We only have this
+    # page's HTML, so we can't re-fetch the original — just refuse.
+    if re.search(r"://(127\.0\.0\.1|localhost):\d+/reader/", url):
+        msg("qute-reader: already in reader mode — open the original article first")
+        return 0
 
     info = ensure_server()
     if not info:

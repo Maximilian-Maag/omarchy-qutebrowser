@@ -2,6 +2,25 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.4.0] — 2026-10-06
+
+### Added
+- Reader: paragraph navigation (`↑`/`↓` buttons and `,n`/`,N` keys), text-size
+  controls (`A−`/`A+`), and `,n` `,N` `,f` `,m` `,M` `,s` keybindings that drive
+  the reader page from qutebrowser's normal mode (guarded, no-op elsewhere). The
+  per-paragraph `AI?` button is now always visible (was hover-only).
+- Cookie-banner remover rewritten (v3.0): explicit selectors for the major CMPs
+  — **Sourcepoint** (golem.de, heise.de), OneTrust, Cookiebot, Usercentrics,
+  Didomi, CCM19, Borlabs, Klaro, consentmanager, Quantcast, iubenda, Osano,
+  TrustArc, Google Funding Choices, CookieYes, Complianz, CookieFirst, Cookiehub,
+  CookieScript … — plus a generic fixed-overlay fallback and removal of the
+  scroll-lock classes CMPs add (`sp-message-open`, `didomi-popup-open`,
+  `ccm-blocked`, …). Verified against golem.de and heise.de.
+
+### Fixed
+- Reader no longer nests reader-inside-reader when `,r` is pressed on a reader
+  page (it refuses with a message).
+
 ## [1.3.3] — 2026-10-06
 
 ### Fixed

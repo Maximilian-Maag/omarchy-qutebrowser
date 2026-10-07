@@ -202,6 +202,17 @@ config.bind(",af", "spawn --userscript qute-ai-fix", mode="normal")  # noqa
 # per-paragraph / whole-article "possibly AI-written" marking and a summary.
 config.bind(",r", "spawn --userscript qute-reader", mode="normal")  # noqa
 
+# Reader page actions (guarded: they no-op unless the current page is the reader).
+# qutebrowser swallows page key events in normal mode, so the reader's own
+# keyboard shortcuts only work in insert mode — these drive them from a keybinding.
+_reader_js = "(function(){var r=window.omarchyReader;if(r){%s}})()"  # noqa
+config.bind(",n", "jseval -q " + _reader_js % "r.next();",      mode="normal")  # noqa
+config.bind(",N", "jseval -q " + _reader_js % "r.prev();",      mode="normal")  # noqa
+config.bind(",f", "jseval -q " + _reader_js % "r.focus();",     mode="normal")  # noqa
+config.bind(",m", "jseval -q " + _reader_js % "r.mark();",      mode="normal")  # noqa
+config.bind(",M", "jseval -q " + _reader_js % "r.markAll();",   mode="normal")  # noqa
+config.bind(",s", "jseval -q " + _reader_js % "r.summarize();", mode="normal")  # noqa
+
 # Per-domain zoom persistence
 # qutebrowser does not expose the current zoom to userscripts, so zoom is
 # remembered by stepping with ,z+ / ,z- (which apply AND save the new level).

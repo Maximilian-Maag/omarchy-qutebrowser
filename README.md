@@ -114,6 +114,10 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 | `,dm` | normal | Download current page as MP3 (yt-dlp + ffmpeg) |
 | `,af` | normal | AI site fix — analyze page and save per-domain fixes |
 | `,r` | normal | Open the current page in reader mode |
+| `,n` / `,N` | normal | Reader: next / previous paragraph |
+| `,f` | normal | Reader: toggle paragraph focus |
+| `,m` / `,M` | normal | Reader: mark current paragraph / whole article as AI |
+| `,s` | normal | Reader: AI summary |
 | `,z+` / `,z-` | normal | Zoom in / out (remembered per domain) |
 | `,zl` / `gd` | normal | Apply the saved zoom for this domain |
 | `,zr` | normal | Forget this domain's zoom (back to 100%) |
@@ -137,20 +141,27 @@ to its own domain, a fix for one site can never leak onto another.
 `,r` extracts the article (Mozilla Readability) and opens it in a clean,
 distraction-free page served locally — no ads, no sidebars, no chrome:
 
-- **Paragraph-wise reading** — press `f` for focus mode (the current paragraph is
-  bright, the rest dimmed) and move with `j`/`k` or `↑`/`↓`, or click a
-  paragraph to jump to it
-- **Mark possibly AI-written text** — every paragraph gets an `AI?` button that
-  asks the local model for a verdict (human / mixed / AI + likelihood), shown as
-  a coloured left border and a badge; `M` does the whole article in one pass
-- **AI summary** — `s` (or the *Summarize* button) shows a bullet summary plus an
-  overall AI-likelihood badge
+- **Paragraph-wise reading** — the current paragraph is highlighted (focus mode)
+  and the rest dimmed. Move with the `↑`/`↓` toolbar buttons or the `,n` / `,N`
+  keys; `,f` toggles focus; clicking a paragraph jumps to it.
+- **Mark possibly AI-written text** — every paragraph has an always-visible
+  `AI?` button that asks the local model for a verdict (human / mixed / AI +
+  likelihood), shown as a coloured left border and a badge; the *Mark AI text*
+  button (`,M`) does the whole article in one pass.
+- **AI summary** — the *Summarize* button (`,s`) shows a bullet summary plus an
+  overall AI-likelihood badge.
+- **Text size** — `A−` / `A+` in the toolbar.
 
 Everything runs against the **local** agent (`hermes -z … --cli`) via a small
 loopback HTTP server (`bin/reader-server`, started on demand, bound to 127.0.0.1
 and gated by a per-session token). No text leaves the machine. Colours follow the
-active Omarchy theme. Keys: `j`/`k`/`↑`/`↓` navigate, `m` marks the current
-paragraph, `M` marks all, `s` summarizes, `f` toggles focus, `Esc` exits focus.
+active Omarchy theme.
+
+Note: qutebrowser swallows page key events in normal mode, so the reader page's
+own `j`/`k`/`m`/`s` shortcuts only fire in insert mode — use the `,n` `,N` `,f`
+`,m` `,M` `,s` keybindings (they drive the reader from normal mode and no-op on
+other pages) or the toolbar buttons. Pressing `,r` on a reader page is refused so
+you can't nest reader-inside-reader.
 
 ## Search engines
 
