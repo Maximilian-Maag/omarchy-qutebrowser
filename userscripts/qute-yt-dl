@@ -1,91 +1,89 @@
 #!/bin/bash
-# qute-yt-dl — download a video or extract MP3 via yt-dlp
+# qute-yt-dl — download a video or extract MP3 via yt-dlp.
 #
-# Usage (from qutebrowser config.py):
+# Invocation (config.py):
 #   config.bind(",dv", "spawn --userscript qute-yt-dl video", mode="normal")
 #   config.bind(",dm", "spawn --userscript qute-yt-dl mp3",   mode="normal")
 #
-# $1 = "video" (default) or "mp3"
-# QUTE_URL = current page URL (set by qutebrowser)
-# QUTE_FIFO = path to qutebrowser command FIFO
+# Behaviour:
+#   * currently ON a video page (youtube.com/watch?v=…, youtu.be/…, /shorts/…)
+#       -> that video is downloaded directly ("single video playing" case)
+#   * otherwise (search results, channel, playlist overview, any list)
+#       -> qutebrowser shows hints on the `ytdl` link group so you pick which
+#          video to download; the picked link comes back as argument 2.
+#
+# $1 = "video" | "mp3"      $2 = URL (optional, supplied by the hint)
+# QUTE_URL = current page, QUTE_FIFO = qutebrowser command FIFO
 
 set -euo pipefail
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-msg() {
-  [[ -n "${QUTE_FIFO:-}" ]] && printf "message-info '%s'\n" "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true
-}
-err() {
-  [[ -n "${QUTE_FIFO:-}" ]] && printf "message-error '%s'\n" "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true
-}
+msg() { [[ -n "${QUTE_FIFO:-}" ]] && printf "message-info '%s'\n" "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true; }
+err() { [[ -n "${QUTE_FIFO:-}" ]] && printf "message-error '%s'\n" "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true; }
+cmd() { [[ -n "${QUTE_FIFO:-}" ]] && printf '%s\n' "$1" >> "$QUTE_FIFO" || true; }
 
-# ── Validate env ──────────────────────────────────────────────────────────────
-URL="${QUTE_URL:-}"
-if [[ -z "$URL" ]]; then
-  err "qute-yt-dl: QUTE_URL is not set — run this as a qutebrowser userscript"
-  exit 1
-fi
-
+# ── Mode ──────────────────────────────────────────────────────────────────────
 MODE="${1:-}"
-if [[ -z "$MODE" ]]; then
-  msg "qute-yt-dl: use  ,dv  to download video  or  ,dm  for MP3"
-  exit 0
-fi
+case "$MODE" in
+  video|mp3) ;;
+  "") msg "qute-yt-dl: use  ,dv  (video)  or  ,dm  (MP3)"; exit 0 ;;
+  *)  err "qute-yt-dl: unknown mode '$MODE' — use 'video' or 'mp3'"; exit 1 ;;
+esac
 
-if [[ "$MODE" != "video" && "$MODE" != "mp3" ]]; then
-  err "qute-yt-dl: unknown mode '$MODE' — use 'video' or 'mp3'"
-  exit 1
+# ── Which URL? ────────────────────────────────────────────────────────────────
+is_video() {
+  case "$1" in
+    *youtube.com/watch\?*|*youtu.be/*|*youtube.com/shorts/*|*youtube.com/live/*|\
+    *music.youtube.com/watch\?*|*vimeo.com/[0-9]*|*twitch.tv/videos/*|\
+    *dailymotion.com/video/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+URL="${2:-}"
+if [[ -z "$URL" ]]; then
+  if is_video "${QUTE_URL:-}"; then
+    URL="$QUTE_URL"                     # single video playing -> use it
+  else
+    # Not a video page: let the user pick one via qutebrowser hints.
+    # (The `ytdl` hints group is registered in config.py.)
+    cmd "hint --rapid ytdl spawn --userscript qute-yt-dl $MODE {hint-url}"
+    msg "qute-yt-dl: hint a video to download  (Esc to cancel)"
+    exit 0
+  fi
 fi
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
-YTDLP="${YTDLP:-$(command -v yt-dlp 2>/dev/null)}"
-FFMPEG="${FFMPEG:-$(command -v ffmpeg 2>/dev/null)}"
-
+YTDLP="${YTDLP:-$(command -v yt-dlp 2>/dev/null || true)}"
+FFMPEG="${FFMPEG:-$(command -v ffmpeg 2>/dev/null || true)}"
 if [[ -z "$YTDLP" ]]; then
-  err "qute-yt-dl: yt-dlp not found — install with: omarchy pkg add yt-dlp"
-  exit 1
+  err "qute-yt-dl: yt-dlp not found — install with: omarchy pkg add yt-dlp"; exit 1
 fi
 if [[ "$MODE" == "mp3" && -z "$FFMPEG" ]]; then
-  err "qute-yt-dl: ffmpeg not found — install with: omarchy pkg add ffmpeg"
-  exit 1
+  err "qute-yt-dl: ffmpeg not found — install with: omarchy pkg add ffmpeg"; exit 1
 fi
 
-# ── Output directory ──────────────────────────────────────────────────────────
+# ── Output ────────────────────────────────────────────────────────────────────
 DOWNLOAD_DIR="${DOWNLOAD_DIR:-$HOME/Downloads}"
 mkdir -p "$DOWNLOAD_DIR"
-
-# ── Build yt-dlp command string (safely shell-quoted) ─────────────────────────
-# printf %q escapes each argument so the resulting string is safe to eval in
-# the bash -c payload even when paths or the URL contain spaces/special chars.
 OUT_TEMPLATE="$DOWNLOAD_DIR/%(title)s.%(ext)s"
 
 if [[ "$MODE" == "mp3" ]]; then
-  msg "qute-yt-dl: extracting MP3 from $URL …"
+  msg "qute-yt-dl: extracting MP3 …"
   YTDLP_CMD=$(printf '%q ' \
-    "$YTDLP" \
-    --extract-audio \
-    --audio-format mp3 \
-    --audio-quality 0 \
-    --embed-thumbnail \
-    --add-metadata \
-    --output "$OUT_TEMPLATE" \
-    -- "$URL")
+    "$YTDLP" --no-playlist --extract-audio --audio-format mp3 --audio-quality 0 \
+    --embed-thumbnail --add-metadata --output "$OUT_TEMPLATE" -- "$URL")
 else
-  msg "qute-yt-dl: downloading video from $URL …"
+  msg "qute-yt-dl: downloading video …"
   YTDLP_CMD=$(printf '%q ' \
-    "$YTDLP" \
+    "$YTDLP" --no-playlist \
     --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-    --merge-output-format mp4 \
-    --embed-thumbnail \
-    --add-metadata \
-    --output "$OUT_TEMPLATE" \
-    -- "$URL")
+    --merge-output-format mp4 --embed-thumbnail --add-metadata \
+    --output "$OUT_TEMPLATE" -- "$URL")
 fi
 
-# ── Launch floating terminal with live yt-dlp output ─────────────────────────
-# xdg-terminal-exec launches foot; Omarchy's Hyprland config auto-floats
-# windows whose app-id matches org.omarchy.yt-dl.
-# setsid + disown ensure qutebrowser is not blocked.
+# ── Launch a floating terminal with live yt-dlp output ────────────────────────
+# foot + Omarchy auto-float for app-id org.omarchy.yt-dl. setsid/disown so
+# qutebrowser is not blocked.
 setsid uwsm-app -- xdg-terminal-exec --app-id=org.omarchy.yt-dl --title='yt-dlp' -- \
   bash -c "$YTDLP_CMD; echo; echo 'Done. Press Enter to close.'; read" &
 disown

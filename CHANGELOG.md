@@ -2,6 +2,28 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.5.0] — 2026-10-06
+
+### Added
+- **Video-download picker.** `,dv` / `,dm` on a page that is *not* itself a video
+  (YouTube search results, a channel, any list) now show qutebrowser hints on the
+  new `ytdl` link group so you choose which video to download; on a video page the
+  current video is grabbed directly. Rapid hinting, so you can queue several
+  (Esc to cancel).
+
+### Changed
+- `qute-keepassxc-fill` runs the fill JS *without* `-q`, so qutebrowser shows the
+  real result — `filled:username+password`, `filled:username` on the Google /
+  Microsoft first step, or `no-fields` on an account chooser — instead of always
+  reporting success.
+
+### Fixed / verified
+- `,dt` dark-mode toggle confirmed working after the `,d` → `,dt` rename (the
+  command `config-cycle colors.webpage.darkmode.enabled true false` toggles live).
+- The `ytdl` hints group is registered by mutating `c.hints.selectors` — dotted
+  `config.set('hints.selectors.ytdl', …)` is rejected by qutebrowser
+  ("No option 'hints.selectors.ytdl'").
+
 ## [1.4.0] — 2026-10-06
 
 ### Added

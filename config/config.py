@@ -195,6 +195,24 @@ config.bind(",y", "open https://youtube.com", mode="normal")  # noqa
 config.bind(",dv", "spawn --userscript qute-yt-dl video", mode="normal")  # noqa  download video
 config.bind(",dm", "spawn --userscript qute-yt-dl mp3",   mode="normal")  # noqa  download mp3
 
+# Video picker: on a page that is NOT itself a video (search results, a channel,
+# any list) ,dv/,dm ask qute-yt-dl to show qutebrowser hints on this `ytdl` link
+# group, so you choose which video to download; on a video page the current video
+# is used directly. NOTE: config.set('hints.selectors.ytdl', ...) is rejected
+# ("No option 'hints.selectors.ytdl'") — the option dict must be mutated.
+try:
+    c.hints.selectors['ytdl'] = [  # type: ignore[index]
+        'a[href*="watch?v="]',
+        'a[href*="youtu.be/"]',
+        'a[href*="/shorts/"]',
+        'a[href*="youtube.com/live/"]',
+        'a[href*="vimeo.com/"]',
+        'a[href*="twitch.tv/videos"]',
+        'a[href*="dailymotion.com/video"]',
+    ]
+except Exception:  # pragma: no cover - option shape differs between versions
+    pass
+
 # AI site fix — analyze current page and save per-domain CSS/JS/adblock fixes
 config.bind(",af", "spawn --userscript qute-ai-fix", mode="normal")  # noqa
 

@@ -416,8 +416,11 @@ def main():
 
         user = cred.get("login") or ""
         password = cred.get("password") or ""
-        qute("jseval -q " + fill_js(user, password))
-        qute('message-info "KeePassXC: filled credentials for %s"' % (cred.get("name") or user or "entry"))
+        # Run WITHOUT -q so qutebrowser shows the JS return value — that is the
+        # only honest feedback of what happened ("filled:username+password",
+        # "filled:username" on a Google/Microsoft first step, or "no-fields"
+        # when the page has no fillable input, e.g. an account chooser).
+        qute("jseval " + fill_js(user, password))
         return 0
     except KpError as exc:
         error(str(exc))

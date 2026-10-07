@@ -10,7 +10,7 @@
 | **KeePassXC** | Fill passwords with `Alt+Shift+U` (insert) or `pw` (normal) via the bundled `qute-keepassxc` userscript (`--insecure` mode, no GPG required) |
 | **YouTube ad-free** | Greasemonkey script skips pre-roll ads, removes overlays, intercepts ad network requests, and handles SPA navigation (`yt-navigate-finish`) |
 | **Built-in ad blocker** | Brave + EasyList + EasyPrivacy + uBlock Origin filter lists, host-based blocking |
-| **yt-dlp download** | `,dv` downloads the current page as video (best mp4), `,dm` extracts MP3 — works on YouTube, Vimeo, Twitter, and 1000+ other sites |
+| **yt-dlp download** | `,dv` downloads a video (best mp4), `,dm` extracts MP3. On a video page it grabs that video; on any list (YouTube search results, a channel, …) it shows hints so you pick which video — works on YouTube, Vimeo, and 1000+ other sites |
 | **Default browser** | `install.sh` sets qutebrowser at all three levels: user `~/.config/mimeapps.list`, system `/etc/xdg/mimeapps.list`, and Omarchy `/usr/share/applications/mimeapps.list` |
 
 ## Installation
@@ -110,8 +110,8 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 | `,ab` | normal | Update ad block filter lists |
 | `,dt` | normal | Toggle dark mode on the current page |
 | `,y` | normal | Open YouTube |
-| `,dv` | normal | Download current page as video (yt-dlp) |
-| `,dm` | normal | Download current page as MP3 (yt-dlp + ffmpeg) |
+| `,dv` | normal | Download a video (yt-dlp). On a video page → that video; on any list → hints to pick |
+| `,dm` | normal | Download as MP3 (yt-dlp + ffmpeg). Same picking behaviour |
 | `,af` | normal | AI site fix — analyze page and save per-domain fixes |
 | `,r` | normal | Open the current page in reader mode |
 | `,n` / `,N` | normal | Reader: next / previous paragraph |
