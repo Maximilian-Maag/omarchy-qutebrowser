@@ -2,6 +2,14 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.3.2] — 2026-10-06
+
+### Changed
+- Dropped a redundant `content.headers.referer = "same-domain"` from config.py
+  (it is qutebrowser's default and a global-only setting); documented instead.
+- README: note the bundled `aether` palette (23 palettes total) alongside the
+  22 stock themes.
+
 ## [1.3.1] — 2026-10-06
 
 ### Fixed

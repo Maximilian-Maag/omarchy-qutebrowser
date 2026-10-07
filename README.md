@@ -59,7 +59,8 @@ miasma · nord · osaka-jade · retro-82 · ristretto · rose-pine · solitude �
 tokyo-night · vantablack · white
 
 Custom user themes under `~/.config/omarchy/themes/<name>/` are loaded
-automatically from their `colors.toml`.
+automatically from their `colors.toml`. The plugin also bundles an extra
+`aether` palette (23 palettes total) for when no stock theme matches.
 
 ## KeePassXC
 
@@ -170,7 +171,7 @@ paragraph, `M` marks all, `s` summarizes, `f` toggles focus, `Esc` exits focus.
 omarchy-qutebrowser/
 ├── config/
 │   ├── config.py           — main qutebrowser config (symlinked to ~/.config/qutebrowser/)
-│   ├── themes.py           — palette engine for all 22 Omarchy themes
+│   ├── themes.py           — palette engine for all 22 stock themes (+ aether)
 │   └── site-overrides.py   — turns qute-ai-fix JSON into per-domain Greasemonkey scripts
 ├── hooks/
 │   └── theme-set           — omarchy hook: reloads qutebrowser on theme change

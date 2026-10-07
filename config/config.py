@@ -99,7 +99,8 @@ c.content.geolocation = False
 c.content.webrtc_ip_handling_policy = "default-public-interface-only"
 c.content.canvas_reading = False
 c.content.headers.do_not_track = True
-c.content.headers.referer = "same-domain"
+# content.headers.referer is left at qutebrowser's default ("same-domain"):
+# it is a global-only setting and does not accept URL patterns.
 
 # ---------------------------------------------------------------------------
 # Ad blocking — built-in host blocker + Brave/uBlock filter lists
