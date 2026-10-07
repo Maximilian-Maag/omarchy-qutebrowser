@@ -179,8 +179,11 @@ config.bind(",p", "open -p {url}", mode="normal")  # noqa
 # Reload filter lists
 config.bind(",ab", "adblock-update", mode="normal")  # noqa
 
-# Toggle dark mode on current page
-config.bind(",d", "config-cycle colors.webpage.darkmode.enabled true false", mode="normal")  # noqa
+# Toggle dark mode on current page.
+# NB: this must NOT be bound to ",d" — qutebrowser's keybinding trie fires a
+# binding the moment it has a command, even when longer bindings (",dm", ",dv")
+# share the prefix, so ",d" would shadow the yt-dlp downloads. ",dt" avoids it.
+config.bind(",dt", "config-cycle colors.webpage.darkmode.enabled true false", mode="normal")  # noqa
 
 # Hint mode: open in new tab
 config.bind("F", "hint all tab", mode="normal")  # noqa

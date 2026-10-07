@@ -108,7 +108,7 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 | `X` | normal | Close tab |
 | `F` | normal | Open link in new tab (hint mode) |
 | `,ab` | normal | Update ad block filter lists |
-| `,d` | normal | Toggle dark mode on current page |
+| `,dt` | normal | Toggle dark mode on the current page |
 | `,y` | normal | Open YouTube |
 | `,dv` | normal | Download current page as video (yt-dlp) |
 | `,dm` | normal | Download current page as MP3 (yt-dlp + ffmpeg) |

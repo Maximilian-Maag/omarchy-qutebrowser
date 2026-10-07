@@ -2,6 +2,18 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.3.3] — 2026-10-06
+
+### Fixed
+- **`,dm` and `,dv` (yt-dlp downloads) never fired.** qutebrowser's keybinding
+  trie returns an ExactMatch the moment a node has a command, *without* checking
+  longer children, so a binding that is a prefix of another shadows it. The `,d`
+  dark-mode toggle therefore swallowed `,dm`/`,dv` — pressing `,dm` ran `,d`
+  (dark mode) then `m` (default `quickmark-save`, i.e. "set bookmark"), and `,dv`
+  ran `,d` then `v` (default caret mode, which errors). The dark-mode toggle is
+  now **`,dt`**. Verified against qutebrowser's real `BindingTrie`: no binding is
+  shadowed by a shorter prefix any more.
+
 ## [1.3.2] — 2026-10-06
 
 ### Changed
