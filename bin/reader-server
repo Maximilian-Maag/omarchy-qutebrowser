@@ -323,42 +323,62 @@ def _headlines_for(text, cache):
     return cache[query]
 
 
-def fact_check_article(paras, min_len=40, max_paras=12):
-    """Fact-check many paragraphs in one model call (one news search each)."""
+def fact_check_article(paras, min_len=20, batch_size=8):
+    """Fact-check EVERY paragraph, in batches.
+
+    Two bugs lived here. A hard `max_paras=12` silently left the rest of the article
+    unchecked, and asking one prompt to cover a whole article made the model drop
+    entries — so "fact-check the article" checked an unpredictable subset. Now every
+    paragraph at or above min_len is checked, in batches small enough that the model
+    answers for all of them, and any paragraph the model still skips comes back with a
+    note instead of vanishing.
+    """
     cache, picked = {}, []
     for i, p in enumerate(paras):
         text = (p or "").strip()
-        if len(text) < min_len:          # skip headings / fragments
+        if len(text) < min_len:          # skip headings / one-word fragments
             continue
         query, hits = _headlines_for(text, cache)
         picked.append({"index": i, "text": text, "query": query, "headlines": hits[:6]})
-        if len(picked) >= max_paras:
-            break
     if not picked:
         raise ValueError("no checkable paragraphs")
-    listing = "\n".join(
-        "%d. %s\n   Headlines: %s" % (
-            b["index"], b["text"][:600],
-            "; ".join("%s (%s)" % (h["headline"], h["source"] or "?") for h in b["headlines"]) or "(none)")
-        for b in picked)
-    arr = run_ai(FACT_ARTICLE_PROMPT % listing)
-    by_index = {b["index"]: b for b in picked}
+
     out = []
-    for j, item in enumerate(arr if isinstance(arr, list) else []):
-        if not isinstance(item, dict):
-            continue
-        idx = item.get("index")
-        if not isinstance(idx, int) or idx not in by_index:
-            idx = picked[j]["index"] if j < len(picked) else None
-        if idx is None or idx not in by_index:
-            continue
-        src = by_index[idx]
-        merged = dict(item)
-        merged["index"] = idx
-        merged["query"] = src["query"]
-        merged["headlines"] = src["headlines"]
-        merged["outlets"] = sorted({h["source"] for h in src["headlines"] if h["source"]})[:12]
-        out.append(merged)
+    for start_at in range(0, len(picked), batch_size):
+        batch = picked[start_at:start_at + batch_size]
+        listing = "\n".join(
+            "%d. %s\n   Headlines: %s" % (
+                b["index"], b["text"][:600],
+                "; ".join("%s (%s)" % (h["headline"], h["source"] or "?")
+                          for h in b["headlines"]) or "(none)")
+            for b in batch)
+        arr = run_ai(FACT_ARTICLE_PROMPT % listing)
+        by_index = {b["index"]: b for b in batch}
+        answered = set()
+        for j, item in enumerate(arr if isinstance(arr, list) else []):
+            if not isinstance(item, dict):
+                continue
+            idx = item.get("index")
+            if not isinstance(idx, int) or idx not in by_index:
+                idx = batch[j]["index"] if j < len(batch) else None
+            if idx is None or idx not in by_index:
+                continue
+            src = by_index[idx]
+            merged = dict(item)
+            merged["index"] = idx
+            merged["query"] = src["query"]
+            merged["headlines"] = src["headlines"]
+            merged["outlets"] = sorted({h["source"] for h in src["headlines"] if h["source"]})[:12]
+            out.append(merged)
+            answered.add(idx)
+        for b in batch:                  # never drop a paragraph silently
+            if b["index"] in answered:
+                continue
+            out.append({"index": b["index"], "verdict": "unclear",
+                        "note": "the model returned no verdict for this paragraph",
+                        "query": b["query"], "headlines": b["headlines"],
+                        "outlets": sorted({h["source"] for h in b["headlines"] if h["source"]})[:12]})
+    out.sort(key=lambda item: item["index"])
     return out
 
 

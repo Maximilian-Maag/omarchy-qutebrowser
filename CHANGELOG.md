@@ -2,6 +2,17 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.3] — 2026-10-08
+
+### Fixed
+- **Article fact-check now covers every paragraph.** It had a hard `max_paras=12` cap
+  (the rest of the article was never checked) and asked the model to cover the whole
+  article in a single prompt, so entries got dropped as well — "fact-check the article"
+  checked an unpredictable subset. Every paragraph over 20 characters is now checked, in
+  batches of 8 small enough that the model answers for all of them, and any paragraph
+  the model still skips comes back with a stated reason instead of vanishing. Results
+  are returned in document order, one per paragraph, never duplicated.
+
 ## [1.17.2] — 2026-10-08
 
 ### Fixed
