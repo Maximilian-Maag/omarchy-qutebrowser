@@ -2,6 +2,22 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.10.0] — 2026-10-06
+
+### Added
+- **Advertorial / paid-coverage warning** in the whole-article AI summary. The
+  summary call now also judges whether the piece reads as paid or promotional
+  content and returns `{"promotional": {"score", "kind", "evidence"}}` alongside
+  the summary, AI-ness verdict and reason. The reader shows a warning at the top
+  of the summary block when the score is ≥ 40 — "⚠ Probably paid or promotional
+  content" (≥ 70, red) or "⚠ Some commercial-marketing signals" (amber) — naming
+  the kind (advertorial / sponsored / native ad / affiliate / PR / brand content),
+  the confidence, and the concrete signal (a disclosure label, a call to action,
+  unopposed brand praise…). The status line repeats it. Verified with real model
+  calls: an undisclosed German advertorial scored 96/"advertorial" and rendered the
+  warning above the bullets; a neutral council-budget report scored 5/"none" and
+  was not flagged.
+
 ## [1.9.3] — 2026-10-06
 
 Second round of the deep-dive sweep (a parallel read-only review of the scripts).

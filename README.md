@@ -169,6 +169,14 @@ distraction-free page served locally — no ads, no sidebars, no chrome:
   Pressing **`↑` on the first paragraph summarises the whole article**, and
   **`Ctrl+↑` summarises just the current paragraph** (one sentence; `,S` does the
   same).
+- **Advertorial warning** — the same summary call also judges whether the piece
+  reads as *paid or promotional content* (advertorial, sponsored/native ad, PR,
+  affiliate). When it does, a warning sits at the top of the summary block — "⚠
+  Probably paid or promotional content" (red) or "⚠ Some commercial-marketing
+  signals" (amber) — naming the kind, a confidence score, and the concrete signal
+  it was read from (an `ANZEIGE`/`sponsored` label, a `jetzt kaufen` call to
+  action, unopposed brand praise…). Ordinary reporting is not flagged (a neutral
+  article scores ~5, an undisclosed advertorial ~95).
 - **Side layout** — the fact-check card and the article wheel sit in side padding
   the article *reserves* for them, so they never overflow or cover the text,
   full-screen or not; under ~1180px wide they simply flow under the paragraph.

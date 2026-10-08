@@ -104,9 +104,20 @@ Paragraphs:
 %s"""
 
 # Combined: AI-ness per paragraph AND an overall summary in one call.
-SUMMARY_PROMPT = """Summarize the article below for a reader who wants the gist.
+SUMMARY_PROMPT = """Summarize the article below for a reader who wants the gist, and judge two things about it: whether it reads as machine-written, and whether it reads as paid or promotional content rather than independent journalism.
+
 Return ONLY compact JSON, no markdown:
-{"summary": ["<short bullet>", "<short bullet>", "..."], "ai_likelihood": <int 0-100>, "verdict": "human"|"mixed"|"ai", "reason": "<max 15 words>"}
+{"summary": ["<short bullet>", "<short bullet>", "..."], "ai_likelihood": <int 0-100>, "verdict": "human"|"mixed"|"ai", "reason": "<max 15 words>", "promotional": {"score": <int 0-100>, "kind": "<advertorial|sponsored|native ad|affiliate|PR|brand content|none>", "evidence": "<max 25 words>"}}
+
+The "promotional" score says how strongly the article looks like an advertorial, a sponsored/native ad, a press release or an affiliate piece rather than independent reporting. Judge it from concrete signals, for example:
+- a disclosure label: sponsored, advertisement, advertorial, "in cooperation with", "Anzeige", "Werbung", "bezahlte Anzeige"/"bezahlter Beitrag", "in Zusammenarbeit mit", "ADVERTORIAL";
+- the piece promotes one brand, company or product throughout, with rivals absent or dismissed;
+- vendor voice: "we"/"our product"/"unser Produkt" while posing as editorial, testimonials, or a "test" that is really a sales pitch;
+- prices, discounts, referral/affiliate links, or a strong call to action ("jetzt kaufen", "buy now", "sign up today");
+- superlatives and unverifiable claims with no sourcing, no byline, no critical or opposing quotes;
+- the subject has a commercial sender (a press release, a product launch, an event promotion).
+
+Score 0-20 for ordinary independent reporting; 40-60 when there are clear commercial signals but it may still be legitimate; 70-100 when it is probably paid or promotional content. Use kind "none" below 40. "evidence" must quote or point at the concrete signal (a label, a phrase, a link), not a general impression — and do not infer anything from the outlet's name alone. Never let this judgement change the summary itself.
 
 Article:
 %s"""

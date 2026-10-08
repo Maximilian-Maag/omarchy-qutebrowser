@@ -303,6 +303,28 @@
     head.appendChild(close);
     el.appendChild(head);
 
+    // Advertorial / paid-coverage warning. Shown straight under the header, above
+    // the bullets, because a reader skimming the summary should not miss it.
+    var promo = res.promotional || {};
+    var pScore = typeof promo.score === 'number' ? promo.score : 0;
+    var pKind = String(promo.kind || '').trim();
+    if (pScore >= 40 && pKind.toLowerCase() !== 'none') {
+      var warn = document.createElement('div');
+      warn.className = 'promo-warning' + (pScore >= 70 ? ' strong' : '');
+      var wt = document.createElement('div');
+      wt.className = 'pw-title';
+      wt.textContent = pScore >= 70
+        ? '⚠ Probably paid or promotional content'
+        : '⚠ Some commercial-marketing signals';
+      warn.appendChild(wt);
+      var ws = document.createElement('div');
+      ws.className = 'pw-sub';
+      ws.textContent = pKind + ' · ' + pScore + '%' +
+        (promo.evidence ? ' — ' + promo.evidence : '');
+      warn.appendChild(ws);
+      el.appendChild(warn);
+    }
+
     var ul = document.createElement('ul');
     (res.summary || []).forEach(function (t) {
       var li = document.createElement('li');
@@ -333,7 +355,10 @@
     setStatus('Asking the local AI for a summary…');
     ai({ mode: 'summary', text: text }).then(function (res) {
       renderSummary(res);
-      setStatus('');
+      var p = res.promotional || {};
+      setStatus(typeof p.score === 'number' && p.score >= 70
+        ? '⚠ Summary ready — this article looks like paid/promotional content'
+        : '');
     }).catch(function (e) { setStatus('AI error: ' + e.message, true); })
       .finally(function () { btn.disabled = false; btn.textContent = old; });
   }
