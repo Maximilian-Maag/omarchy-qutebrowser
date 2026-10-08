@@ -270,7 +270,10 @@ c.aliases.update({  # noqa: F821
 })
 
 # Tabs
-config.bind("t", "open -t",   mode="normal")  # noqa
+# `t` would be a strict prefix of stock `th` (back in new tab) / `tl` (forward in new
+# tab), and qutebrowser runs a binding with a command before descending into longer
+# ones — so binding it here permanently killed both. Stock `O` (open -t) covers what it
+# did, so the binding is gone rather than shadowing. Same lesson as the ,d comment below.
 config.bind("X", "tab-close", mode="normal")  # noqa
 
 # Private window (opens current URL in a temp profile)
@@ -350,7 +353,7 @@ config.bind("<Enter>", "reader-open-article", mode="normal")  # noqa
 config.bind(",z+", "zoom-in", mode="normal")  # noqa
 config.bind(",z-", "zoom-out", mode="normal")  # noqa
 config.bind(",zl", "zoom-load", mode="normal")  # noqa
-config.bind(",zr", "zoom-load", mode="normal")  # noqa
+config.bind(",zr", "zoom-reset", mode="normal")  # noqa
 config.bind("gd", "zoom-load", mode="normal")  # noqa
 
 # ---------------------------------------------------------------------------

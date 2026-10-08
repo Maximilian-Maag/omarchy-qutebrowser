@@ -2,6 +2,24 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.6] — 2026-10-08
+
+### Fixed
+Three bugs confirmed by a read-only audit of the whole plugin, each re-verified here.
+
+- **`,zr` ("forget this domain's zoom") did nothing but re-apply the saved zoom** — it was
+  bound to `zoom-load`, the same command as `,zl`, while `zoom-reset` was defined and bound
+  nowhere. Pressing it could never return the domain to 100%, despite the README.
+- **The `t` binding silently killed qutebrowser's `th`/`tl`.** `t` is a strict prefix of
+  both (`back -t` / `forward -t` in stock bindings), and qutebrowser executes a binding that
+  has a command *before* descending into longer ones, so `th`/`tl` were unreachable. The
+  binding is removed; stock `O` already opens a new tab, so nothing is lost.
+- **Two media embedded after the same paragraph came out swapped.** `spliceMedia` iterated
+  its items backwards while always inserting before the *same* reference element, reversing
+  them. It now iterates forward — `ref` is an element, so DOM insertion cannot shift it;
+  the backwards order only existed to dodge index shifts. Proved in a stub DOM: same-anchor
+  media now renders `p0, m0, m1, p1`.
+
 ## [1.17.5] — 2026-10-08
 
 ### Fixed

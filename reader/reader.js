@@ -184,7 +184,11 @@
     // Insert from the last one backwards so an insertion cannot shift the position
     // a later (earlier in the document) element is about to use.
     var ordered = items.slice().sort(function (a, b) { return (a.before || 0) - (b.before || 0); });
-    for (var i = ordered.length - 1; i >= 0; i--) {
+    // Forward, not backwards. `ref` is an ELEMENT, so inserting into the DOM cannot
+    // shift the reference a later item uses — the backwards loop only existed to dodge
+    // index shifts, and it reversed any two items sharing an anchor (two players after
+    // the same paragraph came out swapped).
+    for (var i = 0; i < ordered.length; i++) {
       var el = buildMediaEl(ordered[i]);
       var ref = blocks[ordered[i].before] || null;
       if (ref && ref.parentNode) ref.parentNode.insertBefore(el, ref);
