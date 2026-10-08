@@ -161,14 +161,45 @@ c.url.default_page = _start_page                                # noqa
 # First-time setup: run  :spawn --userscript qute-keepassxc-setup
 # Enable Browser Integration in KeePassXC: Tools > Settings > Browser Integration
 # ---------------------------------------------------------------------------
-config.bind("<Alt-Shift-u>", "spawn --userscript qute-keepassxc-fill",        mode="insert")  # noqa
-config.bind("pw",            "spawn --userscript qute-keepassxc-fill",        mode="normal")  # noqa
-config.bind("pt",            "spawn --userscript qute-keepassxc-fill --totp", mode="normal")  # noqa  TOTP into focused field
-config.bind(",kp",           "spawn --userscript qute-keepassxc-setup",       mode="normal")  # noqa  check setup
+config.bind("<Alt-Shift-u>", "pass-fill", mode="insert")  # noqa
+config.bind("pw", "pass-fill", mode="normal")  # noqa
+config.bind("pt", "pass-totp", mode="normal")  # noqa  TOTP into focused field
+config.bind(",kp", "pass-setup", mode="normal")  # noqa  KePassXC browser setup
 
 # ---------------------------------------------------------------------------
 # Keybindings
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Short aliases — what the keyhint popup (press "," and wait) and :bind show
+# is the raw command string of the binding, so each plugin action gets a short
+# readable alias instead of e.g. a whole jseval blob.
+# ---------------------------------------------------------------------------
+c.aliases.update({  # noqa: F821
+    'ai-site-fix': 'spawn --userscript qute-ai-fix',
+    'dark-mode-toggle': 'config-cycle colors.webpage.darkmode.enabled true false',
+    'pass-fill': 'spawn --userscript qute-keepassxc-fill',
+    'pass-setup': 'spawn --userscript qute-keepassxc-setup',
+    'pass-totp': 'spawn --userscript qute-keepassxc-fill --totp',
+    'reader-factcheck': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.factcheck();}})()',
+    'reader-factcheck-all': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.factcheckall();}})()',
+    'reader-focus': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.focus();}})()',
+    'reader-mark': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.mark();}})()',
+    'reader-mark-all': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.markAll();}})()',
+    'reader-next': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.next();}})()',
+    'reader-open': 'spawn --userscript qute-reader',
+    'reader-open-article': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.wheelopen();}})()',
+    'reader-para-summary': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.summarypara();}})()',
+    'reader-prev': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.prev();}})()',
+    'reader-score': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.score();}})()',
+    'reader-summary': 'jseval -q (function(){var r=window.omarchyReader;if(r){r.summarize();}})()',
+    'yt-dl-mp3': 'spawn --userscript qute-yt-dl mp3',
+    'yt-dl-video': 'spawn --userscript qute-yt-dl video',
+    'zoom-in': 'spawn --userscript qute-zoom in',
+    'zoom-load': 'spawn --userscript qute-zoom load',
+    'zoom-out': 'spawn --userscript qute-zoom out',
+    'zoom-reset': 'spawn --userscript qute-zoom reset',
+})
+
 # Tabs
 config.bind("t", "open -t",   mode="normal")  # noqa
 config.bind("X", "tab-close", mode="normal")  # noqa
@@ -183,7 +214,7 @@ config.bind(",ab", "adblock-update", mode="normal")  # noqa
 # NB: this must NOT be bound to ",d" — qutebrowser's keybinding trie fires a
 # binding the moment it has a command, even when longer bindings (",dm", ",dv")
 # share the prefix, so ",d" would shadow the yt-dlp downloads. ",dt" avoids it.
-config.bind(",dt", "config-cycle colors.webpage.darkmode.enabled true false", mode="normal")  # noqa
+config.bind(",dt", "dark-mode-toggle", mode="normal")  # noqa  toggle dark mode
 
 # Hint mode: open in new tab
 config.bind("F", "hint all tab", mode="normal")  # noqa
@@ -192,8 +223,8 @@ config.bind("F", "hint all tab", mode="normal")  # noqa
 config.bind(",y", "open https://youtube.com", mode="normal")  # noqa
 
 # yt-dlp download (floating terminal with live progress)
-config.bind(",dv", "spawn --userscript qute-yt-dl video", mode="normal")  # noqa  download video
-config.bind(",dm", "spawn --userscript qute-yt-dl mp3",   mode="normal")  # noqa  download mp3
+config.bind(",dv", "yt-dl-video", mode="normal")  # noqa  download video
+config.bind(",dm", "yt-dl-mp3", mode="normal")  # noqa  download MP3
 
 # Video picker: on a page that is NOT itself a video (search results, a channel,
 # any list) ,dv/,dm ask qute-yt-dl to show qutebrowser hints on this `ytdl` link
@@ -214,30 +245,29 @@ except Exception:  # pragma: no cover - option shape differs between versions
     pass
 
 # AI site fix — analyze current page and save per-domain CSS/JS/adblock fixes
-config.bind(",af", "spawn --userscript qute-ai-fix", mode="normal")  # noqa
+config.bind(",af", "ai-site-fix", mode="normal")  # noqa  AI fix this site
 
 # Reader mode — distraction-free article view (Readability) with local-AI
 # per-paragraph / whole-article "possibly AI-written" marking and a summary.
-config.bind(",r", "spawn --userscript qute-reader", mode="normal")  # noqa
+config.bind(",r", "reader-open", mode="normal")  # noqa  reader mode
 
 # Reader page actions (guarded: they no-op unless the current page is the reader).
 # qutebrowser swallows page key events in normal mode, so the reader's own
 # keyboard shortcuts only work in insert mode — these drive them from a keybinding.
-_reader_js = "(function(){var r=window.omarchyReader;if(r){%s}})()"  # noqa
-config.bind(",n", "jseval -q " + _reader_js % "r.next();",      mode="normal")  # noqa
-config.bind(",N", "jseval -q " + _reader_js % "r.prev();",      mode="normal")  # noqa
-config.bind(",f", "jseval -q " + _reader_js % "r.focus();",     mode="normal")  # noqa
-config.bind(",m", "jseval -q " + _reader_js % "r.mark();",      mode="normal")  # noqa
-config.bind(",M", "jseval -q " + _reader_js % "r.markAll();",   mode="normal")  # noqa
-config.bind(",s", "jseval -q " + _reader_js % "r.summarize();", mode="normal")  # noqa
-config.bind(",S", "jseval -q " + _reader_js % "r.summarypara();", mode="normal")  # noqa  summarise the current paragraph
-config.bind("<Ctrl+Up>", "jseval -q " + _reader_js % "r.summarypara();", mode="normal")  # noqa  summarise the current paragraph
-config.bind(",e", "jseval -q " + _reader_js % "r.score();",     mode="normal")  # noqa  AI score (also ◀ / ←)
-config.bind(",c", "jseval -q " + _reader_js % "r.factcheck();", mode="normal")  # noqa  fact-check (also ▶ / →)
-config.bind(",o", "jseval -q " + _reader_js % "r.wheelopen();", mode="normal")  # noqa  open the focused wheel article
-config.bind(",O", "jseval -q " + _reader_js % "r.factcheckall();", mode="normal")  # noqa  fact-check whole article
+config.bind(",n", "reader-next", mode="normal")  # noqa  reader: next
+config.bind(",N", "reader-prev", mode="normal")  # noqa  reader: previous
+config.bind(",f", "reader-focus", mode="normal")  # noqa  reader: focus
+config.bind(",m", "reader-mark", mode="normal")  # noqa  reader: AI-score this paragraph
+config.bind(",M", "reader-mark-all", mode="normal")  # noqa  reader: AI-score all paragraphs
+config.bind(",s", "reader-summary", mode="normal")  # noqa  reader: summarize article
+config.bind(",S", "reader-para-summary", mode="normal")  # noqa  reader: summarize paragraph
+config.bind("<Ctrl+Up>", "reader-para-summary", mode="normal")  # noqa  summarise the current paragraph
+config.bind(",e", "reader-score", mode="normal")  # noqa  reader: AI score
+config.bind(",c", "reader-factcheck", mode="normal")  # noqa  reader: fact-check paragraph
+config.bind(",o", "reader-open-article", mode="normal")  # noqa  reader: open focused article
+config.bind(",O", "reader-factcheck-all", mode="normal")  # noqa  reader: fact-check whole article
 # Enter opens the focused supporting-article preview (no-op off the reader).
-config.bind("<Enter>", "jseval -q " + _reader_js % "r.wheelopen();", mode="normal")  # noqa
+config.bind("<Enter>", "reader-open-article", mode="normal")  # noqa
 
 # Per-domain zoom persistence
 # qutebrowser does not expose the current zoom to userscripts, so zoom is
@@ -245,11 +275,11 @@ config.bind("<Enter>", "jseval -q " + _reader_js % "r.wheelopen();", mode="norma
 # ,z+ = zoom in one step (remembered)   ,z- = zoom out one step (remembered)
 # ,zl = apply the saved level           ,zr = forget domain, back to 100%
 # gd  = convenience alias for ,zl
-config.bind(",z+",  "spawn --userscript qute-zoom in",    mode="normal")  # noqa
-config.bind(",z-",  "spawn --userscript qute-zoom out",   mode="normal")  # noqa
-config.bind(",zl",  "spawn --userscript qute-zoom load",  mode="normal")  # noqa
-config.bind(",zr",  "spawn --userscript qute-zoom reset", mode="normal")  # noqa
-config.bind("gd",   "spawn --userscript qute-zoom load",  mode="normal")  # noqa
+config.bind(",z+", "zoom-in", mode="normal")  # noqa
+config.bind(",z-", "zoom-out", mode="normal")  # noqa
+config.bind(",zl", "zoom-load", mode="normal")  # noqa
+config.bind(",zr", "zoom-load", mode="normal")  # noqa
+config.bind("gd", "zoom-load", mode="normal")  # noqa
 
 # ---------------------------------------------------------------------------
 # Per-domain tweaks

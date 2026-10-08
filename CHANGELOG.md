@@ -2,6 +2,49 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.11.0] — 2026-10-08
+
+### Changed
+- **Keybindings now use short aliases** so the keyhint popup (press `,` and wait)
+  and `qute://bindings` show readable names instead of raw one-line command blobs:
+  `,dt` → `dark-mode-toggle`, `,dv` → `yt-dl-video`, `,dm` → `yt-dl-mp3`,
+  `,r` → `reader-open`, `,e` → `reader-score`, `,s` → `reader-summary`,
+  `,af` → `ai-site-fix`, `,z*` → `zoom-*`, `pw` → `pass-fill`, … 23 aliases.
+  (qutebrowser's `config.bind()` has no `desc` argument — the binding text IS the
+  representation, so the fix is to bind to short alias names.)
+
+### Fixed
+- **yt-dlp downloads no longer depend on the terminal window.** `,dv`/`,dm` used to
+  run yt-dlp *inside* the floating terminal, so when that window closed or never
+  mapped, nothing landed in `~/Downloads`. yt-dlp now runs detached in its own
+  session writing a live log (`~/.local/state/omarchy-qutebrowser/yt-dl/latest.log`)
+  and the terminal merely tails it; closing the window is harmless, the outcome is
+  recorded in the log, and a desktop notification fires on success/failure. The
+  format selector became `bv*+ba/b` because the old mp4-only selector failed with
+  "Requested format is not available" on videos offered only as m3u8/webm.
+- **Cookie consent is now reject-by-default** (`cookie-banner-remover.js` v4.0):
+  a reject button is always preferred, an accept button is clicked *only* when the
+  banner offers no reject option, and a banner with no buttons at all is simply
+  removed. Small consent *bars* (much under the old 25 %-viewport overlay
+  threshold) are now detected by their button labels, and button-less consent
+  strips by their text.
+- **Anti-adblock defusing** (same script): filter lists block ads, sites detect it
+  by measuring a "bait" element or reading `window.adsbygoogle`/`canRunAds`, then
+  cover the article with a "please disable your ad blocker" wall (bild.de and many
+  German news sites). The script makes the usual baits measure like served ads,
+  sets the usual flags, and removes the wall plus its scroll lock if one appears.
+- **YouTube**: more ad fields stripped from player responses
+  (`clientSideAdBreakParams`, `adBreakServiceRenderer`, `playerAdParams`,
+  `adThrottled`), `/get_midroll_info` dropped, and an eager 250 ms poll for the
+  first 90 s so a pre-roll that starts before any observable mutation is caught.
+
+Verified ad hoc in a real engine: consent decisions (reject wins, accept as
+fallback, remove when button-less, German "Nur notwendige"), wall removal +
+scroll unlock, the YouTube ad-kill path (overlay removed, force-ended, 16× blast,
+viewer's 1.5× speed restored), a real yt-dlp download landing while the terminal
+was a stub that exited immediately, and that every binding resolves to a defined
+alias.
+
 ## [1.10.0] — 2026-10-06
 
 ### Added

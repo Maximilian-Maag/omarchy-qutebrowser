@@ -67,23 +67,64 @@ DOWNLOAD_DIR="${DOWNLOAD_DIR:-$HOME/Downloads}"
 mkdir -p "$DOWNLOAD_DIR"
 OUT_TEMPLATE="$DOWNLOAD_DIR/%(title)s.%(ext)s"
 
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-qutebrowser/yt-dl"
+mkdir -p "$STATE_DIR"
+LOG="$STATE_DIR/latest.log"          # one stable path: easy to tail, easy to report
+PIDFILE="$STATE_DIR/runner.pid"
+
 if [[ "$MODE" == "mp3" ]]; then
-  msg "qute-yt-dl: extracting MP3 …"
-  YTDLP_CMD=$(printf '%q ' \
-    "$YTDLP" --no-playlist --extract-audio --audio-format mp3 --audio-quality 0 \
-    --embed-thumbnail --add-metadata --output "$OUT_TEMPLATE" -- "$URL")
+  YTDLP_ARGS=(--no-playlist --extract-audio --audio-format mp3 --audio-quality 0
+              --embed-thumbnail --embed-metadata)
 else
-  msg "qute-yt-dl: downloading video …"
-  YTDLP_CMD=$(printf '%q ' \
-    "$YTDLP" --no-playlist \
-    --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-    --merge-output-format mp4 --embed-thumbnail --add-metadata \
-    --output "$OUT_TEMPLATE" -- "$URL")
+  # bv*+ba/b is deliberately permissive: the old mp4-only selector failed with
+  # "Requested format is not available" on videos offered only as m3u8/webm.
+  YTDLP_ARGS=(--no-playlist --format "bv*+ba/b" --merge-output-format mp4
+              --embed-thumbnail --embed-metadata)
 fi
 
-# ── Launch a floating terminal with live yt-dlp output ────────────────────────
-# foot + Omarchy auto-float for app-id org.omarchy.yt-dl. setsid/disown so
-# qutebrowser is not blocked.
+# ── Run yt-dlp DETACHED, logging to a file ────────────────────────────────────
+# The download must not hang off the terminal window: if the window closed (or was
+# never mapped), yt-dlp died with it and nothing landed in ~/Downloads. yt-dlp now
+# runs in its own session and writes a live log; the terminal merely *tails* that
+# log, so closing it is harmless and a failure stays diagnosable in $LOG.
+NOTIFY="$(command -v notify-send 2>/dev/null || true)"
+if [[ -n "$NOTIFY" ]]; then
+  NOTIFY_OK="$(printf '%q ' "$NOTIFY")"'yt-dlp'"'"' "Finished — '"$DOWNLOAD_DIR"'"'
+  NOTIFY_FAIL="$(printf '%q ' "$NOTIFY")"'yt-dlp'"'"' "Download failed — see '"$LOG"'"'
+else
+  NOTIFY_OK="true"; NOTIFY_FAIL="true"
+fi
+
+RUNNER="$(mktemp "$STATE_DIR/runner.XXXXXX.sh")"
+cat > "$RUNNER" <<RUNNER_EOF
+#!/bin/bash
+# Detached yt-dlp runner (no set -e: we want the exit status reported, not aborted).
+echo \$\$ > "$PIDFILE"
+: > "$LOG"
+cd "\$HOME" || exit 1
+$(printf '%q ' "$YTDLP" --newline "${YTDLP_ARGS[@]}" --output "$OUT_TEMPLATE" -- "$URL")2>&1 | tee -a "$LOG"
+rc=\${PIPESTATUS[0]}
+{
+  echo
+  if [ "\$rc" = 0 ]; then
+    echo "OK: saved to $DOWNLOAD_DIR"
+    $NOTIFY_OK || true
+  else
+    echo "FAILED (exit \$rc) — full log: $LOG"
+    $NOTIFY_FAIL || true
+  fi
+} >> "$LOG" 2>&1
+rm -f "$PIDFILE"
+RUNNER_EOF
+chmod +x "$RUNNER"
+
+msg "qute-yt-dl: $MODE download started (log: $LOG)"
+setsid "$RUNNER" >/dev/null 2>&1 &
+
+# ── The terminal only WATCHES the log (closing it does not stop the download) ──
+# foot + Omarchy auto-float for app-id org.omarchy.yt-dl. tail --pid exits on its
+# own once the runner is gone, so the window shows the result and can be closed.
+WATCH="for i in \$(seq 1 100); do [ -s '$PIDFILE' ] && break; sleep 0.1; done; tail -f --pid=\$(cat '$PIDFILE' 2>/dev/null) -n +1 '$LOG'; echo; echo 'Done — press Enter to close.'; read"
 setsid uwsm-app -- xdg-terminal-exec --app-id=org.omarchy.yt-dl --title='yt-dlp' -- \
-  bash -c "$YTDLP_CMD; echo; echo 'Done. Press Enter to close.'; read" &
-disown
+  bash -c "$WATCH" >/dev/null 2>&1 &
+disown || true

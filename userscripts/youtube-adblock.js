@@ -20,6 +20,7 @@
   var AD_FIELDS = [
     'adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams',
     'playerLegacyDesktopWatchAdsRenderer', 'adBreakParams', 'adParams',
+    'clientSideAdBreakParams', 'adBreakServiceRenderer', 'playerAdParams', 'adThrottled',
   ];
 
   function stripAds(obj) {
@@ -150,6 +151,7 @@
     /\/pagead\//,
     /\/ptracking/,
     /\/api\/stats\/ads/,
+    /\/get_midroll_info/,
     /\/pcs\/activeview/,
     /adformat=/,
     /[?&]oad=/,
@@ -279,4 +281,15 @@
     removeAdElements();
     ensurePolling();
   }
+
+  // A pre-roll can start before any mutation we notice, so poll eagerly for the
+  // first 90 s after load (cheap: tick() no-ops when no ad is showing) instead of
+  // relying on a DOM change to arm the fast timer.
+  try {
+    var eagerUntil = Date.now() + 90000;
+    var eager = setInterval(function () {
+      tick();
+      if (Date.now() > eagerUntil) { clearInterval(eager); eager = null; }
+    }, 250);
+  } catch (e) {}
 })();
