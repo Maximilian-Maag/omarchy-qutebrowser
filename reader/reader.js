@@ -623,8 +623,26 @@
       el.appendChild(r);
     }
 
+    // A rebuild used to end with setActive(0), and the summary card IS block 0 — so a
+    // fact-check (which rebuilds the blocks) threw the reader onto the summary instead
+    // of leaving them on the paragraph they were reading. Keep the paragraph: only an
+    // explicit summary request, where no card existed before, moves focus to it.
+    var keepKey = null;
+    if (existing && active >= 0 && blocks[active]) keepKey = paraKey(blocks[active]);
     if (!existing) articleEl.insertBefore(el, articleEl.firstChild);   // above the title
-    buildBlocks();                                                     // → block 0
+    buildBlocks();
+    if (keepKey) {
+      var back = null;
+      for (var bi = 0; bi < blocks.length; bi++) {
+        if (paraKey(blocks[bi]) === keepKey) { back = bi; break; }
+      }
+      if (back !== null) {
+        setActive(back);
+        pState.summary = res;
+        saveState();
+        return;
+      }
+    }
     setActive(0);
     pState.summary = res;
     saveState();

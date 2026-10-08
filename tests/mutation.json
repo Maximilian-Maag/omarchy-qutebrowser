@@ -1,0 +1,96 @@
+{
+  "_about": [
+    "Mutation-test targets for this plugin. Each target names the file to mutate and",
+    "the test command that must notice a change (the fast module that covers it).",
+    "Run with tools/mutator.py, or as part of tools/run_tests.sh.",
+    "min_kill_rate is the floor: below it the run fails, and a target that yields no",
+    "mutants at all fails too, so a mutation pass can never be green over nothing.",
+    "per_operator caps how many occurrences of each operator are mutated (determinism",
+    "and runtime); raise it for a deeper nightly run via --max-rate/--only."
+  ],
+  "min_kill_rate": 0.8,
+  "timeout": 30,
+  "per_operator": 4,
+  "targets": [
+    {
+      "path": "userscripts/qute-keepassxc-fill",
+      "lang": "python",
+      "tests": [
+        "python3",
+        "-m",
+        "unittest",
+        "tests.test_unit_keepassxc",
+        "tests.test_integration_keepassxc_socket",
+        "-q"
+      ]
+    },
+    {
+      "path": "bin/reader-server",
+      "lang": "python",
+      "tests": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_unit_reader_server.py",
+        "-q"
+      ]
+    },
+    {
+      "path": "tools/policy_check.py",
+      "lang": "python",
+      "tests": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_unit_policy.py",
+        "-q"
+      ]
+    },
+    {
+      "path": "tools/mutator.py",
+      "lang": "python",
+      "tests": [
+        "python3",
+        "-m",
+        "unittest",
+        "tests.test_unit_mutator",
+        "-q"
+      ],
+      "max_mutants": 25,
+      "note": "its own tests drive the runner, so a mutant in the capping/slicing logic can make a nested run hang; 25 mutants and a 30s ceiling keep the target practical while still covering the runner end to end"
+    },
+    {
+      "path": "userscripts/youtube-adblock.js",
+      "lang": "javascript",
+      "tests": [
+        "node",
+        "--test",
+        "tests/js/adblock.test.js"
+      ]
+    },
+    {
+      "path": "userscripts/cookie-banner-remover.js",
+      "lang": "javascript",
+      "tests": [
+        "node",
+        "--test",
+        "tests/js/cookie.test.js"
+      ]
+    }
+  ],
+  "max_mutants": 60,
+  "exempt": [
+    {
+      "path": "tools/run_tests.sh",
+      "reason": "thin orchestrator: it runs the other kinds and asserts nothing itself"
+    }
+  ]
+}

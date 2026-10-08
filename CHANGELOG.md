@@ -2,6 +2,22 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.2] — 2026-10-08
+
+### Fixed
+- **The status page did not render.** The reader server is started on demand and then
+  reused for as long as it lives, so a server started before an update kept serving the
+  old routes: `/status` and `/publisher` answered 404 and the page came up empty. The
+  server now stamps its own build (a hash of its source) into `server.json` and `/health`,
+  and the userscript retires a server whose build does not match the file on disk —
+  including one with no build at all, which is by definition running old code. A stale
+  server can no longer hide a new route.
+- **Fact-checking threw the reader onto the summary.** `renderSummary` ended with
+  `setActive(0)`, and the summary card is block 0, so the rebuild that a fact-check
+  triggers moved focus to the summary instead of leaving it on the paragraph being read.
+  A rebuild now keeps the active paragraph; only an explicit summary request, where no
+  card existed before, focuses the card.
+
 ## [1.17.1] — 2026-10-08
 
 ### Changed

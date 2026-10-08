@@ -41,6 +41,11 @@ STATE_DIR = pathlib.Path(
 ARTICLES_DIR = STATE_DIR / "articles"
 STATE_STORE = STATE_DIR / "article-state"      # per-URL annotations + reading position
 SERVER_JSON = STATE_DIR / "server.json"
+# Identity of the running CODE, not just the process: a server started before an
+# update keeps serving the old routes forever, which looked exactly like "the status
+# page does not render" (every /status request 404s). The userscript compares this
+# to the file on disk and replaces a stale server.
+BUILD = hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()[:12]
 
 
 def _state_key(url):
@@ -673,7 +678,7 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(url.query)
         p = url.path
         if p == "/health":
-            return self._send(200, {"ok": True})
+            return self._send(200, {"ok": True, "build": BUILD})
         if p in ("/readability.js", "/reader.css", "/reader.js"):
             ctype = "application/javascript" if p.endswith(".js") else "text/css"
             return self._asset(p.lstrip("/"), ctype)
@@ -801,7 +806,7 @@ def main():
     # local user can connect to 127.0.0.1.
     fd = os.open(SERVER_JSON, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as handle:
-        handle.write(json.dumps({"port": port, "token": token, "pid": os.getpid()}))
+        handle.write(json.dumps({"port": port, "token": token, "pid": os.getpid(), "build": BUILD}))
     try:
         httpd.serve_forever()
     finally:

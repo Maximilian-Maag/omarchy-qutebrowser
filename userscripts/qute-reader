@@ -11,6 +11,7 @@ Usage:      spawn --userscript qute-reader [--window]
 """
 
 import fcntl
+import hashlib
 import json
 import os
 import pathlib
@@ -98,12 +99,44 @@ def ensure_server():
     return None
 
 
+def _file_build():
+    try:
+        return hashlib.sha256(SERVER_BIN.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return ""
+
+
 def _running_server():
-    """Return the live server's {port, token}, or None."""
+    """Return the live server's {port, token}, or None.
+
+    A server whose build differs from bin/reader-server on disk is stopped and
+    reported as absent, so the caller starts a fresh one. Without that check the
+    server keeps serving whatever routes it was started with — a change to the
+    server only took effect after a manual kill, and the symptom was a new feature
+    silently 404ing (the status page).
+    """
     try:
         info = json.loads(SERVER_JSON.read_text())
-        if _healthy(int(info["port"])):
-            return info
+        if not _healthy(int(info["port"])):
+            return None
+        # No build at all means the server predates this stamp, i.e. it is running old
+        # code — treat that as stale rather than trusting it (that is precisely the
+        # 06:43 server whose /status 404'd).
+        if info.get("build") != _file_build():
+            try:
+                os.kill(int(info["pid"]), 15)          # stale code: retire it
+                for _ in range(20):
+                    time.sleep(0.1)
+                    if not _healthy(int(info["port"])):
+                        break
+            except (OSError, ValueError, KeyError):
+                pass
+            try:
+                SERVER_JSON.unlink()
+            except OSError:
+                pass
+            return None
+        return info
     except Exception:
         pass
     return None
