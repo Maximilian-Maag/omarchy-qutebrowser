@@ -104,7 +104,7 @@ echo "  Registered MIME types for user."
 
 # 6b. System-wide (requires root)
 echo "  Setting system-wide default browser (requires sudo)..."
-if [[ $EUID -eq 0 ]]; then
+if (( EUID == 0 )); then
   bash "$PLUGIN_DIR/bin/set-system-default"
 elif command -v sudo >/dev/null 2>&1; then
   sudo bash "$PLUGIN_DIR/bin/set-system-default"

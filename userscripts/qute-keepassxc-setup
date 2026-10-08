@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # qute-keepassxc-setup — check KeePassXC browser integration and guide the user
 # Invoked as a qutebrowser userscript; communicates via QUTE_FIFO.
 
