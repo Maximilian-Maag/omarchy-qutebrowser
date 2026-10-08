@@ -43,6 +43,7 @@ AI_TIMEOUT = int(os.environ.get("QUTE_READER_AI_TIMEOUT", "180"))
 NEWS_TIMEOUT = int(os.environ.get("QUTE_READER_NEWS_TIMEOUT", "15"))
 NEWS_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
            "(KHTML, like Gecko) Chrome/124 Safari/537.36")
+_AI_SLOTS = threading.BoundedSemaphore(2)
 
 
 # --------------------------------------------------------------------------- #
@@ -167,8 +168,12 @@ def extract_json(text):
 
 
 def run_ai(prompt, timeout=None):
-    proc = subprocess.run([HERMES, "-z", prompt, "--cli"],
-                          capture_output=True, text=True, timeout=timeout or AI_TIMEOUT)
+    # Each call spawns a local agent process; a handful can be started at once
+    # (per-paragraph score + whole-article mark + summary), so bound concurrency
+    # instead of letting them pile up.
+    with _AI_SLOTS:
+        proc = subprocess.run([HERMES, "-z", prompt, "--cli"],
+                              capture_output=True, text=True, timeout=timeout or AI_TIMEOUT)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or "hermes failed").strip()[:300])
     return extract_json(proc.stdout)
@@ -323,6 +328,8 @@ def ai_answer(payload):
         return run_ai(PARA_PROMPT % para)
     if mode == "article_marks":
         paras = payload.get("paragraphs") or []
+        if not paras:
+            raise ValueError("no paragraphs")
         numbered = "\n".join("%d. %s" % (i, p) for i, p in enumerate(paras))
         return run_ai(ARTICLE_PROMPT % numbered)
     if mode == "summary":
@@ -379,11 +386,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def _asset(self, name, ctype):
         path = (READER_DIR / name).resolve()
-        if READER_DIR.resolve() not in path.parents or not path.exists():
+        if not path.is_relative_to(READER_DIR.resolve()) or not path.is_file():
             return self._send(404, "not found", "text/plain")
         return self._send(200, path.read_bytes(), ctype)
 
     def _reader_page(self, article_id):
+        # Only accept ids this server's companion userscript generates; never let a
+        # request name an arbitrary path.
+        if not re.fullmatch(r"[0-9a-f]{16}", article_id or ""):
+            return self._send(404, "article not found", "text/plain")
         meta_path = ARTICLES_DIR / ("%s.json" % article_id)
         html_path = ARTICLES_DIR / ("%s.html" % article_id)
         if not meta_path.exists() or not html_path.exists():
@@ -428,6 +439,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, {"error": "bad token"})
         try:
             length = int(self.headers.get("Content-Length", 0))
+            if length > 4 * 1024 * 1024:
+                return self._send(413, {"ok": False, "error": "payload too large"})
             payload = json.loads(self.rfile.read(length) or b"{}")
             result = ai_answer(payload)
             return self._send(200, {"ok": True, "result": result})
@@ -437,9 +450,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(500, {"ok": False, "error": str(exc)})
 
 
+def _private_dir(path):
+    """Create `path` as 0700 — it holds the session token and the user's pages."""
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        path.chmod(0o700)
+    except OSError:
+        pass
+
+
 def main():
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
+    _private_dir(STATE_DIR)
+    _private_dir(ARTICLES_DIR)
 
     # prune old articles
     cutoff = time.time() - 24 * 3600
@@ -454,7 +476,11 @@ def main():
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     Handler.token = token
     port = httpd.server_address[1]
-    SERVER_JSON.write_text(json.dumps({"port": port, "token": token, "pid": os.getpid()}))
+    # 0600: the token is a bearer credential for the loopback server and every
+    # local user can connect to 127.0.0.1.
+    fd = os.open(SERVER_JSON, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(json.dumps({"port": port, "token": token, "pid": os.getpid()}))
     try:
         httpd.serve_forever()
     finally:

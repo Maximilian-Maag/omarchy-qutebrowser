@@ -2,6 +2,35 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.9.1] — 2026-10-06
+
+Deep-dive bug sweep. No behaviour changes intended.
+
+### Fixed
+- Reader: per-paragraph AI state (verdicts, fact-check cards, article wheels) was
+  keyed by paragraph INDEX. Inserting the AI summary or removing AI-written
+  paragraphs shifts every index, which could attach a verdict to the wrong
+  paragraph and make `→`/focus fail. Everything asynchronous now carries the block
+  element and re-resolves its index, stored in WeakMaps.
+- Reader: the paragraph highlight followed the *index*, so after a rebuild the
+  wrong paragraph stayed lit. It now follows the element.
+- Reader: the whole-article summary, whole-article fact-check and "mark AI text"
+  fed the AI summary block back in as if it were article text, contaminating the
+  next result. Real article paragraphs are used now.
+- `config/themes.py`: `_alpha()` raised on any colour that was not a 6-digit hex
+  (3-digit hex, `rgb(...)`, a named colour), which aborted the ENTIRE config load
+  for a user theme that used one. It now expands 3-digit hex and passes anything
+  else through unchanged.
+- `bin/reader-server`: `server.json` (a bearer token for the loopback server — any
+  local user can reach 127.0.0.1) was world-readable; it is now 0600, and the state
+  and article directories are 0700. Article ids are validated against the exact
+  format the userscript generates, and oversized `/ai` payloads are rejected before
+  being read.
+- `userscripts/qute-reader`: article HTML/meta were copies of the source file, so
+  they inherited its permissions; they are created 0600 now. Two rapid `,r` presses
+  could each start a reader-server and orphan the loser — a lock now serialises
+  startup. The log file handle was also leaked on each start.
+
 ## [1.9.0] — 2026-10-06
 
 ### Added

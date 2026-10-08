@@ -389,8 +389,20 @@ THEMES = {
 
 
 def _alpha(hex_color: str, alpha: float) -> str:
-    """Return rgba() string for a hex color with given alpha (0-1)."""
-    h = hex_color.lstrip("#")
+    """Return an rgba() string for a hex colour.
+
+    A user theme's colors.toml may hold a 3-digit hex, a named colour or an
+    `rgb(...)`/`hsl(...)` string. Crashing here would abort the whole config
+    load, so anything that is not a 3- or 6-digit hex is passed through
+    unchanged — qutebrowser accepts those forms directly.
+    """
+    if not isinstance(hex_color, str):
+        return hex_color
+    h = hex_color.strip().lstrip("#")
+    if len(h) == 3:
+        h = h[0] * 2 + h[1] * 2 + h[2] * 2
+    if len(h) != 6 or any(c not in "0123456789abcdefABCDEF" for c in h):
+        return hex_color
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return f"rgba({r},{g},{b},{alpha})"
 

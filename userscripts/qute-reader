@@ -10,6 +10,7 @@ Keybinding: ,r   (Reader)
 Usage:      spawn --userscript qute-reader [--window]
 """
 
+import fcntl
 import json
 import os
 import pathlib
@@ -64,26 +65,47 @@ def _healthy(port: int, token: str = "") -> bool:
 
 def ensure_server():
     """Return {port, token} for a running reader-server, starting one if needed."""
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    for _ in range(2):
-        if SERVER_JSON.exists():
-            try:
-                info = json.loads(SERVER_JSON.read_text())
-                if _healthy(int(info["port"])):
+    STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Hold a lock while starting one: two ,r presses in quick succession would
+    # otherwise each spawn a server and orphan the loser.
+    lock_path = STATE_DIR / "server.lock"
+    with open(lock_path, "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            # Another instance is starting it — wait for it to publish server.json.
+            for _ in range(60):
+                time.sleep(0.2)
+                info = _running_server()
+                if info:
                     return info
-            except Exception:
-                pass
-        log = open(STATE_DIR / "server.log", "a")
-        subprocess.Popen([sys.executable, str(SERVER_BIN)],
-                         stdout=log, stderr=log, start_new_session=True)
-        for _ in range(60):
-            time.sleep(0.2)
+            return None
+        for _ in range(2):
+            info = _running_server()
+            if info:
+                return info
+            log = open(STATE_DIR / "server.log", "a")
             try:
-                info = json.loads(SERVER_JSON.read_text())
-                if _healthy(int(info["port"])):
+                subprocess.Popen([sys.executable, str(SERVER_BIN)],
+                                 stdout=log, stderr=log, start_new_session=True)
+            finally:
+                log.close()          # the child keeps its own descriptor
+            for _ in range(60):
+                time.sleep(0.2)
+                info = _running_server()
+                if info:
                     return info
-            except Exception:
-                continue
+    return None
+
+
+def _running_server():
+    """Return the live server's {port, token}, or None."""
+    try:
+        info = json.loads(SERVER_JSON.read_text())
+        if _healthy(int(info["port"])):
+            return info
+    except Exception:
+        pass
     return None
 
 
@@ -111,12 +133,19 @@ def main() -> int:
         error("Reader: could not start the reader server")
         return 1
 
-    ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
+    ARTICLES_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     article_id = secrets.token_hex(8)
+    html_dest = ARTICLES_DIR / ("%s.html" % article_id)
+    meta_dest = ARTICLES_DIR / ("%s.json" % article_id)
     try:
-        shutil.copyfile(html_path, ARTICLES_DIR / ("%s.html" % article_id))
-        (ARTICLES_DIR / ("%s.json" % article_id)).write_text(
-            json.dumps({"url": url, "title": title}))
+        # These files hold the user's reading material, so create them 0600 —
+        # shutil.copyfile would copy the source's permissions instead.
+        with open(html_path, "rb") as src, os.fdopen(
+                os.open(html_dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        with os.fdopen(
+                os.open(meta_dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as fh:
+            fh.write(json.dumps({"url": url, "title": title}))
     except OSError as exc:
         error("Reader: could not save the article (%s)" % exc)
         return 1

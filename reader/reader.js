@@ -37,6 +37,23 @@
   var blocks = [];   // {el, text, summary}
   var active = -1;
 
+  // Paragraph identity. `blocks` is REBUILT whenever the DOM changes (the AI
+  // summary is inserted as a block above the title, AI-written paragraphs are
+  // removed/restored), so an index captured before an awaited AI call can point
+  // at a different paragraph afterwards. Everything asynchronous therefore
+  // carries the block ELEMENT and re-resolves its index via el.dataset.i (kept
+  // current by buildBlocks()).
+  function idxOf(el) {
+    var i = parseInt(el && el.dataset ? el.dataset.i : NaN, 10);
+    return isNaN(i) ? -1 : i;
+  }
+  function activeEl() { return (active >= 0 && blocks[active]) ? blocks[active].el : null; }
+  // Real article paragraphs — the AI summary block is not article content, so it
+  // must never be fed back into a summary/fact-check request.
+  function articleBlocks() {
+    return blocks.filter(function (b) { return !b.summary; });
+  }
+
   function $(s) { return document.querySelector(s); }
 
   function setStatus(msg, isError) {
@@ -87,6 +104,7 @@
   function buildBlocks() {
     // Idempotent: strip previous annotation, then re-collect. Re-runnable because
     // the AI summary is inserted as a block above the title *after* first build.
+    var prevActive = (active >= 0 && blocks[active]) ? blocks[active].el : null;
     Array.from(articleEl.querySelectorAll('.ai-btn, .ai-badge')).forEach(function (n) { n.remove(); });
     // Elements are re-collected below, so drop stale highlight/annotation state —
     // otherwise a rebuild (e.g. after inserting the summary) leaves TWO blocks lit.
@@ -138,8 +156,18 @@
       }
     });
 
-    // keep the current paragraph highlighted across a rebuild
-    if (active >= 0 && blocks[active]) blocks[active].el.classList.add('active');
+    // Re-light the SAME paragraph: indices shift when the summary is inserted or
+    // paragraphs are removed, so follow the element rather than the old index.
+    active = -1;
+    if (prevActive) {
+      for (var j = 0; j < blocks.length; j++) {
+        if (blocks[j].el === prevActive) {
+          active = j;
+          blocks[j].el.classList.add('active');
+          break;
+        }
+      }
+    }
   }
 
   // ── focus / paragraph-wise navigation ───────────────────────────────
@@ -187,10 +215,8 @@
 
   function verdictClass(v) { return v === 'ai' ? 'v-ai' : v === 'mixed' ? 'v-mixed' : 'v-human'; }
 
-  function applyVerdict(i, res) {
-    var b = blocks[i];
-    if (!b || !b.text) return;
-    var el = b.el;
+  function applyVerdict(el, res) {
+    if (!el) return;
     var v = String(res.verdict || 'human').toLowerCase();
     el.classList.remove('v-human', 'v-mixed', 'v-ai');
     el.classList.add(verdictClass(v), 'marked');
@@ -205,14 +231,15 @@
     }
   }
 
-  function markParagraph(i) {
-    var b = blocks[i];
-    if (!b || !b.text) return;
-    var btn = b.el.querySelector('.ai-btn');
+  function markParagraph(el) {
+    var text = el ? blockText(el) : '';
+    if (!text) return;
+    var i = idxOf(el);
+    var btn = el.querySelector('.ai-btn');
     if (btn) { btn.textContent = '…'; btn.classList.add('busy'); btn.disabled = true; }
     setStatus('Asking the local AI about paragraph ' + (i + 1) + '…');
-    ai({ mode: 'paragraph', text: b.text }).then(function (res) {
-      applyVerdict(i, res);
+    ai({ mode: 'paragraph', text: text }).then(function (res) {
+      applyVerdict(el, res);
       setStatus('');
     }).catch(function (e) {
       setStatus('AI error: ' + e.message, true);
@@ -221,7 +248,8 @@
   }
 
   function markAll() {
-    var texts = blocks.map(function (b) { return b.text || ''; });
+    var targets = articleBlocks();
+    var texts = targets.map(function (b) { return b.text || ''; });
     if (!texts.some(function (t) { return t.length; })) return;
     var btn = $('#btn-markall'), old = btn.textContent;
     btn.disabled = true; btn.textContent = 'Working…';
@@ -229,8 +257,8 @@
     ai({ mode: 'article_marks', paragraphs: texts }).then(function (arr) {
       if (Array.isArray(arr)) {
         arr.forEach(function (item, pos) {
-          var i = typeof item.index === 'number' ? item.index : pos;
-          if (i >= 0 && i < blocks.length) applyVerdict(i, item);
+          var k = typeof item.index === 'number' ? item.index : pos;
+          if (k >= 0 && k < targets.length) applyVerdict(targets[k].el, item);
         });
       }
       setStatus('');
@@ -296,7 +324,9 @@
   }
 
   function summarize() {
-    var text = blocks.map(function (b) { return b.text; }).join('\n\n');
+    // Only the article itself — feeding a previous AI summary back into a new
+    // summary (or fact-check) would contaminate it.
+    var text = articleBlocks().map(function (b) { return b.text; }).join('\n\n');
     if (!text.trim()) return;
     var btn = $('#btn-summary'), old = btn.textContent;
     btn.disabled = true; btn.textContent = 'Working…';
@@ -308,18 +338,17 @@
       .finally(function () { btn.disabled = false; btn.textContent = old; });
   }
 
-  // ── paragraph summary (double ↑) ────────────────────────────────────
-  function renderParaSummary(i, res) {
-    var b = blocks[i];
-    if (!b) return;
-    var old = b.el.querySelector('.para-summary');
+  // ── paragraph summary (Ctrl+↑) ──────────────────────────────────────
+  function renderParaSummary(el, res) {
+    if (!el) return;
+    var old = el.querySelector('.para-summary');
     if (old) old.remove();
     var card = document.createElement('div');
     card.className = 'para-summary';
 
     var head = document.createElement('div');
     head.className = 'ps-head';
-    head.textContent = 'Paragraph ' + (i + 1) + ' · AI summary';
+    head.textContent = 'Paragraph ' + (idxOf(el) + 1) + ' · AI summary';
     card.appendChild(head);
 
     // one bullet per paragraph: render the single sentence as one line
@@ -346,15 +375,16 @@
       r.textContent = res.reason;
       card.appendChild(r);
     }
-    b.el.appendChild(card);
+    el.appendChild(card);
   }
 
-  function summarizeParagraph(i) {
-    var b = blocks[i];
-    if (!b || !b.text) return;
+  function summarizeParagraph(el) {
+    var text = el ? blockText(el) : '';
+    if (!text) return;
+    var i = idxOf(el);
     setStatus('Asking the local AI to summarise paragraph ' + (i + 1) + '…');
-    ai({ mode: 'summary_para', text: b.text }).then(function (res) {
-      renderParaSummary(i, res);
+    ai({ mode: 'summary_para', text: text }).then(function (res) {
+      renderParaSummary(el, res);
       setStatus('Paragraph ' + (i + 1) + ' summarised');
     }).catch(function (e) {
       setStatus('AI error: ' + e.message, true);
@@ -364,16 +394,19 @@
   // ── fact-check: verdict card LEFT, article "wheel" RIGHT ────────────
   var FACT_CLASS = { supported: 'fact-supported', disputed: 'fact-disputed',
                      unclear: 'fact-unclear', opinion: 'fact-opinion' };
-  var facts = {};            // block index -> fact-check result
-  var wheels = {};           // block index -> {el, items, index, reel, counter}
-  var focusedWheel = null;
-  var WHEEL_ITEM_H = 4;      // rem — must match .wheel-item height in reader.css
+  // Keyed by the block ELEMENT, not by index: a rebuild (summary inserted,
+  // AI-written paragraphs removed) shifts indices and would otherwise attach a
+  // paragraph's verdict to the wrong paragraph. A WeakMap also lets removed
+  // paragraphs be collected.
+  var facts = new WeakMap();     // block el -> fact-check result
+  var wheels = new WeakMap();    // block el -> {el, items, index, reel, counter}
+  var focusedWheel = null;       // the wheel OBJECT currently focused (or null)
+  var WHEEL_ITEM_H = 4;          // rem — must match .wheel-item height in reader.css
 
-  function renderFactCard(i, res) {
-    var b = blocks[i];
-    if (!b) return;
-    var card = b.el.querySelector('.fact-card') || document.createElement('div');
+  function renderFactCard(el, res) {
+    if (!el) return;
     var verdict = String(res.verdict || 'unclear').toLowerCase();
+    var card = el.querySelector('.fact-card') || document.createElement('div');
     card.className = 'fact-card ' + (FACT_CLASS[verdict] || 'fact-unclear');
     card.innerHTML = '';
 
@@ -396,11 +429,10 @@
       q.textContent = 'search: ' + res.query;
       card.appendChild(q);
     }
-    if (!card.parentNode) b.el.appendChild(card);
+    if (!card.parentNode) el.appendChild(card);
   }
 
-  function paintWheel(i) {
-    var w = wheels[i];
+  function paintWheel(w) {
     if (!w) return;
     var n = w.items.length;
     w.index = Math.max(0, Math.min(n - 1, w.index));
@@ -412,19 +444,20 @@
     w.counter.textContent = (w.index + 1) + '/' + n;
   }
 
-  function renderWheel(i) {
-    var b = blocks[i], res = facts[i];
-    if (!b || !res) return;
+  function renderWheel(el, res) {
+    if (!el || !res) return;
     var items = res.headlines || [];
-    var old = b.el.querySelector('.fact-wheel');
-    if (old) old.remove();
-    delete wheels[i];
-    if (focusedWheel === i) focusedWheel = null;
+    var old = el.querySelector('.fact-wheel');
+    if (old) {
+      if (focusedWheel && focusedWheel.el === old) focusedWheel = null;
+      old.remove();
+    }
+    wheels.delete(el);
     if (!items.length) return;
 
-    var el = document.createElement('div');
-    el.className = 'fact-wheel';
-    el.tabIndex = 0;
+    var wheelEl = document.createElement('div');
+    wheelEl.className = 'fact-wheel';
+    wheelEl.tabIndex = 0;
 
     var head = document.createElement('div');
     head.className = 'wheel-head';
@@ -432,7 +465,7 @@
     label.textContent = 'Supporting articles';
     var counter = document.createElement('span');
     head.appendChild(label); head.appendChild(counter);
-    el.appendChild(head);
+    wheelEl.appendChild(head);
 
     var vp = document.createElement('div');
     vp.className = 'wheel-viewport';
@@ -450,17 +483,17 @@
       it.appendChild(src); it.appendChild(hl);
       it.addEventListener('click', function (ev) {
         ev.stopPropagation();
-        var w = wheels[i];
+        var w = wheels.get(el);
         if (!w) return;
-        focusedWheel = i;
+        focusWheel(w);
         w.index = n;
-        paintWheel(i);
+        paintWheel(w);
         wheelOpen();
       });
       reel.appendChild(it);
     });
     vp.appendChild(reel);
-    el.appendChild(vp);
+    wheelEl.appendChild(vp);
 
     var foot = document.createElement('div');
     foot.className = 'wheel-foot';
@@ -470,54 +503,59 @@
       btn.textContent = spec[0];
       btn.addEventListener('click', function (ev) {
         ev.stopPropagation();
-        focusedWheel = i;
+        var w = wheels.get(el);
+        if (!w) return;
+        focusWheel(w);
         if (spec[1]) wheelMove(spec[1]); else wheelOpen();
       });
       foot.appendChild(btn);
     });
-    el.appendChild(foot);
+    wheelEl.appendChild(foot);
 
-    el.addEventListener('wheel', function (ev) {
+    wheelEl.addEventListener('wheel', function (ev) {
       ev.preventDefault();
-      focusedWheel = i;
+      var w = wheels.get(el);
+      if (!w) return;
+      focusWheel(w);
       wheelMove(ev.deltaY > 0 ? 1 : -1);
     }, { passive: false });
 
-    b.el.appendChild(el);
-    wheels[i] = { el: el, items: items, index: 0, reel: reel, counter: counter };
-    paintWheel(i);
+    el.appendChild(wheelEl);
+    var wheel = { el: wheelEl, items: items, index: 0, reel: reel, counter: counter };
+    wheels.set(el, wheel);
+    paintWheel(wheel);
   }
 
-  function focusWheel(i) {
-    var w = wheels[i];
+  function focusWheel(w) {
     if (!w) return false;
-    Object.keys(wheels).forEach(function (k) { wheels[k].el.classList.remove('focused'); });
+    blurWheel();
     w.el.classList.add('focused');
-    try { w.el.focus(); } catch (e) {}
-    focusedWheel = i;
+    try { w.el.focus(); } catch (e) { /* focus is best-effort */ }
+    focusedWheel = w;
     setStatus('Supporting articles ' + (w.index + 1) + '/' + w.items.length +
               ' — ↑/↓ scroll · Enter open · Esc leave');
     return true;
   }
 
   function blurWheel() {
-    if (focusedWheel != null && wheels[focusedWheel]) wheels[focusedWheel].el.classList.remove('focused');
+    Array.prototype.forEach.call(articleEl.querySelectorAll('.fact-wheel.focused'),
+                                function (n) { n.classList.remove('focused'); });
     focusedWheel = null;
   }
 
-  function wheelFocused() { return focusedWheel != null && !!wheels[focusedWheel]; }
+  function wheelFocused() { return focusedWheel != null && focusedWheel.el.isConnected; }
 
   function wheelMove(d) {
     if (!wheelFocused()) return;
-    var w = wheels[focusedWheel];
+    var w = focusedWheel;
     w.index = (w.index + d + w.items.length) % w.items.length;
-    paintWheel(focusedWheel);
+    paintWheel(w);
     setStatus('Supporting articles ' + (w.index + 1) + '/' + w.items.length);
   }
 
   function wheelOpen() {
     if (!wheelFocused()) return;
-    var w = wheels[focusedWheel];
+    var w = focusedWheel;
     var it = w.items[w.index];
     if (!it) return;
     if (it.url) {
@@ -526,16 +564,17 @@
     setStatus('Opened: ' + (it.source || it.url || ''));
   }
 
-  function factCheck(i) {
-    var b = blocks[i];
-    if (!b || !b.text) return;
+  function factCheck(el) {
+    var text = el ? blockText(el) : '';
+    if (!text) return;
+    var i = idxOf(el);
     var btn = $('#btn-fact');
     if (btn) btn.disabled = true;
     setStatus('Fact-checking paragraph ' + (i + 1) + ' against other news outlets…');
-    ai({ mode: 'factcheck', text: b.text }).then(function (res) {
-      facts[i] = res;
-      renderFactCard(i, res);
-      renderWheel(i);
+    ai({ mode: 'factcheck', text: text }).then(function (res) {
+      facts.set(el, res);
+      renderFactCard(el, res);
+      renderWheel(el, res);
       setStatus('Fact-check done — → focuses the article wheel');
     }).catch(function (e) {
       setStatus('Fact-check error: ' + e.message, true);
@@ -543,7 +582,8 @@
   }
 
   function factCheckArticle() {
-    var paras = blocks.map(function (b) { return b.text || ''; });
+    var targets = articleBlocks();
+    var paras = targets.map(function (b) { return b.text || ''; });
     if (!paras.some(function (t) { return t.length; })) return;
     var btn = $('#btn-fact');
     if (btn) btn.disabled = true;
@@ -551,10 +591,10 @@
     ai({ mode: 'factcheck_article', paragraphs: paras }).then(function (arr) {
       var n = 0;
       (Array.isArray(arr) ? arr : []).forEach(function (item) {
-        var idx = typeof item.index === 'number' ? item.index : -1;
-        if (idx >= 0 && idx < blocks.length) {
-          facts[idx] = item;
-          renderFactCard(idx, item);
+        var k = typeof item.index === 'number' ? item.index : -1;
+        if (k >= 0 && k < targets.length) {
+          facts.set(targets[k].el, item);
+          renderFactCard(targets[k].el, item);
           n++;
         }
       });
@@ -581,7 +621,7 @@
     });
     blurWheel();
     buildBlocks();
-    setActive(Math.min(active, blocks.length - 1));
+    setActive(active < 0 ? 0 : Math.min(active, blocks.length - 1));
     var undo = $('#btn-undo');
     if (undo) undo.hidden = false;
     setStatus('Removed ' + victims.length + ' AI-written paragraph(s)');
@@ -617,9 +657,9 @@
     }, win);
   }
 
-  function currentIndex() {
+  function ensureActive() {
     if (active < 0) { toggleFocus(true); setActive(0); }
-    return active;
+    return activeEl();
   }
 
   function scoreArrow() {
@@ -629,15 +669,15 @@
       setStatus('Paragraph focus' + (active >= 0 ? ' — paragraph ' + (active + 1) : ''));
       return;
     }
-    tap('left', function () { var i = currentIndex(); if (i >= 0) markParagraph(i); }, removeAIWritten);
+    tap('left', function () { var el = ensureActive(); if (el) markParagraph(el); }, removeAIWritten);
   }
 
   function factArrow() {
     tap('right', function () {
-      var i = currentIndex();
-      if (i < 0) return;
-      if (facts[i]) { if (!focusWheel(i)) factCheck(i); }
-      else factCheck(i);
+      var el = ensureActive();
+      if (!el) return;
+      if (facts.get(el)) { if (!focusWheel(wheels.get(el))) factCheck(el); }
+      else factCheck(el);
     }, factCheckArticle);
   }
 
@@ -650,7 +690,8 @@
   }
 
   function summarizeActiveParagraph() {
-    summarizeParagraph(active < 0 ? 0 : active);
+    var el = ensureActive();
+    if (el) summarizeParagraph(el);
   }
 
   // ── wiring ──────────────────────────────────────────────────────────
@@ -691,7 +732,7 @@
     wheelnext: function () { if (wheelFocused()) wheelMove(1); },
     wheelprev: function () { if (wheelFocused()) wheelMove(-1); },
     wheelopen: wheelOpen,
-    wheelfocus: function () { if (active >= 0) focusWheel(active); },
+    wheelfocus: function () { var el = activeEl(); if (el) focusWheel(wheels.get(el)); },
     markAll: markAll,
     summarize: summarize
   };
