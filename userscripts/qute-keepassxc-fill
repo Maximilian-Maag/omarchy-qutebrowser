@@ -60,6 +60,8 @@ def parse_args():
     p = argparse.ArgumentParser(description="Fill logins from KeePassXC")
     p.add_argument("url", nargs="?", default=os.environ.get("QUTE_URL"))
     p.add_argument("--totp", action="store_true", help="fill the focused TOTP field")
+    p.add_argument("--fill-only", action="store_true",
+                   help="only fill the fields — do not press Next/Submit")
     p.add_argument("--socket", "-s", default=SOCKET_DEFAULT)
     p.add_argument("--key-file", default=None,
                    help="association key file (default: $QUTE_DATA_DIR/keepassxc.key)")
@@ -348,7 +350,7 @@ def pick_account(creds, url):
 # --------------------------------------------------------------------------- #
 FILL_JS_TEMPLATE = r"""
 (function () {
-  var USER = __USER__, PASS = __PASS__;
+  var USER = __USER__, PASS = __PASS__, ADVANCE = __ADVANCE__;
 
   function visible(el) {
     try {
@@ -380,6 +382,20 @@ FILL_JS_TEMPLATE = r"""
     });
   }
 
+  // What counts as visible for an input (tabIndex -1 disqualifies a field) is too
+  // strict for a button: Google's Next is a plain <div role="button"> with
+  // tabIndex -1, which would make the press silently do nothing.
+  function clickable(el) {
+    try {
+      if (!el || el.disabled) return false;
+      var s = el.ownerDocument.defaultView.getComputedStyle(el);
+      if (!s || s.display === 'none' || s.visibility !== 'visible' || s.opacity === '0') return false;
+      var r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+
   function textish(el) {
     return el.tagName === 'INPUT' &&
       ['text', 'email', 'tel', ''].indexOf(el.type) !== -1;
@@ -398,12 +414,34 @@ FILL_JS_TEMPLATE = r"""
     return s;
   }
 
-  var inputs = Array.prototype.slice.call(document.querySelectorAll('input, textarea'));
-  var vis = inputs.filter(visible);
-  var pwEl = vis.filter(function (e) { return e.type === 'password'; })[0] || null;
+  function collect() {
+    var all = Array.prototype.slice.call(document.querySelectorAll('input, textarea'));
+    // Real fields sometimes live inside an open shadow root.
+    try {
+      var hosts = Array.prototype.slice.call(document.querySelectorAll('*'));
+      for (var i = 0; i < hosts.length && i < 5000; i++) {
+        if (!hosts[i].shadowRoot) continue;
+        var inner = hosts[i].shadowRoot.querySelectorAll('input, textarea');
+        for (var j = 0; j < inner.length; j++) all.push(inner[j]);
+      }
+    } catch (e) {}
+    function plausible(el) {
+      if (!el || el.type === 'hidden' || el.disabled) return false;
+      // A decoy field is not the one to type into (Google's identifier page ships
+      // <input name="hiddenPassword"> to catch password managers).
+      var tag = ((el.id || '') + ' ' + (el.name || '')).toLowerCase();
+      return !/hidden|decoy|_fake/.test(tag);
+    }
+    var ok = all.filter(plausible);
+    var vis = ok.filter(visible);
+    return vis.length ? vis : ok;      // layout-less fields still beat filling nothing
+  }
+
+  var fields = collect();
+  var pwEl = fields.filter(function (e) { return e.type === 'password'; })[0] || null;
 
   var best = -1, bestEl = null;
-  vis.forEach(function (e) {
+  fields.forEach(function (e) {
     if (!textish(e) || e === pwEl) return;
     var s = scoreUsername(e);
     if (s > best) { best = s; bestEl = e; }
@@ -414,26 +452,90 @@ FILL_JS_TEMPLATE = r"""
     userEl = bestEl;                                            // strong username signal
   } else if (pwEl) {
     // A login form is present (visible password field) but no well-labelled
-    // username field: use the first visible text-ish field.
-    userEl = vis.filter(function (e) { return textish(e) && e !== pwEl; })[0] || null;
+    // username field: use the first text-ish field.
+    userEl = fields.filter(function (e) { return textish(e) && e !== pwEl; })[0] || null;
   }
 
   var done = [];
   if (userEl) { setValue(userEl, USER); done.push('username'); }
   if (pwEl)   { setValue(pwEl, PASS); done.push('password'); }
+  if (done.length === 0) return 'no-fields';
 
-  if (done.length === 0) {
-    return 'no-fields';
+  // ── advance the flow ───────────────────────────────────────────────────────
+  // A two-step login (Microsoft, Google) shows only the identifier first: the
+  // password page does not exist until "Next" is pressed, so filling the username
+  // and stopping made it look like the fill had done nothing there.
+  function nextControl(from) {
+    var ids = ['identifierNext', 'passwordNext', 'idSIButton9', 'submitButton',
+               'next', 'submit', 'login', 'signIn', 'continue'];
+    for (var i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el && clickable(el)) return el;
+    }
+    var form = from && from.form;
+    if (form) {
+      var sub = form.querySelector('button[type=submit], input[type=submit]');
+      if (sub && clickable(sub)) return sub;
+    }
+    var cands = Array.prototype.slice.call(document.querySelectorAll(
+      'button, [role=button], input[type=submit]'));
+    var want = /^(next|weiter|continue|sign in|log in|login|anmelden|einloggen|submit|los)$/i;
+    var avoid = /(show|anzeigen|reveal|forgot|vergessen|abbrechen|cancel)/i;
+    for (var k = 0; k < cands.length; k++) {
+      var c = cands[k];
+      if (!clickable(c)) continue;
+      var label = (c.textContent || c.value || c.getAttribute('aria-label') || '').trim();
+      if (!label || avoid.test(label)) continue;
+      if (want.test(label)) return c;
+    }
+    return null;
   }
-  return 'filled:' + done.join('+');
+
+  function press(el) {
+    // A plain .click() is ignored by some frameworks (and by Google's div-based
+    // buttons when they have not re-rendered yet), so send the pointer sequence
+    // as well, after letting the page's input handlers run.
+    var types = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+    types.forEach(function (type) {
+      try {
+        var Ctor = (type.indexOf('pointer') === 0 && window.PointerEvent) ? PointerEvent : MouseEvent;
+        el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, view: window }));
+      } catch (e) {}
+    });
+    try { el.click(); } catch (e) {}
+  }
+
+  // Only advance when this really looks like a LOGIN step. Filling a password is
+  // not enough on its own: a sign-up form has one too, and pressing "Create
+  // account" there would submit half a registration. So the button has to read like
+  // a login action, and never like a sign-up one.
+  var target = nextControl(userEl || pwEl);
+  if (!target) return 'filled:' + done.join('+');
+
+  var label = (target.textContent || target.value || target.getAttribute('aria-label') || '').trim();
+  var loginish = /next|weiter|continue|sign ?in|log ?in|anmelden|einloggen|login|los|submit|absenden/i.test(label);
+  var signupish = /creat|regist|cadastr|sign ?up|konto\s*erstell|neu\s*anmeld|jetzt\s*registrier/i.test(label);
+  var textFields = fields.filter(textish).length;
+  var identifierStep = textFields === 1 && done.indexOf('username') !== -1 && done.indexOf('password') === -1;
+  var advance = ADVANCE && !signupish &&
+                (identifierStep || (done.indexOf('password') !== -1 && loginish));
+  if (!advance) return 'filled:' + done.join('+');
+  setTimeout(function () {
+    press(target);
+    if (target.getAttribute && target.getAttribute('aria-disabled') === 'true') {
+      setTimeout(function () { press(target); }, 250);   // retry once it re-renders
+    }
+  }, 80);
+  return 'filled:' + done.join('+') + ';next:' + (target.id || target.tagName.toLowerCase());
 })();
 """
 
 
-def fill_js(user, password):
+def fill_js(user, password, advance=True):
     return (FILL_JS_TEMPLATE
             .replace("__USER__", json.dumps(user))
-            .replace("__PASS__", json.dumps(password)))
+            .replace("__PASS__", json.dumps(password))
+            .replace("__ADVANCE__", "true" if advance else "false"))
 
 
 def totp_js(token):
@@ -511,7 +613,8 @@ def main():
         # only honest feedback of what happened ("filled:username+password",
         # "filled:username" on a Google/Microsoft first step, or "no-fields"
         # when the page has no fillable input, e.g. an account chooser).
-        qute("jseval " + one_line(fill_js(user, password)))
+        qute("jseval " + one_line(fill_js(user, password,
+                                          advance=not args.fill_only)))
         return 0
     except KpError as exc:
         error(str(exc))

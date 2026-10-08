@@ -2,6 +2,37 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.15.0] — 2026-10-08
+
+### Fixed
+- **Password fill now advances two-step logins.** The fill only ever typed into
+  fields, so on Microsoft the password page — which does not exist until "Next" is
+  pressed — was never reached and the fill looked like it did nothing. It now
+  presses the login action: `identifierNext`/`passwordNext` (Google), `idSIButton9`
+  (Microsoft), the form's submit button, or a button labelled
+  Next/Weiter/Continue/Sign in/Anmelden. The press sends the full pointer sequence
+  (a bare `.click()` is ignored by div-based buttons) and retries once if the control
+  is still `aria-disabled`. It only advances on a real login step — a single
+  identifier field, or a filled password with a login-shaped button — and never on a
+  sign-up/registration/checkout form. `--fill-only` turns advancing off.
+- **Google's "This browser or app may not be secure" is fixed.** qutebrowser ships a
+  site-specific quirk (`ua-google`) that sends a *Firefox* UA to accounts.google.com;
+  on a Chromium engine that is an inconsistent fingerprint, and Google answers it by
+  refusing the sign-in. That quirk is now skipped and a real Chrome UA is sent (real
+  Chromium version, no QtWebEngine token) — for Google and Microsoft alike.
+- Fill robustness: `div[role=button]` Next buttons are no longer skipped (the
+  visibility check rejected anything with `tabIndex === -1`, which every div has),
+  fields inside open shadow roots are found, decoy fields (`name="hiddenPassword"`)
+  are never filled, and a page whose fields report no layout still gets filled.
+
+Verified ad hoc (30 checks) in a real engine driving the actual fill template: Google
+identifier step (email filled, decoy untouched, Next pressed), Google password step,
+both Microsoft steps (filled, idSIButton9 clicked, form submitted), a registration
+form filled but NOT submitted, `--fill-only` pressing nothing, a React-style tracked
+input still reporting the filled value, and the one-line FIFO rendering keeping the
+regexes intact — plus a sandbox run confirming Chrome (not Firefox) goes to
+accounts.google.com.
+
 ## [1.14.0] — 2026-10-08
 
 ### Added

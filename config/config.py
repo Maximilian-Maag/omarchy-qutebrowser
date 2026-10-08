@@ -143,6 +143,46 @@ c.content.blocking.hosts.lists = [
 ]
 
 # ---------------------------------------------------------------------------
+# Sign-in pages reject QtWebEngine
+# ---------------------------------------------------------------------------
+# Google answers the sign-in flow with "This browser or app may not be secure"
+# because the auto-generated UA advertises QtWebEngine, which Google classifies as
+# an embedded browser. Keep the real Chromium version — so the JS Google serves
+# still matches the engine — and drop only the QtWebEngine token, for the sign-in
+# hosts only. Microsoft's login gets the same treatment; it does the same checks.
+def _signin_user_agent():
+    chromium = ""
+    try:
+        from qutebrowser.utils import version as _qb_version
+        chromium = _qb_version.qtwebengine_versions().chromium or ""
+    except Exception:
+        chromium = ""
+    return ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/%s Safari/537.36" % (chromium or "124.0.0.0"))
+
+
+_sso_ua = _signin_user_agent()
+
+# qutebrowser ships a "site-specific quirk" that sends a *Firefox* UA to
+# accounts.google.com (qutebrowser#5182). On a Chromium engine that is an
+# inconsistent fingerprint — the UA says Firefox while the JS/fonts/settings say
+# Chrome — and Google answers it with "This browser or app may not be secure".
+# Skip the quirk and send a real Chrome UA instead (the paths with /* are the same
+# patterns the quirk uses, so ours replaces it either way).
+try:
+    _skips = list(c.content.site_specific_quirks.skip) or []            # noqa: F821
+    if "ua-google" not in _skips:
+        c.content.site_specific_quirks.skip = _skips + ["ua-google"]    # noqa: F821
+except Exception:
+    pass
+
+for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
+             "https://accounts.youtube.com", "https://accounts.youtube.com/*",
+             "https://login.microsoftonline.com", "https://login.live.com",
+             "https://login.microsoft.com"):
+    config.set("content.headers.user_agent", _sso_ua, _sso)        # noqa: F821
+
+# ---------------------------------------------------------------------------
 # Search engines
 # Override DEFAULT to change the search engine used when typing in the bar.
 # ---------------------------------------------------------------------------

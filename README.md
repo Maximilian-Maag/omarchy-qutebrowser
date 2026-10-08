@@ -86,6 +86,26 @@ bundled script on modern sign-in pages:
 
 Requires `python-pynacl` (`omarchy pkg add python-pynacl`) — the install script handles this automatically.
 
+## Password fill on two-step logins
+
+`,pw` (and `<Alt+Shift+u>`) fill the password-manager match for the page and then
+**press the login action**, because Microsoft's and Google's sign-in pages do not
+have a password field at all until "Next" is pressed:
+
+- Pressed: `identifierNext` / `passwordNext` (Google), `idSIButton9` (Microsoft),
+  the form's submit button, else a button labelled Next / Weiter / Continue /
+  Sign in / Anmelden.
+- Only on a real login step: a single identifier field, or a filled password with a
+  login-shaped button. A sign-up, registration or checkout form is filled but never
+  submitted.
+- `qute-keepassxc-fill --fill-only` fills without pressing anything.
+
+Google's "This browser or app may not be secure" is handled too: qutebrowser's
+built-in `ua-google` quirk sends a *Firefox* UA to accounts.google.com, which is an
+inconsistent fingerprint on a Chromium engine. That quirk is skipped and a real
+Chrome UA is sent (the real Chromium version, no QtWebEngine token), for Google and
+Microsoft sign-in hosts only.
+
 ## Ad-free YouTube
 
 Two layers, so an ad is normally never scheduled in the first place:
