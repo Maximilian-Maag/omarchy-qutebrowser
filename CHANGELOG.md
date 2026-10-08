@@ -2,6 +2,19 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.4] — 2026-10-08
+
+### Fixed
+- **Focus jumping to the summary (properly this time).** `renderSummary` ended with
+  `setActive(0)`, and the summary card is block 0 — so rendering it moved the reader onto
+  the summary. The first two attempts keyed off the wrong thing: `factCheckArticle` and
+  `renderFactCard` never rebuild blocks at all, and the card is rendered on **restore**
+  (`if (pState.summary)`), where it does not yet exist in the DOM, so "the card already
+  existed" fell through to `setActive(0)` — exactly the fact-check → reload case reported.
+  The rule is now unconditional: a rebuild never steals focus. The active paragraph is
+  held by text key (inserting the card shifts every index) and restored; the card takes
+  focus only when nothing is active.
+
 ## [1.17.3] — 2026-10-08
 
 ### Fixed
