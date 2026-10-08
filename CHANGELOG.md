@@ -2,6 +2,36 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.13.0] — 2026-10-08
+
+### Changed — no more video ads
+- **The player request no longer carries ad parameters.** YouTube builds its ad
+  schedule from `adParams` / `adBreakParams` / `adSlots` / `adPlacements` /
+  `adSignalsInfo` in the outgoing `/youtubei/v1/player` call. Those are now
+  stripped from the request body (XHR *and* fetch) before it leaves the browser, so
+  no pre-roll or mid-roll ad is ever scheduled — previously an ad was only skipped
+  after YouTube had already prepared it.
+- New `config/blocking/youtube-ads.txt`: 15 network rules for the YouTube ad
+  endpoints plus DoubleClick/AdSense/GTM, wired in as the **first** entry of
+  `content.blocking.adblock.lists` so blocking does not depend on an upstream list
+  being current. `googlevideo.com` is deliberately not blocked — that is the video
+  CDN itself.
+- The dropped-request list also covers `ads.youtube.com`, `2mdn.net`,
+  `googletagservices`/`googletagmanager`, `/youtubei/v1/player/ad_break` and
+  `/youtubei/v1/log_event`.
+
+### Upgrading
+Run `:config-source` and then `,ab` (`:adblock-update`) once: qutebrowser caches its
+parsed filter lists, so a newly added list only takes effect after that refresh.
+
+Verified ad hoc in a real engine: the outgoing player request loses every ad
+parameter while `videoId`/`context`/`playbackContext` survive (both XHR and fetch),
+the ad endpoint is still rewritten to `about:blank`, qutebrowser loads the new list
+as its first adblock list, and every rule is a network rule that leaves googlevideo
+alone. Not verified end to end: a live blocked request — the sandbox reused
+qutebrowser's cached parsed rules from before the new list existed, so that check
+was inconclusive.
+
 ## [1.12.0] — 2026-10-08
 
 ### Added

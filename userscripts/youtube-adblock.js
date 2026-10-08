@@ -21,7 +21,23 @@
     'adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams',
     'playerLegacyDesktopWatchAdsRenderer', 'adBreakParams', 'adParams',
     'clientSideAdBreakParams', 'adBreakServiceRenderer', 'playerAdParams', 'adThrottled',
+    'adSignalsInfo', 'adBreakHeartbeatParams2', 'playerAdParamsRenderer',
   ];
+
+  // Strip the ad parameters from an OUTGOING player/next request body. YouTube
+  // builds the ad schedule from these, so removing them means the response comes
+  // back with no pre-roll or mid-roll ad to play at all — the difference between
+  // "skip the ad quickly" and "the ad never exists".
+  function stripRequestAds(text) {
+    if (typeof text !== 'string' || text.length < 2) return null;
+    var head = text.trim().charAt(0);
+    if (head !== '{' && head !== '[') return null;
+    try {
+      return JSON.stringify(stripAds(JSON.parse(text)));
+    } catch (e) {
+      return null;
+    }
+  }
 
   function stripAds(obj) {
     try {
@@ -85,7 +101,11 @@
       if (isAdUrl(url)) {
         return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
       }
-      var p = _fetch.apply(this, arguments);
+      if (PLAYER_RE.test(url) && init && typeof init.body === 'string') {
+        var reqClean = stripRequestAds(init.body);
+        if (reqClean !== null) init = Object.assign({}, init, { body: reqClean });
+      }
+      var p = _fetch.call(this, input, init);
       if (PLAYER_RE.test(url)) {
         return p.then(function (resp) {
           try {
@@ -113,10 +133,14 @@
     };
 
     var _send = XMLHttpRequest.prototype.send;
-    XMLHttpRequest.prototype.send = function () {
+    XMLHttpRequest.prototype.send = function (body) {
       try {
         var self = this;
         if (self.__yt_url && PLAYER_RE.test(self.__yt_url)) {
+          if (typeof body === 'string') {
+            var bodyClean = stripRequestAds(body);
+            if (bodyClean !== null) { arguments[0] = bodyClean; }
+          }
           // Patch at readystatechange(4): that fires BEFORE load/onload, so the
           // site's own onload handler already sees the stripped body.
           var done = false;
@@ -155,6 +179,12 @@
     /\/pcs\/activeview/,
     /adformat=/,
     /[?&]oad=/,
+    /ads\.youtube\.com/,
+    /2mdn\.net/,
+    /googletagservices\.com/,
+    /googletagmanager\.com/,
+    /\/youtubei\/v1\/player\/ad_break/,
+    /\/youtubei\/v1\/log_event/,
   ];
   function isAdUrl(u) { return typeof u === 'string' && AD_URLS.some(function (r) { return r.test(u); }); }
 

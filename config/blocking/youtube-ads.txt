@@ -1,0 +1,28 @@
+! omarchy-qutebrowser — video ad blocking (YouTube pre-roll, mid-roll, overlay)
+!
+! Request-level companion to userscripts/youtube-adblock.js. qutebrowser's blocker
+! can only filter requests, so this list kills the ad endpoints; everything that
+! has to happen inside the page (hiding ad slots, fast-forwarding an ad that still
+! plays, and stripping adParams from the player request) is done by the userscript.
+!
+! Deliberately NOT blocked: googlevideo.com — that is the video CDN itself, and
+! blocking it takes the actual video with it.
+
+! ── YouTube ad endpoints ──
+||youtube.com/pagead/
+||youtube.com/ptracking
+||youtube.com/api/stats/ads
+||youtube.com/get_midroll_info
+||youtube.com/pcs/activeview
+||ads.youtube.com^
+||youtube.com/youtubei/v1/player/ad_break
+
+! ── Google ad delivery (page + in-video) ──
+||googlesyndication.com^
+||doubleclick.net^
+||googleadservices.com^
+||googleads.g.doubleclick.net^
+||static.doubleclick.net^
+||2mdn.net^
+||googletagservices.com^
+||google.com/pagead/

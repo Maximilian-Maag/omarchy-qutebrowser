@@ -2,8 +2,9 @@
 omarchy-qutebrowser: main configuration
 - Omarchy theme integration (all 22 stock themes + user themes)
 - KeePassXC password fill (Alt+Shift+u in insert mode, pw in normal mode)
-- Built-in ad blocker (hosts + Brave/uBlock lists)
-- YouTube ad-free via Greasemonkey script
+- Built-in ad blocker (hosts + Brave/uBlock lists + our YouTube video-ad list)
+- YouTube ad-free via Greasemonkey script (blocks ad requests, strips adParams from
+  the player request so no ad is ever scheduled, and skips any ad that still plays)
 - yt-dlp video/MP3 download with live progress terminal
 - Per-domain zoom persistence
 """
@@ -105,10 +106,25 @@ c.content.headers.do_not_track = True
 # ---------------------------------------------------------------------------
 # Ad blocking — built-in host blocker + Brave/uBlock filter lists
 # ---------------------------------------------------------------------------
+# Our own video-ad list first: it targets the YouTube pre-roll/mid-roll ad
+# endpoints specifically, so blocking does not depend on an upstream list being
+# current. Resolved through the config.py symlink, so it works no matter where
+# the plugin is installed.
+_video_ads_list = None
+try:
+    _cfg_real = os.path.realpath(os.path.join(config_dir, "config.py"))
+    _candidate = os.path.join(os.path.dirname(os.path.dirname(_cfg_real)),
+                              "config", "blocking", "youtube-ads.txt")
+    if os.path.isfile(_candidate):
+        _video_ads_list = _candidate
+except Exception:
+    _video_ads_list = None
+
 c.content.blocking.enabled = True
 c.content.blocking.method = "both"      # hosts + adblock filter lists
 c.content.blocking.hosts.block_subdomains = True
 c.content.blocking.adblock.lists = [
+    *([_video_ads_list] if _video_ads_list else []),
     "https://easylist.to/easylist/easylist.txt",
     "https://easylist.to/easylist/easyprivacy.txt",
     "https://secure.fanboy.co.nz/fanboy-annoyance.txt",

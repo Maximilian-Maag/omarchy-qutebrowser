@@ -88,14 +88,30 @@ Requires `python-pynacl` (`omarchy pkg add python-pynacl`) — the install scrip
 
 ## Ad-free YouTube
 
-A Greasemonkey content script runs on every `*.youtube.com` page and:
+Two layers, so an ad is normally never scheduled in the first place:
 
-- Immediately skips any skippable pre-roll ad
-- Jumps non-skippable ads to their end (150ms latency max)
-- Removes ad DOM elements (banners, overlays, sidebar ads)
-- Intercepts `fetch`/`XHR` calls to Google ad network endpoints
+**In the page** — a Greasemonkey content script runs on every `*.youtube.com` page:
 
-Combined with the built-in host-based ad blocker, most ads never load at all.
+- **Strips the ad parameters out of the outgoing player request** (`adParams`,
+  `adBreakParams`, `adSlots`, `adPlacements`, `adSignalsInfo`, …) before it leaves
+  the browser. YouTube builds its ad schedule from those, so with them gone there is
+  no pre-roll or mid-roll ad to play at all — not merely one that gets skipped.
+- Removes the same fields from player/`ytInitialData` responses as a second line.
+- Drops requests to the ad endpoints, and removes ad DOM elements (banners,
+  overlays, sidebar ads, the "ad blocker detected" wall).
+- Still skips/force-ends any ad that does manage to play, and restores your own
+  playback speed afterwards.
+
+**At the network layer** — `config/blocking/youtube-ads.txt` (15 rules for the
+YouTube ad endpoints plus DoubleClick/AdSense/GTM) is the first entry in
+`content.blocking.adblock.lists`, alongside EasyList and the uBO lists. It is
+versioned with the plugin, so YouTube ad blocking does not depend on an upstream
+list being current. `googlevideo.com` is deliberately left alone — that is the
+video CDN itself.
+
+After a plugin update run `:config-source`, then `,ab` (`:adblock-update`) once:
+qutebrowser caches parsed filter lists, so a newly added list only takes effect
+after that refresh.
 
 ## Key bindings
 
