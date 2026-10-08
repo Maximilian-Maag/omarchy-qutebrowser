@@ -125,6 +125,15 @@ Passage:
 Headlines from other outlets:
 %s"""
 
+# Whole-article fact-check: many passages, one call.
+FACT_ARTICLE_PROMPT = """You are a fact-checking analyst. Below are numbered passages from one article; under each are recent headlines from other outlets found for that passage.
+For EACH passage decide whether other outlets corroborate it ("supported"), contradict it ("disputed"), the headlines are unrelated/insufficient ("unclear"), or the passage is opinion/analysis ("opinion").
+Return ONLY a JSON array, one object per passage, in the same order, no markdown:
+[{"index": <int>, "verdict": "supported"|"disputed"|"unclear"|"opinion", "confidence": <int 0-100>, "reason": "<max 20 words>"}]
+
+Passages:
+%s"""
+
 
 def extract_json(text):
     """Pull the JSON object/array out of an LLM response.
@@ -237,6 +246,66 @@ def fact_check(para, query=None):
     return result
 
 
+def _headlines_for(text, cache):
+    """Search news for one passage, memoised on the query."""
+    query = news_query(text)
+    if query in cache:
+        return cache[query]
+    hits, seen = [], set()
+    for lang in ("de", "en"):
+        try:
+            found = news_search(query, lang)
+        except Exception:  # noqa: BLE001
+            found = []
+        for h in found:
+            key = h["headline"].lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append(h)
+    cache[query] = (query, hits)
+    return cache[query]
+
+
+def fact_check_article(paras, min_len=40, max_paras=12):
+    """Fact-check many paragraphs in one model call (one news search each)."""
+    cache, picked = {}, []
+    for i, p in enumerate(paras):
+        text = (p or "").strip()
+        if len(text) < min_len:          # skip headings / fragments
+            continue
+        query, hits = _headlines_for(text, cache)
+        picked.append({"index": i, "text": text, "query": query, "headlines": hits[:6]})
+        if len(picked) >= max_paras:
+            break
+    if not picked:
+        raise ValueError("no checkable paragraphs")
+    listing = "\n".join(
+        "%d. %s\n   Headlines: %s" % (
+            b["index"], b["text"][:600],
+            "; ".join("%s (%s)" % (h["headline"], h["source"] or "?") for h in b["headlines"]) or "(none)")
+        for b in picked)
+    arr = run_ai(FACT_ARTICLE_PROMPT % listing)
+    by_index = {b["index"]: b for b in picked}
+    out = []
+    for j, item in enumerate(arr if isinstance(arr, list) else []):
+        if not isinstance(item, dict):
+            continue
+        idx = item.get("index")
+        if not isinstance(idx, int) or idx not in by_index:
+            idx = picked[j]["index"] if j < len(picked) else None
+        if idx is None or idx not in by_index:
+            continue
+        src = by_index[idx]
+        merged = dict(item)
+        merged["index"] = idx
+        merged["query"] = src["query"]
+        merged["headlines"] = src["headlines"]
+        merged["outlets"] = sorted({h["source"] for h in src["headlines"] if h["source"]})[:12]
+        out.append(merged)
+    return out
+
+
 def ai_answer(payload):
     mode = payload.get("mode")
     if mode == "paragraph":
@@ -259,6 +328,11 @@ def ai_answer(payload):
         if not para:
             raise ValueError("empty paragraph")
         return fact_check(para, payload.get("query"))
+    if mode == "factcheck_article":
+        paras = payload.get("paragraphs") or []
+        if not paras:
+            raise ValueError("no paragraphs")
+        return fact_check_article(paras)
     raise ValueError("unknown mode %r" % mode)
 
 

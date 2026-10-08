@@ -232,6 +232,10 @@ config.bind(",M", "jseval -q " + _reader_js % "r.markAll();",   mode="normal")  
 config.bind(",s", "jseval -q " + _reader_js % "r.summarize();", mode="normal")  # noqa
 config.bind(",e", "jseval -q " + _reader_js % "r.score();",     mode="normal")  # noqa  AI score (also ◀ / ←)
 config.bind(",c", "jseval -q " + _reader_js % "r.factcheck();", mode="normal")  # noqa  fact-check (also ▶ / →)
+config.bind(",o", "jseval -q " + _reader_js % "r.wheelopen();", mode="normal")  # noqa  open the focused wheel article
+config.bind(",O", "jseval -q " + _reader_js % "r.factcheckall();", mode="normal")  # noqa  fact-check whole article
+# Enter opens the focused supporting-article preview (no-op off the reader).
+config.bind("<Enter>", "jseval -q " + _reader_js % "r.wheelopen();", mode="normal")  # noqa
 
 # Per-domain zoom persistence
 # qutebrowser does not expose the current zoom to userscripts, so zoom is

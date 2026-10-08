@@ -1,8 +1,16 @@
-/* omarchy-qutebrowser reader — distraction-free reading + local-AI provenance/summary.
+/* omarchy-qutebrowser reader — distraction-free reading + local-AI provenance,
+ * summary and fact-checking.
  *
  * Article extraction: Mozilla Readability (reader/readability.js, Apache-2.0).
  * AI: POST /ai on the loopback reader-server, which runs the local agent
- *     (`hermes -z … --cli`). Nothing leaves the machine.
+ *     (`hermes -z … --cli`). Nothing leaves the machine except the Google News
+ *     RSS lookups used for fact-checking.
+ *
+ * Actions
+ *   ◀ / ← / ,e        AI-score the active paragraph   (double → remove AI-written)
+ *   ▶ / → / ,c        fact-check the active paragraph (creates the article wheel);
+ *                     pressed again → focus the wheel  (double → whole article)
+ *   wheel focused:    ↑/↓ or ,n/,N scroll previews · Enter or ,o open · Esc leave
  */
 (function () {
   'use strict';
@@ -25,7 +33,8 @@
   var articleEl = document.getElementById('article');
   var statusEl = document.getElementById('status');
   var BLOCK_TAGS = { P: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, BLOCKQUOTE: 1, PRE: 1, FIGURE: 1, UL: 1, OL: 1, TABLE: 1 };
-  var blocks = [];   // {el, text}
+  var WIDGETS = '.ai-btn, .ai-badge, .fact-card, .fact-wheel';
+  var blocks = [];   // {el, text, summary}
   var active = -1;
 
   function $(s) { return document.querySelector(s); }
@@ -36,7 +45,7 @@
     statusEl.classList.toggle('error', !!isError);
   }
 
-  // ── extract article ─────────────────────────────────────────────────
+  // ── extract article ─────��───────────────────────────────────────────
   function extract() {
     var parsed = null;
     try {
@@ -67,6 +76,13 @@
     }
   }
 
+  // Text of a block without the annotation widgets (used as the AI payload).
+  function blockText(el) {
+    var clone = el.cloneNode(true);
+    Array.prototype.forEach.call(clone.querySelectorAll(WIDGETS), function (n) { n.remove(); });
+    return (clone.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
   // ── turn the content into addressable blocks ────────────────────────
   function buildBlocks() {
     // Idempotent: strip previous annotation, then re-collect. Re-runnable because
@@ -81,7 +97,7 @@
     (function walk(nodes) {
       nodes.forEach(function (el) {
         if (el.nodeType !== 1) return;
-        if (el.classList.contains('fact-card')) return;   // annotation, not content
+        if (el.classList.contains('fact-card') || el.classList.contains('fact-wheel')) return;
         // An already-marked block (incl. .summary-blk) is a block; don't descend
         // into it or its list/table children would become blocks of their own.
         if (el.classList.contains('blk') || BLOCK_TAGS[el.tagName]) collected.push(el);
@@ -96,8 +112,7 @@
       el.classList.add('blk');
       el.dataset.i = i;
       el.tabIndex = 0;
-      var text = (el.innerText || el.textContent || '').trim();   // before chip is added
-      blocks.push({ el: el, text: text, summary: isSummary });
+      blocks.push({ el: el, text: blockText(el), summary: isSummary });
 
       if (!isSummary) {
         var btn = document.createElement('button');
@@ -122,6 +137,7 @@
 
   // ── focus / paragraph-wise navigation ───────────────────────────────
   function setActive(i) {
+    if (focusedWheel != null && focusedWheel !== i) blurWheel();
     if (active >= 0 && blocks[active]) blocks[active].el.classList.remove('active');
     active = i;
     if (i >= 0 && blocks[i]) {
@@ -141,6 +157,7 @@
 
   function move(d) {
     if (!blocks.length) return;
+    blurWheel();
     if (!document.body.classList.contains('focus-mode')) toggleFocus(true);
     var i = active < 0 ? (d > 0 ? 0 : blocks.length - 1) : active + d;
     setActive(Math.max(0, Math.min(blocks.length - 1, i)));
@@ -284,29 +301,21 @@
       .finally(function () { btn.disabled = false; btn.textContent = old; });
   }
 
-  // ── paragraph actions: ← AI score,  → fact-check ────────────────────
-  function currentIndex() {
-    if (active < 0) { toggleFocus(true); setActive(0); }
-    return active;
-  }
-
-  function scoreActive() {
-    var i = currentIndex();
-    if (i >= 0) markParagraph(i);
-  }
-
+  // ── fact-check: verdict card LEFT, article "wheel" RIGHT ────────────
   var FACT_CLASS = { supported: 'fact-supported', disputed: 'fact-disputed',
                      unclear: 'fact-unclear', opinion: 'fact-opinion' };
+  var facts = {};            // block index -> fact-check result
+  var wheels = {};           // block index -> {el, items, index, reel, counter}
+  var focusedWheel = null;
+  var WHEEL_ITEM_H = 4;      // rem — must match .wheel-item height in reader.css
 
-  function renderFact(i, res) {
+  function renderFactCard(i, res) {
     var b = blocks[i];
     if (!b) return;
-    var old = articleEl.querySelector('.fact-card');
-    if (old) old.remove();
-
+    var card = b.el.querySelector('.fact-card') || document.createElement('div');
     var verdict = String(res.verdict || 'unclear').toLowerCase();
-    var card = document.createElement('div');
     card.className = 'fact-card ' + (FACT_CLASS[verdict] || 'fact-unclear');
+    card.innerHTML = '';
 
     var head = document.createElement('div');
     head.className = 'fact-head';
@@ -321,33 +330,140 @@
       r.textContent = res.reason;
       card.appendChild(r);
     }
-
-    var hits = res.headlines || [];
-    if (hits.length) {
-      var ul = document.createElement('ul');
-      ul.className = 'fact-sources';
-      hits.forEach(function (h) {
-        var li = document.createElement('li');
-        var a = document.createElement('a');
-        a.href = h.url || '#';
-        a.rel = 'noreferrer noopener';
-        a.target = '_blank';
-        a.textContent = (h.source ? h.source + ': ' : '') + h.headline;
-        li.appendChild(a);
-        ul.appendChild(li);
-      });
-      card.appendChild(ul);
-    }
-
     if (res.query) {
       var q = document.createElement('div');
-      q.className = 'fact-reason';
-      q.textContent = (hits.length ? 'search: ' : 'no recent headlines found for ') + '“' + res.query + '”';
+      q.className = 'fact-query';
+      q.textContent = 'search: ' + res.query;
       card.appendChild(q);
     }
+    if (!card.parentNode) b.el.appendChild(card);
+  }
 
-    b.el.after(card);
-    card.scrollIntoView({ block: 'nearest' });
+  function paintWheel(i) {
+    var w = wheels[i];
+    if (!w) return;
+    var n = w.items.length;
+    w.index = Math.max(0, Math.min(n - 1, w.index));
+    var offset = Math.min(Math.max(w.index - 1, 0), Math.max(n - 3, 0));
+    w.reel.style.transform = 'translateY(-' + (offset * WHEEL_ITEM_H) + 'rem)';
+    Array.prototype.forEach.call(w.reel.children, function (c, k) {
+      c.classList.toggle('cur', k === w.index);
+    });
+    w.counter.textContent = (w.index + 1) + '/' + n;
+  }
+
+  function renderWheel(i) {
+    var b = blocks[i], res = facts[i];
+    if (!b || !res) return;
+    var items = res.headlines || [];
+    var old = b.el.querySelector('.fact-wheel');
+    if (old) old.remove();
+    delete wheels[i];
+    if (focusedWheel === i) focusedWheel = null;
+    if (!items.length) return;
+
+    var el = document.createElement('div');
+    el.className = 'fact-wheel';
+    el.tabIndex = 0;
+
+    var head = document.createElement('div');
+    head.className = 'wheel-head';
+    var label = document.createElement('span');
+    label.textContent = 'Supporting articles';
+    var counter = document.createElement('span');
+    head.appendChild(label); head.appendChild(counter);
+    el.appendChild(head);
+
+    var vp = document.createElement('div');
+    vp.className = 'wheel-viewport';
+    var reel = document.createElement('div');
+    reel.className = 'wheel-reel';
+    items.forEach(function (h, n) {
+      var it = document.createElement('div');
+      it.className = 'wheel-item';
+      var src = document.createElement('span');
+      src.className = 'wo';
+      src.textContent = h.source || 'source';
+      var hl = document.createElement('span');
+      hl.className = 'wh';
+      hl.textContent = h.headline || '';
+      it.appendChild(src); it.appendChild(hl);
+      it.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var w = wheels[i];
+        if (!w) return;
+        focusedWheel = i;
+        w.index = n;
+        paintWheel(i);
+        wheelOpen();
+      });
+      reel.appendChild(it);
+    });
+    vp.appendChild(reel);
+    el.appendChild(vp);
+
+    var foot = document.createElement('div');
+    foot.className = 'wheel-foot';
+    [['▲', -1], ['▼', 1], ['Open ↵', 0]].forEach(function (spec) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = spec[0];
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        focusedWheel = i;
+        if (spec[1]) wheelMove(spec[1]); else wheelOpen();
+      });
+      foot.appendChild(btn);
+    });
+    el.appendChild(foot);
+
+    el.addEventListener('wheel', function (ev) {
+      ev.preventDefault();
+      focusedWheel = i;
+      wheelMove(ev.deltaY > 0 ? 1 : -1);
+    }, { passive: false });
+
+    b.el.appendChild(el);
+    wheels[i] = { el: el, items: items, index: 0, reel: reel, counter: counter };
+    paintWheel(i);
+  }
+
+  function focusWheel(i) {
+    var w = wheels[i];
+    if (!w) return false;
+    Object.keys(wheels).forEach(function (k) { wheels[k].el.classList.remove('focused'); });
+    w.el.classList.add('focused');
+    try { w.el.focus(); } catch (e) {}
+    focusedWheel = i;
+    setStatus('Supporting articles ' + (w.index + 1) + '/' + w.items.length +
+              ' — ↑/↓ scroll · Enter open · Esc leave');
+    return true;
+  }
+
+  function blurWheel() {
+    if (focusedWheel != null && wheels[focusedWheel]) wheels[focusedWheel].el.classList.remove('focused');
+    focusedWheel = null;
+  }
+
+  function wheelFocused() { return focusedWheel != null && !!wheels[focusedWheel]; }
+
+  function wheelMove(d) {
+    if (!wheelFocused()) return;
+    var w = wheels[focusedWheel];
+    w.index = (w.index + d + w.items.length) % w.items.length;
+    paintWheel(focusedWheel);
+    setStatus('Supporting articles ' + (w.index + 1) + '/' + w.items.length);
+  }
+
+  function wheelOpen() {
+    if (!wheelFocused()) return;
+    var w = wheels[focusedWheel];
+    var it = w.items[w.index];
+    if (!it) return;
+    if (it.url) {
+      try { window.open(it.url, '_blank'); } catch (e) { location.href = it.url; }
+    }
+    setStatus('Opened: ' + (it.source || it.url || ''));
   }
 
   function factCheck(i) {
@@ -357,16 +473,105 @@
     if (btn) btn.disabled = true;
     setStatus('Fact-checking paragraph ' + (i + 1) + ' against other news outlets…');
     ai({ mode: 'factcheck', text: b.text }).then(function (res) {
-      renderFact(i, res);
-      setStatus('');
+      facts[i] = res;
+      renderFactCard(i, res);
+      renderWheel(i);
+      setStatus('Fact-check done — → focuses the article wheel');
     }).catch(function (e) {
       setStatus('Fact-check error: ' + e.message, true);
     }).finally(function () { if (btn) btn.disabled = false; });
   }
 
-  function factCheckActive() {
-    var i = currentIndex();
-    if (i >= 0) factCheck(i);
+  function factCheckArticle() {
+    var paras = blocks.map(function (b) { return b.text || ''; });
+    if (!paras.some(function (t) { return t.length; })) return;
+    var btn = $('#btn-fact');
+    if (btn) btn.disabled = true;
+    setStatus('Fact-checking the whole article against other news outlets…');
+    ai({ mode: 'factcheck_article', paragraphs: paras }).then(function (arr) {
+      var n = 0;
+      (Array.isArray(arr) ? arr : []).forEach(function (item) {
+        var idx = typeof item.index === 'number' ? item.index : -1;
+        if (idx >= 0 && idx < blocks.length) {
+          facts[idx] = item;
+          renderFactCard(idx, item);
+          n++;
+        }
+      });
+      setStatus('Fact-checked ' + n + ' paragraph(s) of the article');
+    }).catch(function (e) {
+      setStatus('Fact-check error: ' + e.message, true);
+    }).finally(function () { if (btn) btn.disabled = false; });
+  }
+
+  // ── remove / restore AI-written paragraphs (double ←) ───────────────
+  var removedAI = [];
+
+  function removeAIWritten() {
+    var victims = [];
+    blocks.forEach(function (b, i) { if (b.el.classList.contains('v-ai')) victims.push(i); });
+    if (!victims.length) {
+      setStatus('No paragraph marked as AI-written — press ← (or M) to score first', true);
+      return;
+    }
+    victims.forEach(function (i) {
+      var el = blocks[i].el;
+      removedAI.push({ el: el, next: el.nextSibling });
+      el.remove();
+    });
+    blurWheel();
+    buildBlocks();
+    setActive(Math.min(active, blocks.length - 1));
+    var undo = $('#btn-undo');
+    if (undo) undo.hidden = false;
+    setStatus('Removed ' + victims.length + ' AI-written paragraph(s)');
+  }
+
+  function restoreAI() {
+    removedAI.slice().reverse().forEach(function (rec) {
+      try { articleEl.insertBefore(rec.el, rec.next); } catch (e) { articleEl.appendChild(rec.el); }
+    });
+    removedAI = [];
+    buildBlocks();
+    var undo = $('#btn-undo');
+    if (undo) undo.hidden = true;
+    setStatus('Restored hidden paragraphs');
+  }
+
+  // ── double-tap dispatch (single press vs double press of ← / →) ─────
+  var lastTap = {}, pendingTap = {};
+  function tap(name, single, double) {
+    var now = Date.now();
+    if (lastTap[name] && now - lastTap[name] < 450) {
+      lastTap[name] = 0;
+      if (pendingTap[name]) { clearTimeout(pendingTap[name]); pendingTap[name] = null; }
+      double();
+      return;
+    }
+    lastTap[name] = now;
+    pendingTap[name] = setTimeout(function () {
+      pendingTap[name] = null;
+      lastTap[name] = 0;
+      single();
+    }, 460);
+  }
+
+  function currentIndex() {
+    if (active < 0) { toggleFocus(true); setActive(0); }
+    return active;
+  }
+
+  function scoreArrow() {
+    tap('left', function () { var i = currentIndex(); if (i >= 0) markParagraph(i); }, removeAIWritten);
+  }
+
+  function factArrow() {
+    tap('right', function () {
+      var i = currentIndex();
+      if (i < 0) return;
+      if (facts[i]) { if (!focusWheel(i)) factCheck(i); }
+      else factCheck(i);
+    }, factCheckArticle);
   }
 
   // ── wiring ──────────────────────────────────────────────────────────
@@ -374,10 +579,12 @@
   $('#btn-markall').addEventListener('click', markAll);
   $('#btn-focus').addEventListener('click', function () { toggleFocus(); });
   $('#btn-hide').addEventListener('click', function () { document.body.classList.toggle('chrome-hidden'); });
-  $('#btn-next').addEventListener('click', function () { move(1); });
-  $('#btn-prev').addEventListener('click', function () { move(-1); });
-  $('#btn-score').addEventListener('click', scoreActive);
-  $('#btn-fact').addEventListener('click', factCheckActive);
+  $('#btn-next').addEventListener('click', function () { if (wheelFocused()) wheelMove(1); else move(1); });
+  $('#btn-prev').addEventListener('click', function () { if (wheelFocused()) wheelMove(-1); else move(-1); });
+  $('#btn-score').addEventListener('click', scoreArrow);
+  $('#btn-fact').addEventListener('click', factArrow);
+  var undoBtn = $('#btn-undo');
+  if (undoBtn) undoBtn.addEventListener('click', restoreAI);
 
   var fontSize = 19;
   function bumpFont(delta) {
@@ -388,16 +595,23 @@
   $('#btn-fontdec').addEventListener('click', function () { bumpFont(-2); });
 
   // Expose the actions so qutebrowser keybindings can drive them — page keydown
-  // events are consumed by qutebrowser's normal mode, so the page's own j/k/…
-  // shortcuts only fire in insert mode. config.py binds ,n/,N/,f/,m/,M/,s to
-  // these (guarded, so they no-op on non-reader pages).
+  // events are consumed by qutebrowser's normal mode, so the page's own
+  // shortcuts only fire in insert mode. config.py binds ,n ,N ,e ,c ,o to these
+  // (guarded, so they no-op on non-reader pages).
   window.omarchyReader = {
-    next: function () { move(1); },
-    prev: function () { move(-1); },
+    next: function () { if (wheelFocused()) wheelMove(1); else move(1); },
+    prev: function () { if (wheelFocused()) wheelMove(-1); else move(-1); },
     focus: function () { toggleFocus(); },
-    mark: scoreActive,            // same as the ◀ AI-score action
-    score: scoreActive,
-    factcheck: factCheckActive,
+    mark: scoreArrow,
+    score: scoreArrow,
+    factcheck: factArrow,
+    factcheckall: factCheckArticle,
+    removeai: removeAIWritten,
+    restoreai: restoreAI,
+    wheelnext: function () { if (wheelFocused()) wheelMove(1); },
+    wheelprev: function () { if (wheelFocused()) wheelMove(-1); },
+    wheelopen: wheelOpen,
+    wheelfocus: function () { if (active >= 0) focusWheel(active); },
     markAll: markAll,
     summarize: summarize
   };
@@ -406,13 +620,23 @@
     var t = e.target;
     if (t && t.closest && t.closest('input, textarea, [contenteditable]')) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+    if (wheelFocused()) {
+      switch (e.key) {
+        case 'ArrowDown': case 'j': wheelMove(1); e.preventDefault(); return;
+        case 'ArrowUp': case 'k': wheelMove(-1); e.preventDefault(); return;
+        case 'Enter': wheelOpen(); e.preventDefault(); return;
+        case 'Escape': blurWheel(); e.preventDefault(); return;
+      }
+    }
+
     switch (e.key) {
       case 'j': case 'ArrowDown': move(1); e.preventDefault(); break;
       case 'k': case 'ArrowUp': move(-1); e.preventDefault(); break;
-      case 'ArrowLeft': scoreActive(); e.preventDefault(); break;
-      case 'ArrowRight': factCheckActive(); e.preventDefault(); break;
+      case 'ArrowLeft': scoreArrow(); e.preventDefault(); break;
+      case 'ArrowRight': factArrow(); e.preventDefault(); break;
       case 'f': toggleFocus(); break;
-      case 'm': scoreActive(); break;
+      case 'm': scoreArrow(); break;
       case 'M': markAll(); break;
       case 's': summarize(); break;
       case 'Escape': toggleFocus(false); break;

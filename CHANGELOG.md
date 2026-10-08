@@ -2,6 +2,25 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.8.0] — 2026-10-06
+
+### Added
+- Reader double-tap actions: **`←←` removes the AI-written paragraphs** (with an
+  *Undo* button to restore them) and **`→→` fact-checks the whole article** in one
+  pass (one news search per paragraph, one model call).
+- Reader fact-check presentation: the **verdict card sits to the LEFT of the
+  paragraph** and a **wheel of supporting articles to the RIGHT**. Press `→` to
+  focus the wheel, scroll previews with `↑`/`↓` (or `,n`/`,N`, or the mouse wheel)
+  and press **Enter** (or `,o`, or *Open ↵*) to open the focused article in a new
+  tab. Falls back to an in-flow layout under 1250px.
+- New keybindings `,o` (open focused preview), `<Enter>` (same) and `,O`
+  (whole-article fact-check).
+- `bin/reader-server`: `factcheck_article` mode plus `_headlines_for` memoisation.
+
+### Changed
+- Reader fact-check results are stored per paragraph, so a whole-article run shows
+  a verdict card next to every checked paragraph.
+
 ## [1.7.0] — 2026-10-06
 
 ### Added

@@ -119,7 +119,9 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 | `,m` / `,M` | normal | Reader: mark current paragraph / whole article as AI |
 | `,s` | normal | Reader: AI summary |
 | `,e` | normal | Reader: AI score the current paragraph (also `◀` / `←`) |
-| `,c` | normal | Reader: fact-check the current paragraph against other outlets (also `▶` / `→`) |
+| `,c` | normal | Reader: fact-check the current paragraph against other outlets (also `▶` / `→`; again = focus the wheel, double = whole article) |
+| `,o` | normal | Reader: open the focused supporting-article preview (also `Enter`) |
+| `,O` | normal | Reader: fact-check the whole article |
 | `,z+` / `,z-` | normal | Zoom in / out (remembered per domain) |
 | `,zl` / `gd` | normal | Apply the saved zoom for this domain |
 | `,zr` | normal | Forget this domain's zoom (back to 100%) |
@@ -149,11 +151,15 @@ distraction-free page served locally — no ads, no sidebars, no chrome:
 - **AI score for one paragraph** — the `◀ AI score` button, the `←` key or `,e`
   asks the local model whether that paragraph looks AI-written (human / mixed /
   AI + likelihood), shown as a coloured left border and a score chip.
+  **Double `←`** removes the AI-written paragraphs (an *Undo* button restores them).
 - **Fact-check a paragraph** — the `Fact-check ▶` button, the `→` key or `,c`
   searches Google News (de + en) for the paragraph's key terms and asks the local
-  model whether other news outlets corroborate or contradict it. The verdict,
-  confidence, reason and the matching headlines/outlets appear in a card under the
-  paragraph.
+  model whether other news outlets corroborate or contradict it. The **verdict
+  card appears to the LEFT of the paragraph** and a **wheel of supporting articles
+  to the RIGHT**: press `→` again to focus the wheel, scroll the previews with
+  `↑`/`↓` (or `,n`/`,N`, or the mouse wheel) and press **Enter** (or `,o`, or the
+  *Open ↵* button) to open the focused article in a new tab.
+  **Double `→`** fact-checks the whole article in one pass.
 - **Mark the whole article** — the *Mark AI text* button (`,M`) scores every
   paragraph in one pass.
 - **AI summary** — the *Summarize* button (`,s`) adds a summary block *above the
