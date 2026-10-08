@@ -167,7 +167,10 @@
   function genericOverlaySweep() {
     try {
       var vw = window.innerWidth, vh = window.innerHeight;
-      var nodes = document.body ? document.body.children : [];
+      // Snapshot: document.body.children is a LIVE collection, and processBanner()
+      // / remove() shifts it, so looping it directly skips the element that slides
+      // into the current index (a second overlay survived the pass).
+      var nodes = document.body ? Array.prototype.slice.call(document.body.children) : [];
       for (var i = 0; i < nodes.length; i++) {
         var el = nodes[i];
         if (!isVisible(el)) continue;

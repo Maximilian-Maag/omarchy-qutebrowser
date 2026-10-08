@@ -2,6 +2,27 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.9.3] — 2026-10-06
+
+Second round of the deep-dive sweep (a parallel read-only review of the scripts).
+
+### Fixed
+- `userscripts/youtube-adblock.js`: after an ad the script forced `playbackRate`
+  back to exactly 1×, so anyone watching at 1.5×/2× was silently dropped to normal
+  speed on every pre-/mid-roll ad. The viewer's own rate is remembered and restored.
+- `userscripts/youtube-adblock.js`: `if (!clickSkip()) forceEnd(video); else
+  forceEnd(video);` — both branches identical; the dead branch is gone.
+- `userscripts/cookie-banner-remover.js`: the generic overlay sweep looped
+  `document.body.children`, a LIVE HTMLCollection, while `el.remove()` shifted it —
+  so a second qualifying overlay was skipped for that pass. It iterates a snapshot.
+- `userscripts/qute-keepassxc-fill`: cancelling the account picker (Esc) blocked
+  for the whole 60 s deadline. The shell's `> outfile` truncates the output file the
+  moment the terminal launches, so "the file has content" never became true; the
+  shell now writes a done-marker when gum exits, so a cancel returns at once.
+- `userscripts/qute-keepassxc-fill`: a reply larger than a single `recv()` (a
+  `get-logins` with many matching entries) was parsed from one fragment and could
+  fail; the reply is now read until it parses, with a clear error if it never does.
+
 ## [1.9.2] — 2026-10-06
 
 ### Fixed

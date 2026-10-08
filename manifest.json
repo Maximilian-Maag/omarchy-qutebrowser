@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "Maximilian-Maag.qutebrowser",
   "name": "Qutebrowser",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "author": "Maximilian-Maag",
   "license": "MIT",
   "description": "Qutebrowser as the default Omarchy browser — all 22 stock themes, KeePassXC password fill, ad-free YouTube, and built-in ad blocking.",

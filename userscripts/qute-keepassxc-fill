@@ -110,7 +110,27 @@ class KeePassXC:
         self.sock.send(json.dumps(payload).encode())
 
     def _recv_plain(self):
-        return json.loads(self.sock.recv(65536).decode())
+        # A Unix stream socket has no message boundaries: one recv() can return
+        # only part of a large reply (e.g. get-logins with many matching entries),
+        # which would fail to parse. Read until the JSON is complete.
+        chunks = []
+        while True:
+            try:
+                chunk = self.sock.recv(65536)
+            except (BlockingIOError, InterruptedError):
+                continue
+            if not chunk:
+                break
+            chunks.append(chunk)
+            try:
+                json.loads(b"".join(chunks).decode())
+                break
+            except ValueError:
+                continue
+        data = b"".join(chunks)
+        if not data:
+            raise KpError(-1, "empty response from KeePassXC")
+        return json.loads(data.decode())
 
     def _send(self, payload, **top):
         nonce = nacl.utils.random(nacl.public.Box.NONCE_SIZE)
@@ -274,9 +294,14 @@ def pick_account(creds, url):
     listfile.write("\n".join(labels) + "\n")
     listfile.close()
     outfile = listfile.name + ".out"
+    donefile = outfile + ".done"
 
-    cmd = "gum choose --header 'KeePassXC — select account for %s' < %s > %s" % (
-        domain, listfile.name, outfile)
+    # The shell writes `donefile` once gum has exited (chosen OR cancelled). The
+    # `> outfile` redirection truncates outfile the moment the terminal launches,
+    # so a cancelled picker leaves a 0-byte file and polling the file alone sat
+    # here for the full 60 s before reporting "No account selected".
+    cmd = ("gum choose --header 'KeePassXC — select account for %s' < %s > %s; : > %s"
+           % (domain, listfile.name, outfile, donefile))
     try:
         subprocess.Popen(
             ["setsid", "uwsm-app", "--", "xdg-terminal-exec",
@@ -289,8 +314,10 @@ def pick_account(creds, url):
 
     deadline = time.time() + 60
     while time.time() < deadline:
+        if os.path.exists(donefile):        # the picker finished
+            break
         try:
-            if os.path.getsize(outfile) > 0:
+            if os.path.getsize(outfile) > 0:   # fast path: a choice landed
                 break
         except OSError:
             pass
@@ -302,7 +329,7 @@ def pick_account(creds, url):
     except OSError:
         choice = ""
     finally:
-        for p in (listfile.name, outfile):
+        for p in (listfile.name, outfile, donefile):
             try:
                 os.unlink(p)
             except OSError:

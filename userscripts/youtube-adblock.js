@@ -200,10 +200,12 @@
   }
 
   var adWasOn = false;
+  var savedRate = null;      // the viewer's own speed, put back after the ad
 
   function forceEnd(video) {
     try {
       if (!video) return;
+      if (savedRate === null) savedRate = video.playbackRate;
       var d = video.duration;
       if (isFinite(d) && d > 0 && video.currentTime < d) video.currentTime = d;
       if (video.playbackRate < 16) video.playbackRate = 16;   // blast through if seek is ignored
@@ -211,7 +213,10 @@
   }
 
   function restore(video) {
-    try { if (video && video.playbackRate !== 1) video.playbackRate = 1; } catch (e) {}
+    // Restore whatever speed the viewer had — not a hard-coded 1×, which used to
+    // silently drop someone watching at 1.5×/2× back to normal after every ad.
+    try { if (video && savedRate !== null) video.playbackRate = savedRate; } catch (e) {}
+    savedRate = null;
   }
 
   function tick() {
@@ -220,8 +225,8 @@
       var video = document.querySelector('video.html5-main-video, video');
       if (adShowing(player)) {
         adWasOn = true;
-        if (!clickSkip()) forceEnd(video);       // non-skippable → jump to the end
-        else forceEnd(video);                    // skippable  → also finish the tail
+        clickSkip();                             // click it if this ad is skippable
+        forceEnd(video);                         // finish the tail either way
         removeAdElements();
       } else if (adWasOn) {
         adWasOn = false;
