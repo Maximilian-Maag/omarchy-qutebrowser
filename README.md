@@ -117,7 +117,8 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 | `,n` / `,N` | normal | Reader: next / previous paragraph |
 | `,f` | normal | Reader: toggle paragraph focus |
 | `,m` / `,M` | normal | Reader: mark current paragraph / whole article as AI |
-| `,s` | normal | Reader: AI summary |
+| `,s` | normal | Reader: AI summary of the article |
+| `,S` | normal | Reader: AI summary of the current paragraph (also `Ctrl+↑`) |
 | `,e` | normal | Reader: AI score the current paragraph (also `◀` / `←`) |
 | `,c` | normal | Reader: fact-check the current paragraph against other outlets (also `▶` / `→`; again = focus the wheel, double = whole article) |
 | `,o` | normal | Reader: open the focused supporting-article preview (also `Enter`) |
@@ -158,12 +159,19 @@ distraction-free page served locally — no ads, no sidebars, no chrome:
   card appears to the LEFT of the paragraph** and a **wheel of supporting articles
   to the RIGHT**: press `→` again to focus the wheel, scroll the previews with
   `↑`/`↓` (or `,n`/`,N`, or the mouse wheel) and press **Enter** (or `,o`, or the
-  *Open ↵* button) to open the focused article in a new tab.
+  *Open ↵* button) to open the focused article in a new tab. Press **`←`** to leave
+  the wheel and return to the paragraph.
   **Double `→`** fact-checks the whole article in one pass.
 - **Mark the whole article** — the *Mark AI text* button (`,M`) scores every
   paragraph in one pass.
 - **AI summary** — the *Summarize* button (`,s`) adds a summary block *above the
   title* which takes part in paragraph focus, so `↑` from the headline reaches it.
+  Pressing **`↑` on the first paragraph summarises the whole article**, and
+  **`Ctrl+↑` summarises just the current paragraph** (one sentence; `,S` does the
+  same).
+- **Side layout** — the fact-check card and the article wheel sit in side padding
+  the article *reserves* for them, so they never overflow or cover the text,
+  full-screen or not; under ~1180px wide they simply flow under the paragraph.
 - **Text size** — `A−` / `A+` in the toolbar.
 
 The per-paragraph `AI?` button and score chip sit in a reserved gutter beside the

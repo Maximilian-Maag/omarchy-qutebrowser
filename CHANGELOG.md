@@ -2,6 +2,29 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.9.0] — 2026-10-06
+
+### Added
+- Reader: **`↑` on the first paragraph summarises the whole article** (there is no
+  paragraph above to move to), and **`Ctrl+↑` summarises just the current
+  paragraph** — one sentence, shown as a card under it. `,S` does the same.
+- `bin/reader-server`: `summary_para` mode (one-sentence paragraph summary).
+
+### Changed
+- Reader: **`←` while the supporting-article wheel is focused leaves the wheel and
+  returns to the paragraph** (instead of scoring it). `Esc` still works too.
+- Reader: the verdict card / article wheel now sit in side padding that `#article`
+  *reserves*, so they no longer overflow the window or cover the text when the
+  window is not full-screen; below 1180px they flow inline under the paragraph.
+- Reader: `↑` navigation is instant again (the paragraph summary moved to Ctrl+↑).
+
+### Fixed
+- Reader: rebuilding the paragraph list (e.g. after adding the summary) left the
+  previous paragraph highlighted as well — stale `.active` state is now cleared on
+  rebuild and the current paragraph stays lit.
+- `Ctrl+↑` is bound as `<Ctrl+Up>`: qutebrowser rejects `<Ctrl+ArrowUp>` as an
+  invalid key name (the page-side handler still uses the DOM name `ArrowUp`).
+
 ## [1.8.0] — 2026-10-06
 
 ### Added

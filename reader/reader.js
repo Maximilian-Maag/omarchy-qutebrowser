@@ -33,7 +33,7 @@
   var articleEl = document.getElementById('article');
   var statusEl = document.getElementById('status');
   var BLOCK_TAGS = { P: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, BLOCKQUOTE: 1, PRE: 1, FIGURE: 1, UL: 1, OL: 1, TABLE: 1 };
-  var WIDGETS = '.ai-btn, .ai-badge, .fact-card, .fact-wheel';
+  var WIDGETS = '.ai-btn, .ai-badge, .fact-card, .fact-wheel, .para-summary';
   var blocks = [];   // {el, text, summary}
   var active = -1;
 
@@ -88,6 +88,9 @@
     // Idempotent: strip previous annotation, then re-collect. Re-runnable because
     // the AI summary is inserted as a block above the title *after* first build.
     Array.from(articleEl.querySelectorAll('.ai-btn, .ai-badge')).forEach(function (n) { n.remove(); });
+    // Elements are re-collected below, so drop stale highlight/annotation state —
+    // otherwise a rebuild (e.g. after inserting the summary) leaves TWO blocks lit.
+    Array.from(articleEl.querySelectorAll('.blk.active')).forEach(function (n) { n.classList.remove('active'); });
     blocks = [];
 
     var roots = Array.from(articleEl.children);
@@ -97,7 +100,8 @@
     (function walk(nodes) {
       nodes.forEach(function (el) {
         if (el.nodeType !== 1) return;
-        if (el.classList.contains('fact-card') || el.classList.contains('fact-wheel')) return;
+        if (el.classList.contains('fact-card') || el.classList.contains('fact-wheel') ||
+            el.classList.contains('para-summary')) return;
         // An already-marked block (incl. .summary-blk) is a block; don't descend
         // into it or its list/table children would become blocks of their own.
         if (el.classList.contains('blk') || BLOCK_TAGS[el.tagName]) collected.push(el);
@@ -133,6 +137,9 @@
         el.addEventListener('click', function () { setActive(parseInt(el.dataset.i, 10)); });
       }
     });
+
+    // keep the current paragraph highlighted across a rebuild
+    if (active >= 0 && blocks[active]) blocks[active].el.classList.add('active');
   }
 
   // ── focus / paragraph-wise navigation ───────────────────────────────
@@ -299,6 +306,59 @@
       setStatus('');
     }).catch(function (e) { setStatus('AI error: ' + e.message, true); })
       .finally(function () { btn.disabled = false; btn.textContent = old; });
+  }
+
+  // ── paragraph summary (double ↑) ────────────────────────────────────
+  function renderParaSummary(i, res) {
+    var b = blocks[i];
+    if (!b) return;
+    var old = b.el.querySelector('.para-summary');
+    if (old) old.remove();
+    var card = document.createElement('div');
+    card.className = 'para-summary';
+
+    var head = document.createElement('div');
+    head.className = 'ps-head';
+    head.textContent = 'Paragraph ' + (i + 1) + ' · AI summary';
+    card.appendChild(head);
+
+    // one bullet per paragraph: render the single sentence as one line
+    var lines = res.summary || [];
+    if (typeof lines === 'string') lines = [lines];
+    if (lines.length === 1) {
+      var p = document.createElement('div');
+      p.className = 'ps-line';
+      p.textContent = lines[0];
+      card.appendChild(p);
+    } else {
+      var ul = document.createElement('ul');
+      lines.forEach(function (t) {
+        var li = document.createElement('li');
+        li.textContent = t;
+        ul.appendChild(li);
+      });
+      card.appendChild(ul);
+    }
+
+    if (res.reason) {
+      var r = document.createElement('div');
+      r.className = 'ps-reason';
+      r.textContent = res.reason;
+      card.appendChild(r);
+    }
+    b.el.appendChild(card);
+  }
+
+  function summarizeParagraph(i) {
+    var b = blocks[i];
+    if (!b || !b.text) return;
+    setStatus('Asking the local AI to summarise paragraph ' + (i + 1) + '…');
+    ai({ mode: 'summary_para', text: b.text }).then(function (res) {
+      renderParaSummary(i, res);
+      setStatus('Paragraph ' + (i + 1) + ' summarised');
+    }).catch(function (e) {
+      setStatus('AI error: ' + e.message, true);
+    });
   }
 
   // ── fact-check: verdict card LEFT, article "wheel" RIGHT ────────────
@@ -540,9 +600,10 @@
 
   // ── double-tap dispatch (single press vs double press of ← / →) ─────
   var lastTap = {}, pendingTap = {};
-  function tap(name, single, double) {
+  function tap(name, single, double, win) {
+    win = win || 460;
     var now = Date.now();
-    if (lastTap[name] && now - lastTap[name] < 450) {
+    if (lastTap[name] && now - lastTap[name] < Math.min(win, 450)) {
       lastTap[name] = 0;
       if (pendingTap[name]) { clearTimeout(pendingTap[name]); pendingTap[name] = null; }
       double();
@@ -553,7 +614,7 @@
       pendingTap[name] = null;
       lastTap[name] = 0;
       single();
-    }, 460);
+    }, win);
   }
 
   function currentIndex() {
@@ -562,6 +623,12 @@
   }
 
   function scoreArrow() {
+    // While the supporting-article wheel is focused, ← goes back to the paragraph.
+    if (wheelFocused()) {
+      blurWheel();
+      setStatus('Paragraph focus' + (active >= 0 ? ' — paragraph ' + (active + 1) : ''));
+      return;
+    }
     tap('left', function () { var i = currentIndex(); if (i >= 0) markParagraph(i); }, removeAIWritten);
   }
 
@@ -574,13 +641,25 @@
     }, factCheckArticle);
   }
 
+  // ↑ — previous paragraph, or the whole-article summary on the FIRST paragraph
+  // (there is nowhere above to go). Ctrl+↑ summarises just this paragraph, so ↑
+  // itself stays instant (no double-press delay).
+  function upOnce() {
+    var i = active < 0 ? 0 : active;
+    if (i <= 0) summarize(); else move(-1);
+  }
+
+  function summarizeActiveParagraph() {
+    summarizeParagraph(active < 0 ? 0 : active);
+  }
+
   // ── wiring ──────────────────────────────────────────────────────────
   $('#btn-summary').addEventListener('click', summarize);
   $('#btn-markall').addEventListener('click', markAll);
   $('#btn-focus').addEventListener('click', function () { toggleFocus(); });
   $('#btn-hide').addEventListener('click', function () { document.body.classList.toggle('chrome-hidden'); });
   $('#btn-next').addEventListener('click', function () { if (wheelFocused()) wheelMove(1); else move(1); });
-  $('#btn-prev').addEventListener('click', function () { if (wheelFocused()) wheelMove(-1); else move(-1); });
+  $('#btn-prev').addEventListener('click', function () { if (wheelFocused()) wheelMove(-1); else upOnce(); });
   $('#btn-score').addEventListener('click', scoreArrow);
   $('#btn-fact').addEventListener('click', factArrow);
   var undoBtn = $('#btn-undo');
@@ -600,7 +679,8 @@
   // (guarded, so they no-op on non-reader pages).
   window.omarchyReader = {
     next: function () { if (wheelFocused()) wheelMove(1); else move(1); },
-    prev: function () { if (wheelFocused()) wheelMove(-1); else move(-1); },
+    prev: function () { if (wheelFocused()) wheelMove(-1); else upOnce(); },
+    summarypara: summarizeActiveParagraph,
     focus: function () { toggleFocus(); },
     mark: scoreArrow,
     score: scoreArrow,
@@ -619,12 +699,20 @@
   document.addEventListener('keydown', function (e) {
     var t = e.target;
     if (t && t.closest && t.closest('input, textarea, [contenteditable]')) return;
+
+    // Ctrl+↑ summarises the current paragraph
+    if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'k')) {
+      e.preventDefault();
+      summarizeActiveParagraph();
+      return;
+    }
     if (e.ctrlKey || e.altKey || e.metaKey) return;
 
     if (wheelFocused()) {
       switch (e.key) {
         case 'ArrowDown': case 'j': wheelMove(1); e.preventDefault(); return;
         case 'ArrowUp': case 'k': wheelMove(-1); e.preventDefault(); return;
+        case 'ArrowLeft': scoreArrow(); e.preventDefault(); return;   // back to the paragraph
         case 'Enter': wheelOpen(); e.preventDefault(); return;
         case 'Escape': blurWheel(); e.preventDefault(); return;
       }
@@ -632,7 +720,7 @@
 
     switch (e.key) {
       case 'j': case 'ArrowDown': move(1); e.preventDefault(); break;
-      case 'k': case 'ArrowUp': move(-1); e.preventDefault(); break;
+      case 'k': case 'ArrowUp': upOnce(); e.preventDefault(); break;
       case 'ArrowLeft': scoreArrow(); e.preventDefault(); break;
       case 'ArrowRight': factArrow(); e.preventDefault(); break;
       case 'f': toggleFocus(); break;

@@ -14,10 +14,10 @@
     <span id="doc-title" title="__URL__">__TITLE__</span>
   </div>
   <div id="bar-right">
-    <button id="btn-score" title="AI score this paragraph (←, double ← removes AI-written ones)">◀ AI score</button>
+    <button id="btn-score" title="AI score this paragraph (←; when the article wheel is focused, ← returns to the paragraph; double ← removes AI-written ones)">◀ AI score</button>
     <button id="btn-fact" title="Fact-check this paragraph against other news outlets (→, press again to focus the wheel, double → for the whole article)">Fact-check ▶</button>
     <button id="btn-undo" hidden title="Restore the removed AI-written paragraphs">Undo</button>
-    <button id="btn-prev" title="Previous paragraph (k)">↑</button>
+    <button id="btn-prev" title="Previous paragraph (↑). On the first paragraph this summarises the whole article; Ctrl+↑ summarises the paragraph.">↑</button>
     <button id="btn-next" title="Next paragraph (j)">↓</button>
     <button id="btn-fontdec" title="Smaller text">A−</button>
     <button id="btn-fontinc" title="Larger text">A+</button>
@@ -39,8 +39,9 @@
 <footer id="hint">
   <span><kbd>f</kbd> focus</span>
   <span><kbd>j</kbd>/<kbd>k</kbd> paragraphs</span>
-  <span><kbd>←</kbd> AI score · <kbd>←←</kbd> remove AI</span>
+  <span><kbd>←</kbd> AI score · <kbd>←←</kbd> remove AI · <kbd>←</kbd> back from wheel</span>
   <span><kbd>→</kbd> fact-check · <kbd>→→</kbd> whole article</span>
+  <span><kbd>↑</kbd> back · <kbd>↑</kbd> on first para = whole-article summary · <kbd>Ctrl+↑</kbd> paragraph summary</span>
   <span><kbd>Enter</kbd> open article</span>
   <span><kbd>m</kbd> mark</span>
   <span><kbd>M</kbd> mark all</span>

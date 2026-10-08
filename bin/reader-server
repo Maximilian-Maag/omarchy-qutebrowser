@@ -134,6 +134,14 @@ Return ONLY a JSON array, one object per passage, in the same order, no markdown
 Passages:
 %s"""
 
+# Summarise one paragraph.
+PARA_SUMMARY_PROMPT = """Summarise the single passage below in exactly ONE short sentence, in the same language as the passage. Say what it claims or states, not how it is written. Do not add a second sentence.
+Return ONLY compact JSON, no markdown:
+{"summary": ["<one sentence>"], "reason": "<max 12 words>"}
+
+Passage:
+%s"""
+
 
 def extract_json(text):
     """Pull the JSON object/array out of an LLM response.
@@ -333,6 +341,11 @@ def ai_answer(payload):
         if not paras:
             raise ValueError("no paragraphs")
         return fact_check_article(paras)
+    if mode == "summary_para":
+        para = (payload.get("text") or "").strip()
+        if not para:
+            raise ValueError("empty paragraph")
+        return run_ai(PARA_SUMMARY_PROMPT % para[:8000])
     raise ValueError("unknown mode %r" % mode)
 
 

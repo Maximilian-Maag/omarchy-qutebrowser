@@ -13,6 +13,8 @@
   --yellow: #f1fa8c;
   --measure: 42rem;
   --gutter: 4.6rem;   /* reserved right gutter for the per-paragraph AI chip */
+  --side-l: 0rem;     /* side padding reserved for the verdict card / wheel */
+  --side-r: 0rem;     /*   (raised by the min-width media query further down) */
 }
 
 * { box-sizing: border-box; }
@@ -103,13 +105,10 @@ body.chrome-hidden #bar, body.chrome-hidden #hint, body.chrome-hidden #status { 
 .blk.summary-blk .badge.v-mixed { background: color-mix(in srgb, var(--yellow) 22%, transparent); color: var(--yellow); }
 .blk.summary-blk .badge.v-ai    { background: color-mix(in srgb, var(--red) 22%, transparent); color: var(--red); }
 
-/* ── fact-check: verdict card LEFT of the paragraph ─────────────────── */
+/* ── fact-check: verdict card, LEFT of the paragraph ────────────────── */
+/* Below the wide breakpoint the card simply flows inline under the paragraph. */
 .fact-card {
-  position: absolute;
-  top: 0;
-  right: calc(100% + 1.1rem);
-  width: 15rem;
-  max-width: 40vw;
+  margin: 0.45rem 0 0;
   padding: 0.6rem 0.75rem;
   border-radius: 8px;
   background: var(--bg-dark);
@@ -117,7 +116,6 @@ body.chrome-hidden #bar, body.chrome-hidden #hint, body.chrome-hidden #status { 
   border-left: 3px solid var(--fg-dim);
   font-size: 13px;
   line-height: 1.45;
-  z-index: 3;
 }
 .fact-card.fact-supported { border-left-color: var(--green); }
 .fact-card.fact-disputed  { border-left-color: var(--red); }
@@ -127,17 +125,12 @@ body.chrome-hidden #bar, body.chrome-hidden #hint, body.chrome-hidden #status { 
 .fact-reason { margin-top: 0.35rem; }
 .fact-query { margin-top: 0.35rem; font-size: 11px; color: var(--fg-dim); opacity: 0.75; }
 
-/* ── supporting-article "wheel" RIGHT of the paragraph ──────────────── */
+/* ── supporting-article "wheel", RIGHT of the paragraph ─────────────── */
 .fact-wheel {
-  position: absolute;
-  top: 0;
-  left: calc(100% + 1.1rem);
-  width: 17rem;
-  max-width: 42vw;
+  margin: 0.45rem 0 0;
   background: var(--bg-dark);
   border: 1px solid var(--bg-light);
   border-radius: 8px;
-  z-index: 3;
   overflow: hidden;
   font-size: 12px;
   outline: 2px solid transparent;
@@ -166,16 +159,46 @@ body.chrome-hidden #bar, body.chrome-hidden #hint, body.chrome-hidden #status { 
 }
 .fact-wheel .wheel-foot button:hover { border-color: var(--accent); color: var(--accent); }
 
-@media (max-width: 1250px) {
-  .fact-card, .fact-wheel { position: static; width: auto; max-width: none; margin: 0.4rem 0 0; }
-  .fact-wheel .wheel-viewport { height: 9rem; }
+/* ── per-paragraph AI summary (double ↑) ────────────────────────────── */
+.para-summary {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 7px;
+  background: var(--bg-dark);
+  border: 1px solid var(--bg-light);
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.para-summary .ps-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-dim); }
+.para-summary ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
+.para-summary .ps-line { margin-top: 0.25rem; }
+.para-summary .ps-reason { margin-top: 0.25rem; font-size: 12px; color: var(--fg-dim); font-style: italic; }
+
+/* Wide windows: the verdict card and the article wheel sit in side padding that
+   #article *reserves* (see --side-l / --side-r below), so they can never overflow
+   the window or cover the text — at any window size, full-screen or not. Below the
+   breakpoint they just flow inline under the paragraph. */
+@media (min-width: 1180px) {
+  :root { --side-l: 15rem; --side-r: 17rem; }
+  .fact-card {
+    position: absolute; top: 0; left: calc(-1 * var(--side-l) + 0.75rem);
+    width: calc(var(--side-l) - 1.1rem); margin: 0; z-index: 3;
+  }
+  .fact-wheel {
+    position: absolute; top: 0; left: calc(100% + 0.25rem);
+    width: calc(var(--side-r) - 1.25rem); margin: 0; z-index: 3;
+  }
+}
+@media (min-width: 1500px) {
+  :root { --side-l: 16rem; --side-r: 18rem; }
 }
 
 /* ── article ─────────────────────────────────────────────────────────── */
 #article {
-  max-width: var(--measure);
+  max-width: calc(var(--measure) + var(--side-l) + var(--side-r));
   margin: 2rem auto 6rem;
-  padding: 0 1.25rem;
+  padding: 0 calc(1.25rem + var(--side-r)) 0 calc(1.25rem + var(--side-l));
   outline: none;
 }
 #article h1 { font-size: 1.9em; line-height: 1.25; margin: 0.2em 0 0.6em; }
