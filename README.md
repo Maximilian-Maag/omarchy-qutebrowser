@@ -118,6 +118,8 @@ Combined with the built-in host-based ad blocker, most ads never load at all.
 | `,f` | normal | Reader: toggle paragraph focus |
 | `,m` / `,M` | normal | Reader: mark current paragraph / whole article as AI |
 | `,s` | normal | Reader: AI summary |
+| `,e` | normal | Reader: AI score the current paragraph (also `◀` / `←`) |
+| `,c` | normal | Reader: fact-check the current paragraph against other outlets (also `▶` / `→`) |
 | `,z+` / `,z-` | normal | Zoom in / out (remembered per domain) |
 | `,zl` / `gd` | normal | Apply the saved zoom for this domain |
 | `,zr` | normal | Forget this domain's zoom (back to 100%) |
@@ -144,13 +146,22 @@ distraction-free page served locally — no ads, no sidebars, no chrome:
 - **Paragraph-wise reading** — the current paragraph is highlighted (focus mode)
   and the rest dimmed. Move with the `↑`/`↓` toolbar buttons or the `,n` / `,N`
   keys; `,f` toggles focus; clicking a paragraph jumps to it.
-- **Mark possibly AI-written text** — every paragraph has an always-visible
-  `AI?` button that asks the local model for a verdict (human / mixed / AI +
-  likelihood), shown as a coloured left border and a badge; the *Mark AI text*
-  button (`,M`) does the whole article in one pass.
-- **AI summary** — the *Summarize* button (`,s`) shows a bullet summary plus an
-  overall AI-likelihood badge.
+- **AI score for one paragraph** — the `◀ AI score` button, the `←` key or `,e`
+  asks the local model whether that paragraph looks AI-written (human / mixed /
+  AI + likelihood), shown as a coloured left border and a score chip.
+- **Fact-check a paragraph** — the `Fact-check ▶` button, the `→` key or `,c`
+  searches Google News (de + en) for the paragraph's key terms and asks the local
+  model whether other news outlets corroborate or contradict it. The verdict,
+  confidence, reason and the matching headlines/outlets appear in a card under the
+  paragraph.
+- **Mark the whole article** — the *Mark AI text* button (`,M`) scores every
+  paragraph in one pass.
+- **AI summary** — the *Summarize* button (`,s`) adds a summary block *above the
+  title* which takes part in paragraph focus, so `↑` from the headline reaches it.
 - **Text size** — `A−` / `A+` in the toolbar.
+
+The per-paragraph `AI?` button and score chip sit in a reserved gutter beside the
+text, never on top of it.
 
 Everything runs against the **local** agent (`hermes -z … --cli`) via a small
 loopback HTTP server (`bin/reader-server`, started on demand, bound to 127.0.0.1

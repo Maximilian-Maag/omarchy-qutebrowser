@@ -2,6 +2,23 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.7.0] — 2026-10-06
+
+### Added
+- Reader: **per-paragraph AI score** (`◀ AI score` button / `←` key / `,e`) and
+  **fact-check against other news outlets** (`Fact-check ▶` button / `→` key /
+  `,c`). Fact-check pulls Google News RSS (German + English) for the paragraph's
+  key terms and asks the local model whether other outlets corroborate or
+  contradict it, then shows the verdict, confidence, reason and the matching
+  headlines/outlets in a card below the paragraph.
+
+### Changed
+- Reader: the AI summary is now a **focusable block rendered above the title** and
+  part of paragraph focus, so `↑` from the headline reaches it (it used to be a
+  side panel that focus navigation skipped).
+- Reader: the per-paragraph `AI?` button / score chip now sit in a **reserved
+  right gutter** beside the text instead of overlapping the paragraph.
+
 ## [1.6.0] — 2026-10-06
 
 ### Changed

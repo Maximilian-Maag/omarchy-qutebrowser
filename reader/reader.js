@@ -69,7 +69,11 @@
 
   // ── turn the content into addressable blocks ────────────────────────
   function buildBlocks() {
+    // Idempotent: strip previous annotation, then re-collect. Re-runnable because
+    // the AI summary is inserted as a block above the title *after* first build.
+    Array.from(articleEl.querySelectorAll('.ai-btn, .ai-badge')).forEach(function (n) { n.remove(); });
     blocks = [];
+
     var roots = Array.from(articleEl.children);
     if (roots.length === 1 && !BLOCK_TAGS[roots[0].tagName]) roots = Array.from(roots[0].children);
 
@@ -77,7 +81,10 @@
     (function walk(nodes) {
       nodes.forEach(function (el) {
         if (el.nodeType !== 1) return;
-        if (BLOCK_TAGS[el.tagName]) collected.push(el);
+        if (el.classList.contains('fact-card')) return;   // annotation, not content
+        // An already-marked block (incl. .summary-blk) is a block; don't descend
+        // into it or its list/table children would become blocks of their own.
+        if (el.classList.contains('blk') || BLOCK_TAGS[el.tagName]) collected.push(el);
         else walk(Array.from(el.children));
       });
     })(roots);
@@ -85,25 +92,31 @@
     if (!collected.length) collected = Array.from(articleEl.querySelectorAll('p'));
 
     collected.forEach(function (el, i) {
+      var isSummary = el.classList.contains('summary-blk');
       el.classList.add('blk');
       el.dataset.i = i;
       el.tabIndex = 0;
-      var text = (el.innerText || el.textContent || '').trim();
-      blocks.push({ el: el, text: text });
+      var text = (el.innerText || el.textContent || '').trim();   // before chip is added
+      blocks.push({ el: el, text: text, summary: isSummary });
 
-      var btn = document.createElement('button');
-      btn.className = 'ai-btn';
-      btn.type = 'button';
-      btn.textContent = 'AI?';
-      btn.title = 'Ask the local AI whether this paragraph looks AI-written';
-      btn.addEventListener('click', function (ev) { ev.stopPropagation(); markParagraph(i); });
-      el.appendChild(btn);
+      if (!isSummary) {
+        var btn = document.createElement('button');
+        btn.className = 'ai-btn';
+        btn.type = 'button';
+        btn.textContent = 'AI?';
+        btn.title = 'AI score for this paragraph (←)';
+        btn.addEventListener('click', function (ev) { ev.stopPropagation(); markParagraph(i); });
+        el.appendChild(btn);
 
-      var badge = document.createElement('span');
-      badge.className = 'ai-badge';
-      el.appendChild(badge);
+        var badge = document.createElement('span');
+        badge.className = 'ai-badge';
+        el.appendChild(badge);
+      }
 
-      el.addEventListener('click', function () { setActive(i); });
+      if (!el.dataset.bound) {
+        el.dataset.bound = '1';
+        el.addEventListener('click', function () { setActive(parseInt(el.dataset.i, 10)); });
+      }
     });
   }
 
@@ -201,21 +214,61 @@
       .finally(function () { btn.disabled = false; btn.textContent = old; });
   }
 
+  // The summary becomes a real block (#article's first child, above the title)
+  // so paragraph focus reaches it — press ↑ from the headline.
   function renderSummary(res) {
-    var panel = $('#summary');
-    panel.hidden = false;
-    var list = $('#summary-list');
-    list.innerHTML = '';
-    (res.summary || []).forEach(function (b) {
-      var li = document.createElement('li');
-      li.textContent = b;
-      list.appendChild(li);
-    });
+    var existing = articleEl.querySelector('.summary-blk');
+    var el = existing || document.createElement('div');
+    el.className = 'blk summary-blk';
+    el.tabIndex = 0;
+    el.innerHTML = '';
+
+    var head = document.createElement('div');
+    head.className = 'summary-head';
+    var label = document.createElement('span');
+    label.textContent = 'AI summary';
+    head.appendChild(label);
+
     var v = String(res.verdict || '').toLowerCase();
-    var sv = $('#summary-verdict');
-    sv.className = 'badge ' + (v ? verdictClass(v) : '');
-    sv.textContent = v ? (v.toUpperCase() + (typeof res.ai_likelihood === 'number' ? ' · ' + res.ai_likelihood + '%' : '')) : '';
-    $('#summary-reason').textContent = res.reason || '';
+    if (v) {
+      var badge = document.createElement('span');
+      badge.className = 'badge ' + verdictClass(v);
+      badge.textContent = v.toUpperCase() +
+        (typeof res.ai_likelihood === 'number' ? ' · ' + res.ai_likelihood + '%' : '');
+      head.appendChild(badge);
+    }
+
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = '×';
+    close.title = 'Remove the summary';
+    close.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      el.remove();
+      buildBlocks();
+      setActive(Math.min(active, blocks.length - 1));
+    });
+    head.appendChild(close);
+    el.appendChild(head);
+
+    var ul = document.createElement('ul');
+    (res.summary || []).forEach(function (t) {
+      var li = document.createElement('li');
+      li.textContent = t;
+      ul.appendChild(li);
+    });
+    el.appendChild(ul);
+
+    if (res.reason) {
+      var r = document.createElement('div');
+      r.className = 'reason';
+      r.textContent = res.reason;
+      el.appendChild(r);
+    }
+
+    if (!existing) articleEl.insertBefore(el, articleEl.firstChild);   // above the title
+    buildBlocks();                                                     // → block 0
+    setActive(0);
   }
 
   function summarize() {
@@ -231,14 +284,100 @@
       .finally(function () { btn.disabled = false; btn.textContent = old; });
   }
 
+  // ── paragraph actions: ← AI score,  → fact-check ────────────────────
+  function currentIndex() {
+    if (active < 0) { toggleFocus(true); setActive(0); }
+    return active;
+  }
+
+  function scoreActive() {
+    var i = currentIndex();
+    if (i >= 0) markParagraph(i);
+  }
+
+  var FACT_CLASS = { supported: 'fact-supported', disputed: 'fact-disputed',
+                     unclear: 'fact-unclear', opinion: 'fact-opinion' };
+
+  function renderFact(i, res) {
+    var b = blocks[i];
+    if (!b) return;
+    var old = articleEl.querySelector('.fact-card');
+    if (old) old.remove();
+
+    var verdict = String(res.verdict || 'unclear').toLowerCase();
+    var card = document.createElement('div');
+    card.className = 'fact-card ' + (FACT_CLASS[verdict] || 'fact-unclear');
+
+    var head = document.createElement('div');
+    head.className = 'fact-head';
+    head.textContent = 'Fact-check · ' + verdict.toUpperCase() +
+      (typeof res.confidence === 'number' ? ' · ' + res.confidence + '%' : '') +
+      (res.outlets && res.outlets.length ? ' · ' + res.outlets.length + ' outlets' : '');
+    card.appendChild(head);
+
+    if (res.reason) {
+      var r = document.createElement('div');
+      r.className = 'fact-reason';
+      r.textContent = res.reason;
+      card.appendChild(r);
+    }
+
+    var hits = res.headlines || [];
+    if (hits.length) {
+      var ul = document.createElement('ul');
+      ul.className = 'fact-sources';
+      hits.forEach(function (h) {
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.href = h.url || '#';
+        a.rel = 'noreferrer noopener';
+        a.target = '_blank';
+        a.textContent = (h.source ? h.source + ': ' : '') + h.headline;
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+      card.appendChild(ul);
+    }
+
+    if (res.query) {
+      var q = document.createElement('div');
+      q.className = 'fact-reason';
+      q.textContent = (hits.length ? 'search: ' : 'no recent headlines found for ') + '“' + res.query + '”';
+      card.appendChild(q);
+    }
+
+    b.el.after(card);
+    card.scrollIntoView({ block: 'nearest' });
+  }
+
+  function factCheck(i) {
+    var b = blocks[i];
+    if (!b || !b.text) return;
+    var btn = $('#btn-fact');
+    if (btn) btn.disabled = true;
+    setStatus('Fact-checking paragraph ' + (i + 1) + ' against other news outlets…');
+    ai({ mode: 'factcheck', text: b.text }).then(function (res) {
+      renderFact(i, res);
+      setStatus('');
+    }).catch(function (e) {
+      setStatus('Fact-check error: ' + e.message, true);
+    }).finally(function () { if (btn) btn.disabled = false; });
+  }
+
+  function factCheckActive() {
+    var i = currentIndex();
+    if (i >= 0) factCheck(i);
+  }
+
   // ── wiring ──────────────────────────────────────────────────────────
   $('#btn-summary').addEventListener('click', summarize);
   $('#btn-markall').addEventListener('click', markAll);
   $('#btn-focus').addEventListener('click', function () { toggleFocus(); });
   $('#btn-hide').addEventListener('click', function () { document.body.classList.toggle('chrome-hidden'); });
-  $('#summary-close').addEventListener('click', function () { $('#summary').hidden = true; });
   $('#btn-next').addEventListener('click', function () { move(1); });
   $('#btn-prev').addEventListener('click', function () { move(-1); });
+  $('#btn-score').addEventListener('click', scoreActive);
+  $('#btn-fact').addEventListener('click', factCheckActive);
 
   var fontSize = 19;
   function bumpFont(delta) {
@@ -256,7 +395,9 @@
     next: function () { move(1); },
     prev: function () { move(-1); },
     focus: function () { toggleFocus(); },
-    mark: function () { if (active >= 0) markParagraph(active); },
+    mark: scoreActive,            // same as the ◀ AI-score action
+    score: scoreActive,
+    factcheck: factCheckActive,
     markAll: markAll,
     summarize: summarize
   };
@@ -268,8 +409,10 @@
     switch (e.key) {
       case 'j': case 'ArrowDown': move(1); e.preventDefault(); break;
       case 'k': case 'ArrowUp': move(-1); e.preventDefault(); break;
+      case 'ArrowLeft': scoreActive(); e.preventDefault(); break;
+      case 'ArrowRight': factCheckActive(); e.preventDefault(); break;
       case 'f': toggleFocus(); break;
-      case 'm': if (active >= 0) markParagraph(active); break;
+      case 'm': scoreActive(); break;
       case 'M': markAll(); break;
       case 's': summarize(); break;
       case 'Escape': toggleFocus(false); break;

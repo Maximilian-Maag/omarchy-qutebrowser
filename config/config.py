@@ -230,6 +230,8 @@ config.bind(",f", "jseval -q " + _reader_js % "r.focus();",     mode="normal")  
 config.bind(",m", "jseval -q " + _reader_js % "r.mark();",      mode="normal")  # noqa
 config.bind(",M", "jseval -q " + _reader_js % "r.markAll();",   mode="normal")  # noqa
 config.bind(",s", "jseval -q " + _reader_js % "r.summarize();", mode="normal")  # noqa
+config.bind(",e", "jseval -q " + _reader_js % "r.score();",     mode="normal")  # noqa  AI score (also ◀ / ←)
+config.bind(",c", "jseval -q " + _reader_js % "r.factcheck();", mode="normal")  # noqa  fact-check (also ▶ / →)
 
 # Per-domain zoom persistence
 # qutebrowser does not expose the current zoom to userscripts, so zoom is

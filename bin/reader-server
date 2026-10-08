@@ -25,8 +25,10 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
+import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote_plus
 
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parent.parent
 READER_DIR = PLUGIN_DIR / "reader"
@@ -38,6 +40,9 @@ SERVER_JSON = STATE_DIR / "server.json"
 
 HERMES = os.environ.get("QUTE_READER_AI", "hermes")
 AI_TIMEOUT = int(os.environ.get("QUTE_READER_AI_TIMEOUT", "180"))
+NEWS_TIMEOUT = int(os.environ.get("QUTE_READER_NEWS_TIMEOUT", "15"))
+NEWS_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+           "(KHTML, like Gecko) Chrome/124 Safari/537.36")
 
 
 # --------------------------------------------------------------------------- #
@@ -105,6 +110,21 @@ Return ONLY compact JSON, no markdown:
 Article:
 %s"""
 
+# Fact-check: compare one paragraph against recent headlines from other outlets.
+FACT_PROMPT = """You are a fact-checking analyst. A reader wants to know whether the passage below is corroborated, or contradicted, by other news outlets.
+Under the passage are recent headlines from other outlets (found by searching the passage's key terms).
+
+Return ONLY compact JSON, no markdown:
+{"verdict": "supported"|"disputed"|"unclear"|"opinion", "confidence": <int 0-100>, "reason": "<max 25 words>"}
+
+Use "supported" when several independent outlets report the same thing, "disputed" when they contradict it or frame it very differently, "unclear" when the headlines are unrelated or not enough, and "opinion" when the passage is opinion/analysis rather than a checkable fact.
+
+Passage:
+%s
+
+Headlines from other outlets:
+%s"""
+
 
 def extract_json(text):
     """Pull the JSON object/array out of an LLM response.
@@ -129,12 +149,92 @@ def extract_json(text):
     raise ValueError("no JSON found in model output")
 
 
-def run_ai(prompt):
+def run_ai(prompt, timeout=None):
     proc = subprocess.run([HERMES, "-z", prompt, "--cli"],
-                          capture_output=True, text=True, timeout=AI_TIMEOUT)
+                          capture_output=True, text=True, timeout=timeout or AI_TIMEOUT)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or "hermes failed").strip()[:300])
     return extract_json(proc.stdout)
+
+
+# --------------------------------------------------------------------------- #
+# News search (Google News RSS) — the "other news outlets" for fact-checking
+# --------------------------------------------------------------------------- #
+_STOP = set("""
+der die das den dem des ein eine einen einem eines und oder aber auch nicht nur noch sich sowie beim durch
+für fuer ueber über unter zwischen nach vor bei aus mit von zum zur im in an auf ist sind war waren wird werden
+dass dieser diese dieses als aus kann man mehr sehr
+the a an and or but of to in on for with as at by from is are was were be been being this that these those
+it its has have had will would can could should may might not no more most very than then when where which who
+""".split())
+
+
+def news_query(text):
+    """Build a short search query from a paragraph (distinctive words only)."""
+    words = re.findall(r"[0-9A-Za-zÄÖÜäöüß][0-9A-Za-zÄÖÜäöüß.\-]{3,}", text or "")
+    out, seen = [], set()
+    for w in words:
+        lw = w.lower()
+        if lw in _STOP or lw in seen:
+            continue
+        seen.add(lw)
+        out.append(w)
+        if len(out) >= 8:
+            break
+    return " ".join(out)
+
+
+def news_search(query, lang):
+    hl, gl, ceid = {"en": ("en-US", "US", "US:en"),
+                    "de": ("de", "DE", "DE:de")}[lang]
+    url = ("https://news.google.com/rss/search?q=%s&hl=%s&gl=%s&ceid=%s"
+           % (quote_plus(query), hl, gl, ceid))
+    req = urllib.request.Request(url, headers={"User-Agent": NEWS_UA})
+    with urllib.request.urlopen(req, timeout=NEWS_TIMEOUT) as resp:
+        data = resp.read()
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return []
+    hits = []
+    for item in root.iter("item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        src_el = item.find("source")
+        source = (src_el.text or "").strip() if src_el is not None and src_el.text else ""
+        headline = title
+        if source and title.endswith(" - " + source):
+            headline = title[: -len(" - " + source)]
+        elif not source and " - " in title:
+            headline, source = title.rsplit(" - ", 1)
+        if headline:
+            hits.append({"headline": headline, "source": source, "url": link})
+    return hits
+
+
+def fact_check(para, query=None):
+    """Search news outlets for the paragraph and ask the local model to compare."""
+    query = query or news_query(para)
+    hits, seen = [], set()
+    for lang in ("de", "en"):
+        try:
+            found = news_search(query, lang)
+        except Exception:  # noqa: BLE001 - network/parse issues are non-fatal
+            found = []
+        for h in found:
+            key = h["headline"].lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append(h)
+    lines = "\n".join("- %s (%s)" % (h["headline"], h["source"] or "?")
+                      for h in hits[:15]) or "(no recent headlines found)"
+    result = run_ai(FACT_PROMPT % (para, lines))
+    if isinstance(result, dict):
+        result["query"] = query
+        result["headlines"] = hits[:8]
+        result["outlets"] = sorted({h["source"] for h in hits if h["source"]})[:12]
+    return result
 
 
 def ai_answer(payload):
@@ -154,6 +254,11 @@ def ai_answer(payload):
             raise ValueError("empty article")
         # keep the prompt payload sane
         return run_ai(SUMMARY_PROMPT % text[:20000])
+    if mode == "factcheck":
+        para = (payload.get("text") or "").strip()
+        if not para:
+            raise ValueError("empty paragraph")
+        return fact_check(para, payload.get("query"))
     raise ValueError("unknown mode %r" % mode)
 
 
