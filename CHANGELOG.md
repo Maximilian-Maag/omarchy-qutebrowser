@@ -2,6 +2,18 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.5] — 2026-10-08
+
+### Fixed
+- **The in-paragraph "AI?" button did nothing.** Its click handler called
+  `markParagraph(i)` with the block *index*, but `markParagraph(el)` expects an
+  *element* — it runs `blockText(el)` and returns early on empty text, so passing a
+  number made the button a silent no-op. The `,m` / double-tap path passed a real
+  element, which is why that route worked and this one never did. It now passes the
+  element, which is also the durable handle (`idxOf()` re-resolves the index after a
+  rebuild). Proved in a sandbox driving the real function: index → 0 AI calls,
+  element → 1 AI call with the paragraph text.
+
 ## [1.17.4] — 2026-10-08
 
 ### Fixed

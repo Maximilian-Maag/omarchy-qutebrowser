@@ -291,7 +291,11 @@
         btn.type = 'button';
         btn.textContent = 'AI?';
         btn.title = 'AI score for this paragraph (←)';
-        btn.addEventListener('click', function (ev) { ev.stopPropagation(); markParagraph(i); });
+        // Pass the ELEMENT, not the index: markParagraph() expects one (it calls
+        // blockText/idxOf on it), so `markParagraph(i)` made this button a silent
+        // no-op — text came back empty and the function returned before doing anything.
+        // The element is also the durable handle: idxOf() re-resolves the index.
+        btn.addEventListener('click', function (ev) { ev.stopPropagation(); markParagraph(el); });
         el.appendChild(btn);
 
         var badge = document.createElement('span');
