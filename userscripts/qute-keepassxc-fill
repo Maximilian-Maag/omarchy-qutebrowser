@@ -62,6 +62,12 @@ def parse_args():
     p.add_argument("--totp", action="store_true", help="fill the focused TOTP field")
     p.add_argument("--fill-only", action="store_true",
                    help="only fill the fields — do not press Next/Submit")
+    p.add_argument("--pick", action="store_true",
+                   help="choose among several accounts for this domain (gum picker)")
+    p.add_argument("--account", metavar="N|LOGIN|UUID|TITLE",
+                   help="use this match (1-based number, login, uuid prefix or title)")
+    p.add_argument("--forget", action="store_true",
+                   help="forget the remembered account for this domain")
     p.add_argument("--socket", "-s", default=SOCKET_DEFAULT)
     p.add_argument("--key-file", default=None,
                    help="association key file (default: $QUTE_DATA_DIR/keepassxc.key)")
@@ -273,6 +279,12 @@ def qute(cmd):
         fifo.flush()
 
 
+def msg(text):
+    """Informational message in qutebrowser's status bar."""
+    text = " ".join(str(text).splitlines())
+    qute('message-info "%s"' % text.replace('"', '\\"'))
+
+
 def error(msg):
     # Never smuggle a newline (or a bare quote) into the FIFO command.
     msg = " ".join(str(msg).splitlines())
@@ -281,17 +293,110 @@ def error(msg):
 
 
 # --------------------------------------------------------------------------- #
-# Account selection (gum/fzf in a floating terminal; rofi is usually absent)
-# --------------------------------------------------------------------------- #
-def pick_account(creds, url):
-    if len(creds) == 1:
-        return creds[0]
+# Account selection
+# ---------------------------------------------------------------------------- #
+# When several entries match a domain (two logins on one site, a personal and a
+# work account, ...) the choice is made like this:
+#
+#   ,pw          fill the remembered account; pressing it again advances to the
+#                next match for that domain (the status line says which and how
+#                many there are)
+#   ,ka          open a picker (gum, in a floating terminal) and remember the
+#                choice for that domain
+#   --account N  use match N (1-based) directly; a login, uuid prefix or title
+#                substring also works — and it is remembered
+#   --forget     forget the remembered account for this domain
+#
+# The memory lives in $XDG_STATE_HOME/omarchy-qutebrowser/keepassxc/accounts.json.
+def account_label(cred, i):
+    """One human-readable line: group · title — login."""
+    group = str(cred.get("group") or "").strip()
+    name = str(cred.get("name") or cred.get("title") or "").strip()
+    login = str(cred.get("login") or cred.get("userName") or "").strip()
+    bits = [b for b in (group, name) if b]
+    label = " · ".join(bits) if bits else "(untitled entry)"
+    if login and login not in label:
+        label += " — " + login
+    return "%d\t%s" % (i + 1, label)
 
-    domain = url.split("/")[2] if "//" in url else url
-    labels = []
+
+def _prefs_path():
+    state = os.environ.get("XDG_STATE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".local", "state")
+    return os.path.join(state, "omarchy-qutebrowser", "keepassxc", "accounts.json")
+
+
+def load_prefs():
+    try:
+        with open(_prefs_path()) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_pref(domain, cred, index=None, rotate=True):
+    """Remember which account was chosen for a domain (0600, best effort).
+
+    `rotate` records why: an explicit choice (--account/--pick) is used again next
+    time, whereas a plain fill rotates, so pressing the key repeatedly walks the
+    matches for that domain.
+    """
+    prefs = load_prefs()
+    prefs[domain] = {
+        "login": cred.get("login") or "",
+        "name": cred.get("name") or "",
+        "uuid": cred.get("uuid") or "",
+        "index": index,
+        "rotate": bool(rotate),
+    }
+    path = _prefs_path()
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(prefs, fh, indent=2)
+            fh.write("\n")
+    except OSError:
+        pass
+
+
+def match_index(creds, spec):
+    """Resolve --account N / login / uuid-prefix / title-substring to an index."""
+    spec = str(spec).strip()
+    if not spec:
+        return None
+    if spec.isdigit():
+        i = int(spec) - 1
+        return i if 0 <= i < len(creds) else None
     for i, c in enumerate(creds):
-        name = c.get("name") or c.get("login") or "(unnamed)"
-        labels.append("%d\t%s" % (i, name))
+        for key in ("login", "uuid", "name", "title"):
+            val = str(c.get(key) or "")
+            if val and (val == spec or val.startswith(spec) or spec.lower() in val.lower()):
+                return i
+    return None
+
+
+def remembered_index(creds, url, prefs):
+    domain = url.split("/")[2] if "//" in url else url
+    entry = prefs.get(domain)
+    if not entry:
+        return None
+    for key in ("uuid", "login", "name"):
+        want = str(entry.get(key) or "")
+        if not want:
+            continue
+        for i, c in enumerate(creds):
+            if str(c.get(key) or "") == want:
+                return i
+    i = entry.get("index")
+    return i if isinstance(i, int) and 0 <= i < len(creds) else None
+
+
+def open_picker(creds, url):
+    """gum in a floating terminal (rofi is usually absent). Returns an index or None."""
+    domain = url.split("/")[2] if "//" in url else url
+    labels = [account_label(c, i) for i, c in enumerate(creds)]
     listfile = tempfile.NamedTemporaryFile("w", prefix="kpxc-list-", suffix=".txt", delete=False)
     listfile.write("\n".join(labels) + "\n")
     listfile.close()
@@ -302,7 +407,7 @@ def pick_account(creds, url):
     # `> outfile` redirection truncates outfile the moment the terminal launches,
     # so a cancelled picker leaves a 0-byte file and polling the file alone sat
     # here for the full 60 s before reporting "No account selected".
-    cmd = ("gum choose --header 'KeePassXC — select account for %s' < %s > %s; : > %s"
+    cmd = ("gum choose --header 'KeePassXC — account for %s' < %s > %s; : > %s"
            % (domain, listfile.name, outfile, donefile))
     try:
         subprocess.Popen(
@@ -311,8 +416,8 @@ def pick_account(creds, url):
              "--", "bash", "-c", cmd],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except FileNotFoundError:
-        error("No account picker available (install gum); using first entry")
-        return creds[0]
+        error("No account picker available (install gum) — using the remembered account")
+        return None
 
     deadline = time.time() + 60
     while time.time() < deadline:
@@ -339,11 +444,65 @@ def pick_account(creds, url):
 
     if choice and "\t" in choice:
         try:
-            return creds[int(choice.split("\t", 1)[0])]
-        except (ValueError, IndexError):
+            return int(choice.split("\t", 1)[0]) - 1
+        except ValueError:
             pass
     return None
 
+
+def choose_account(creds, url, args):
+    """Pick an entry and remember it. Returns (cred, note)."""
+    domain = url.split("/")[2] if "//" in url else url
+    prefs = load_prefs()
+
+    if getattr(args, "forget", False):
+        if domain in prefs:
+            prefs.pop(domain, None)
+            try:
+                os.makedirs(os.path.dirname(_prefs_path()), mode=0o700, exist_ok=True)
+                fd = os.open(_prefs_path(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as fh:
+                    json.dump(prefs, fh, indent=2)
+                    fh.write("\n")
+            except OSError:
+                pass
+            msg("KeePassXC: forgot the remembered account for %s" % domain)
+        return None, "forgotten"
+
+    if len(creds) == 1:
+        return creds[0], ""
+
+    spec = getattr(args, "account", None)
+    if spec:
+        i = match_index(creds, spec)
+        if i is None:
+            return None, "no-match:%s" % spec
+        save_pref(domain, creds[i], i, rotate=False)
+        return creds[i], "chosen %d/%d" % (i + 1, len(creds))
+
+    if getattr(args, "pick", False):
+        i = open_picker(creds, url)
+        if i is None:
+            i = remembered_index(creds, url, prefs)
+            if i is None:
+                return None, "cancelled"
+        save_pref(domain, creds[i], i, rotate=False)
+        return creds[i], "picked %d/%d" % (i + 1, len(creds))
+
+    # Default: an explicitly chosen account is used again; otherwise each press
+    # advances one match, so several accounts on a domain are switched through with
+    # the same key.
+    entry = prefs.get(domain) or {}
+    i = remembered_index(creds, url, prefs)
+    if i is None:
+        i = 0
+    elif entry.get("rotate"):
+        i = (i + 1) % len(creds)
+    save_pref(domain, creds[i], i, rotate=True)
+    note = "account %d/%d" % (i + 1, len(creds))
+    if len(creds) > 1:
+        note += " — press again for the next, ,ka to pick"
+    return creds[i], note
 
 # --------------------------------------------------------------------------- #
 # Field filling
@@ -594,7 +753,18 @@ def main():
             error("No KeePassXC credentials match %s" % (args.url.split('/')[2] if '//' in args.url else args.url))
             return 1
 
-        cred = pick_account(creds, args.url)
+        cred, note = choose_account(creds, args.url, args)
+        if cred is None:
+            if note == "forgotten":
+                return 0
+            if note.startswith("no-match:"):
+                error("KeePassXC: no account matching '%s' on %s"
+                      % (note.split(":", 1)[1], args.url.split("/")[2]))
+            else:
+                error("KeePassXC: no account selected")
+            return 1
+        if note:
+            msg("KeePassXC: %s — %s" % (note.split(" — ")[0], account_label(cred, 0).split("\t", 1)[-1]))
         if not cred:
             error("No account selected")
             return 1

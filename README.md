@@ -106,6 +106,43 @@ inconsistent fingerprint on a Chromium engine. That quirk is skipped and a real
 Chrome UA is sent (the real Chromium version, no QtWebEngine token), for Google and
 Microsoft sign-in hosts only.
 
+### Several accounts on one domain
+
+When more than one entry matches a site (personal + work, two shops, …):
+
+| How | What happens |
+|-----|--------------|
+| `,pw` (or `<Alt+Shift+u>`) | Fills the remembered account; **each further press advances** to the next match, and the status bar says which: `KeePassXC: account 2/3 — press again for the next, ,ka to pick` |
+| `,ka` | Opens a picker (gum, floating terminal). Entries read `group · title — login`, so two accounts on one site are told apart by their group and title, not just the username |
+| `--account 2` / `--account me@corp.example` / `--account bbbb` / `--account Shop` | Picks match #2, by login, by uuid prefix, or by a title substring — and remembers it |
+| `--forget` | Forgets the remembered account for this domain |
+
+The choice is remembered per domain in
+`$XDG_STATE_HOME/omarchy-qutebrowser/keepassxc/accounts.json` (0600). An explicit choice (`--account` or the picker) is used again next time; a plain
+`,pw` rotates, which is what makes pressing the key twice switch accounts.
+
+## Cookies and storage
+
+`content.cookies.store = False`: cookies live in memory for the session only, so
+quitting the browser clears every one of them and nothing is written to
+`cookies.sqlite`. Site logins therefore do not survive a restart by design — the
+password manager fills them again on demand. HTML5 local storage is unaffected; set
+`content.local_storage = False` too if you want *everything* wiped at exit.
+
+Cookies are also rejected out of the box (`content.cookies.accept = "no-3rdparty"`),
+and consent banners are dismissed automatically with a reject-first policy (see
+`userscripts/cookie-banner-remover.js`): reject is always preferred, accept only when
+the banner offers no reject option, a banner with no buttons at all is removed, and
+the sweep reaches inside shadow roots and same-origin iframes.
+
+## Reader: embedded media
+
+Articles with audio, video or embeds keep their players in the reader: the media is
+collected from the original page with **absolute URLs** (the reader runs on a loopback
+port), placed back next to the paragraph it followed, keeps its caption and controls,
+and embeds get a 16:9 frame plus an "open" link. Ad frames and 1x1 tracking pixels are
+dropped, and players are not treated as article text, so the AI never scores them.
+
 ## Ad-free YouTube
 
 Two layers, so an ad is normally never scheduled in the first place:

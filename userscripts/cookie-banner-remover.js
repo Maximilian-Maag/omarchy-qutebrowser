@@ -142,13 +142,105 @@
     return best;
   }
 
+  // A bare .click() is ignored by consent managers that listen for pointer events
+  // (the same lesson as the password-fill userscript), so send the whole sequence.
+  function press(el) {
+    ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function (type) {
+      try {
+        var Ctor = (type.indexOf('pointer') === 0 && window.PointerEvent) ? PointerEvent : MouseEvent;
+        el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, view: window }));
+      } catch (e) {}
+    });
+    try { el.click(); } catch (e) {}
+  }
+
   function decideConsent(root) {
     var scope = root || document;
     var btn = findButton(scope, REJECT_PATTERNS);
-    if (btn) { try { btn.click(); } catch (e) {} return 'reject'; }
+    if (btn) { press(btn); return 'reject'; }
     btn = findButton(scope, ACCEPT_PATTERNS);
-    if (btn) { try { btn.click(); } catch (e) {} return 'accept'; }
+    if (btn) { press(btn); return 'accept'; }
     return null;
+  }
+
+  // ── Every document we can reach ───────────────────────────────────────────
+  // Newer consent managers render inside an open shadow root, and some sit in a
+  // same-origin iframe; both were invisible to sweeps that only looked at
+  // `document`. Cross-origin frames throw and are skipped.
+  function roots() {
+    var out = [document];
+    try {
+      var els = document.querySelectorAll('*');
+      for (var i = 0; i < els.length && out.length < 60 && i < 4000; i++) {
+        var sr = els[i].shadowRoot;
+        if (!sr) continue;
+        out.push(sr);
+        var inner = sr.querySelectorAll('*');
+        for (var j = 0; j < inner.length && out.length < 60 && j < 1000; j++) {
+          if (inner[j].shadowRoot) out.push(inner[j].shadowRoot);
+        }
+      }
+      var frames = document.querySelectorAll('iframe');
+      for (var k = 0; k < frames.length && out.length < 60; k++) {
+        try {
+          var doc = frames[k].contentDocument;      // throws if cross-origin
+          if (doc) out.push(doc);
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  // The fixed/sticky thing that holds a consent button (the thing to take away).
+  function bannerFor(btn, root) {
+    var doc = (root && root.ownerDocument) || document;
+    var el = btn, hops = 0;
+    while (el && el !== doc.body && hops < 12) {
+      try {
+        var st = (el.ownerDocument.defaultView || window).getComputedStyle(el);
+        var r = el.getBoundingClientRect();
+        if (st && (st.position === 'fixed' || st.position === 'sticky') && r.height > 24) return el;
+      } catch (e) { break; }
+      el = el.parentElement; hops++;
+    }
+    return null;
+  }
+
+  // Root-aware consent sweep, with a verification pass: if the banner is still
+  // there shortly after the click (some CMPs need a moment, or a second event),
+  // press again and then simply remove it.
+  var lastDeep = 0;
+  var handledBanners = new WeakSet();
+  function deepConsentSweep() {
+    var now = Date.now();
+    if (now - lastDeep < 400) return;        // onMutation can fire in bursts
+    lastDeep = now;
+    var list = roots();
+    for (var i = 0; i < list.length; i++) {
+      var root = list[i], btn = null;
+      try { btn = findButton(root, REJECT_PATTERNS) || findButton(root, ACCEPT_PATTERNS); }
+      catch (e) { continue; }
+      if (!btn) continue;
+      var container = bannerFor(btn, root) || btn;
+      if (handledBanners.has(container)) continue;      // one decision per banner
+      var action = decideConsent(container);
+      if (!action) continue;
+      handledBanners.add(container);
+      note(action, root === document ? 'banner' : 'banner in shadow/iframe');
+      (function (el) {
+        if (!el) return;
+        setTimeout(function () {
+          try {
+            if (!el.isConnected) return;
+            var again = findButton(el, REJECT_PATTERNS) || findButton(el, ACCEPT_PATTERNS);
+            if (again) press(again);
+            el.remove();
+            note('removed', 'banner did not go away after the click');
+            unlockScroll();
+          } catch (e) {}
+        }, 800);
+      })(container);
+    }
   }
 
   function unlockScroll() {
@@ -357,7 +449,7 @@
     try {
       // prefer a "continue anyway"/close affordance inside the wall
       var close = findButton(el, [/^(close|dismiss|schlie[ßs]en|weiter|continue|no,?\s*thanks|sp[äa]ter)/i]);
-      if (close) { try { close.click(); } catch (e) {} }
+      if (close) { press(close); }
     } catch (e) {}
     try { el.remove(); } catch (e) {}
     unlockScroll();
@@ -466,6 +558,7 @@
     genericOverlaySweep();
     barSweep();
     removeAdblockWalls();
+    deepConsentSweep();
     unlockScroll();
   }
 
@@ -475,6 +568,7 @@
       genericOverlaySweep();
       barSweep();
       removeAdblockWalls();
+      deepConsentSweep();
     } catch (e) {}
   }
 

@@ -63,13 +63,144 @@
   }
 
   // ── extract article ─────��───────────────────────────────────────────
+  // ── embedded media ──────────────────────────────────────────────────
+  // Readability drops video/audio/iframes, and the reader serves from a loopback
+  // port so relative URLs would resolve against the wrong host. Media is therefore
+  // collected from the parsed page first, with absolute URLs, and spliced back into
+  // the extracted article next to the text block it followed.
+  var MEDIA_SEL = 'video, audio, iframe, embed, object';
+  var BLOCK_SEL = 'p, h1, h2, h3, h4, h5, h6, blockquote, pre, ul, ol, table';
+  var MEDIA_SKIP = /doubleclick|googlesyndication|googleadservices|pagead|taboola|outbrain|adnxs|criteo|adsystem|\/ads?[\/.]/i;
+
+  function mediaAbsUrl(el) {
+    // The IDL property resolves against the <base> injected above; the raw
+    // attribute would still be relative.
+    var url = '';
+    try { url = el.src || el.currentSrc || ''; } catch (e) {}
+    if (!url) {
+      try {
+        var child = el.querySelector('source[src], source[data-src]');
+        if (child) url = child.src || child.getAttribute('src') || '';
+      } catch (e) {}
+    }
+    if (!url) {
+      try { url = el.getAttribute('src') || el.getAttribute('data-src') || ''; } catch (e) {}
+    }
+    return url ? String(url).trim() : '';
+  }
+
+  function collectMedia(doc) {
+    var out = [];
+    var nodes;
+    try { nodes = doc.querySelectorAll(MEDIA_SEL); } catch (e) { return out; }
+    var body = doc.body || doc.documentElement;
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      try {
+        var src = mediaAbsUrl(el);
+        if (!src || MEDIA_SKIP.test(src)) continue;
+        if (el.hasAttribute('hidden') || el.getAttribute('aria-hidden') === 'true') continue;
+        var w = parseInt(el.getAttribute('width') || '0', 10);
+        var h = parseInt(el.getAttribute('height') || '0', 10);
+        if (w === 1 && h === 1) continue;                       // tracking pixel
+        var cls = String(el.className || '');
+        if (/(^|[\s_-])(ad|ads|advert|sponsor|promo)([\s_-]|$)/i.test(cls)) continue;
+
+        // How many text blocks precede this element: the reader's article is built
+        // from the same block selector, so the count puts the media back in place.
+        var before = 0;
+        try {
+          var bl = doc.querySelectorAll(BLOCK_SEL);
+          for (var b = 0; b < bl.length && b < 4000; b++) {
+            if (bl[b].compareDocumentPosition
+                && (bl[b].compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+              before++;
+            }
+          }
+        } catch (e) {}
+
+        var fig = null;
+        try { fig = el.closest ? el.closest('figure') : null; } catch (e) {}
+        var caption = '';
+        try {
+          var cap = fig && fig.querySelector('figcaption');
+          caption = cap ? (cap.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+        } catch (e) {}
+        if (!caption) {
+          try { caption = String(el.getAttribute('title') || el.getAttribute('aria-label') || '').trim(); } catch (e) {}
+        }
+
+        out.push({ tag: el.tagName.toLowerCase(), src: src,
+                   poster: (function () { try { return el.poster || ''; } catch (e) { return ''; } })(),
+                   type: (function () { try { return el.getAttribute('type') || ''; } catch (e) { return ''; } })(),
+                   caption: caption, before: before });
+        if (out.length >= 12) break;                            // keep it readable
+      } catch (e) {}
+    }
+    return out;
+  }
+
+  function buildMediaEl(m) {
+    var block = document.createElement('div');
+    block.className = 'media-block';
+    var caption = document.createElement('div');
+    caption.className = 'media-caption';
+
+    if (m.tag === 'video' || m.tag === 'audio') {
+      var media = document.createElement(m.tag);
+      media.controls = true;
+      media.preload = 'metadata';
+      if (m.poster) media.poster = m.poster;
+      if (m.tag === 'audio') media.src = m.src;
+      else {
+        var source = document.createElement('source');
+        source.src = m.src;
+        if (m.type) source.type = m.type;
+        media.appendChild(source);
+      }
+      block.appendChild(media);
+      caption.textContent = m.caption || (m.tag === 'audio' ? 'Audio' : 'Video');
+    } else {
+      var frame = document.createElement('iframe');
+      frame.className = 'media-embed';
+      frame.src = m.src;
+      frame.loading = 'lazy';
+      frame.setAttribute('allowfullscreen', '');
+      frame.setAttribute('referrerpolicy', 'no-referrer');
+      block.appendChild(frame);
+      caption.appendChild(function () {
+        var a = document.createElement('a');
+        a.href = m.src;
+        a.textContent = m.caption || ('Embedded ' + m.tag);
+        return a;
+      }());
+    }
+    block.appendChild(caption);
+    return block;
+  }
+
+  function spliceMedia(items) {
+    var blocks = Array.prototype.slice.call(articleEl.querySelectorAll(BLOCK_SEL));
+    // Insert from the last one backwards so an insertion cannot shift the position
+    // a later (earlier in the document) element is about to use.
+    var ordered = items.slice().sort(function (a, b) { return (a.before || 0) - (b.before || 0); });
+    for (var i = ordered.length - 1; i >= 0; i--) {
+      var el = buildMediaEl(ordered[i]);
+      var ref = blocks[ordered[i].before] || null;
+      if (ref && ref.parentNode) ref.parentNode.insertBefore(el, ref);
+      else articleEl.appendChild(el);
+    }
+    return ordered.length;
+  }
+
   function extract() {
-    var parsed = null;
+    var parsed = null, media = [];
     try {
       var doc = new DOMParser().parseFromString(RAW, 'text/html');
       var base = doc.createElement('base');
       base.href = PAGE_URL || 'about:blank';
       (doc.head || doc.documentElement).insertBefore(base, (doc.head || doc.documentElement).firstChild);
+      media = collectMedia(doc);          // before Readability drops them
       parsed = new Readability(doc, { charThreshold: 0 }).parse();
     } catch (e) { parsed = null; }
 
@@ -79,6 +210,19 @@
       content = (d.body ? d.body.innerHTML : '') || '<p>Could not extract an article from this page.</p>';
     }
     articleEl.innerHTML = content;
+
+    // Readability keeps <video> itself (with relative URLs, and without our ad /
+    // 1x1 filtering), which would double every player once we splice our own copies
+    // in — so drop whatever it kept and let the collected version stand.
+    try {
+      Array.prototype.slice.call(
+        articleEl.querySelectorAll('video, audio, iframe, embed, object')
+      ).forEach(function (el) {
+        var fig = el.closest ? el.closest('figure') : null;
+        if (fig && !fig.querySelector('img, picture')) fig.remove();
+        else el.remove();
+      });
+    } catch (e) {}
 
     if (parsed && parsed.title) {
       var h1 = document.createElement('h1');
@@ -90,6 +234,11 @@
       by.textContent = parsed.byline;
       by.style.color = 'var(--fg-dim)';
       (articleEl.querySelector('h1') || articleEl.firstChild).after(by);
+    }
+    if (media.length) {
+      var put = spliceMedia(media);
+      setStatus(put + ' embedded media element(s) kept');
+      setTimeout(function () { setStatus(''); }, 2600);
     }
   }
 

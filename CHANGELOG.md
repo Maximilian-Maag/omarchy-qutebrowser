@@ -2,6 +2,41 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.16.0] — 2026-10-08
+
+### Added
+- **Reader: embedded media.** Audio, video and embeds (YouTube/Vimeo/…) are kept from
+  the original page and put back next to the paragraph they followed — with absolute
+  URLs, because the reader is served from a loopback port where a relative URL would
+  resolve against the wrong host. Captions survive, players keep `controls`, embeds
+  get a 16:9 frame plus an "open" link, ad frames (doubleclick/googlesyndication/…)
+  and 1x1 tracking pixels are dropped, and media is never counted as an AI text
+  block. Whatever Readability kept is stripped first, so nothing appears twice.
+- **Choosing between accounts on one domain** (`qute-keepassxc-fill`): `,pw` fills the
+  remembered account and each further press advances to the next match for that
+  domain, with the status bar saying which — "account 2/3 — press again for the next,
+  `,ka` to pick". `,ka` opens a picker whose entries read `group · title — login`, and
+  `--account N|LOGIN|UUID|TITLE` selects one directly (both are remembered);
+  `--forget` clears it. The memory is per domain in
+  `$XDG_STATE_HOME/omarchy-qutebrowser/keepassxc/accounts.json` (0600).
+- **Cookies are gone when the browser closes:** `content.cookies.store = False`, so
+  they live in memory for the session and nothing is written to `cookies.sqlite`.
+
+### Changed
+- **Cookie consent procedure** (`cookie-banner-remover.js`): the sweep now also looks
+  inside open shadow roots and same-origin iframes, where newer consent managers
+  render their banner; buttons are pressed with the full pointer sequence instead of
+  a bare `.click()` (frameworks that only listen for `pointerdown` ignored it); each
+  banner is decided on once; and the result is verified — a banner that survives its
+  own click is pressed again and then removed.
+
+Verified ad hoc (40 checks): a real browser session that receives a cookie writes no
+cookies.sqlite; consent handled inside a shadow root, inside a same-origin iframe, on
+a pointerdown-only button, and escalated when the banner survives its click; account
+labels/matching/rotation/remembering/--forget plus the 0600 per-domain file; and the
+reader keeping video/audio/embed with absolute URLs, captions and correct placement
+while dropping ad frames and tracking pixels.
+
 ## [1.15.0] — 2026-10-08
 
 ### Fixed

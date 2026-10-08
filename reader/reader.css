@@ -317,3 +317,38 @@ body.chrome-hidden #bar, body.chrome-hidden #hint, body.chrome-hidden #status { 
   padding: 0 0.3rem;
   font-family: "Adwaita Mono", monospace;
 }
+
+/* ── embedded media kept from the original page ─────────────────────────── */
+#article .media-block {
+  margin: 1.4rem 0;
+}
+#article .media-block video {
+  width: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+#article .media-block audio {
+  width: 100%;
+  border-radius: 8px;
+}
+#article iframe.media-embed {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 8px;
+  background: #000;
+}
+#article .media-caption {
+  margin-top: 0.4rem;
+  font-size: 0.88em;
+  color: var(--fg-dim);
+}
+#article .media-caption a {
+  color: var(--accent);
+}
+/* media is not article prose: never give it the paragraph affordances */
+#article .media-block.marked,
+#article .media-block.active {
+  box-shadow: none;
+}
+

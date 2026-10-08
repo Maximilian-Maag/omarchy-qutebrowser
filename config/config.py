@@ -95,6 +95,15 @@ c.input.insert_mode.auto_leave = True
 # ---------------------------------------------------------------------------
 # Privacy
 # ---------------------------------------------------------------------------
+# No cookies survive the session: with storing off they live in memory only, so
+# quitting the browser clears every one of them (nothing is written to
+# cookies.sqlite either). Logins therefore do not persist across restarts — that is
+# the point — and the password manager fills them again on demand.
+#
+# Sites that keep state in HTML5 local storage are unaffected (content.local_storage).
+# Set that to False too if you want *everything* wiped at exit, at the cost of
+# losing per-site preferences.
+c.content.cookies.store = False
 c.content.cookies.accept = "no-3rdparty"
 c.content.geolocation = False
 c.content.webrtc_ip_handling_policy = "default-public-interface-only"
@@ -233,6 +242,7 @@ config.bind(",kp", "pass-setup", mode="normal")  # noqa  KePassXC browser setup
 c.aliases.update({  # noqa: F821
     'youtube': 'open https://youtube.com',
     'twitch': 'open https://twitch.tv',
+    'pass-accounts': 'spawn --userscript qute-keepassxc-fill --pick',
     'ai-site-fix': 'spawn --userscript qute-ai-fix',
     'dark-mode-toggle': 'config-cycle colors.webpage.darkmode.enabled true false',
     'pass-fill': 'spawn --userscript qute-keepassxc-fill',
@@ -280,6 +290,7 @@ config.bind("F", "hint all tab", mode="normal")  # noqa
 # Quick shortcuts: ,y YouTube, ,t Twitch
 config.bind(",y", "youtube", mode="normal")  # noqa
 config.bind(",t", "twitch", mode="normal")   # noqa
+config.bind(",ka", "pass-accounts", mode="normal")  # noqa  choose among several accounts
 
 # yt-dlp download (floating terminal with live progress)
 config.bind(",dv", "yt-dl-video", mode="normal")  # noqa  download video
