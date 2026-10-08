@@ -267,6 +267,7 @@
         adWasOn = false;
         restore(video);
       }
+      sbEnsurePolling();                 // arm the SponsorBlock watcher for this video
     } catch (e) {}
   }
 
@@ -283,6 +284,128 @@
       }
     }, 100);
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 3b. SponsorBlock — skip sponsor / self-promo / intro / outro segments
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Segment data comes from the public SponsorBlock API for whichever video is
+  // playing, and is skipped locally by seeking past it — the same trick as the ad
+  // skip above, but data-driven. `filler` is deliberately not skipped (it removes
+  // tangents a lot of people want) and `poi` marks highlights, not skip-bait.
+  var SB_API = 'https://sponsor.ajay.app/api/skipSegments';
+  var SB_CATEGORIES = ['sponsor', 'selfpromo', 'interaction', 'intro', 'outro',
+                       'preview', 'music_offtopic'];
+  var SB = { enabled: true, segments: [], fetchedFor: null, toast: null, muted: false };
+
+  function sbVideoId() {
+    try {
+      var m = /[?&]v=([A-Za-z0-9_-]{6,})/.exec(location.search);
+      if (m) return m[1];
+      m = /\/shorts\/([A-Za-z0-9_-]{6,})/.exec(location.pathname);
+      if (m) return m[1];
+    } catch (e) {}
+    return null;
+  }
+
+  // The segment covering `t`, or null. The 0.15 s guard stops a skip from
+  // re-triggering on the very end of the segment it just jumped over.
+  function sbSegmentAt(t) {
+    for (var i = 0; i < SB.segments.length; i++) {
+      var s = SB.segments[i];
+      if (t >= s.start && t < s.end - 0.15) return s;
+    }
+    return null;
+  }
+
+  function sbToast(msg) {
+    try {
+      if (SB.toast) { try { SB.toast.remove(); } catch (e) {} }
+      var el = document.createElement('div');
+      el.textContent = msg;
+      el.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);' +
+        'z-index:2147483647;background:rgba(0,0,0,.82);color:#fff;font:13px/1.4 sans-serif;' +
+        'padding:6px 12px;border-radius:6px;pointer-events:none';
+      document.documentElement.appendChild(el);
+      SB.toast = el;
+      setTimeout(function () {
+        try { el.remove(); } catch (e) {}
+        if (SB.toast === el) SB.toast = null;
+      }, 3000);
+    } catch (e) {}
+  }
+
+  function sbFetch(id) {
+    if (!id || SB.fetchedFor === id) return;
+    SB.fetchedFor = id;
+    SB.segments = [];
+    try {
+      var url = SB_API + '?videoID=' + encodeURIComponent(id) +
+                '&categories=' + encodeURIComponent(JSON.stringify(SB_CATEGORIES));
+      fetch(url).then(function (r) { return r.ok ? r.json() : []; }).then(function (data) {
+        if (SB.fetchedFor !== id || !Array.isArray(data)) return;
+        SB.segments = data.map(function (d) {
+          return { start: d.segment[0], end: d.segment[1],
+                   category: d.category || 'sponsor', action: d.actionType || 'skip' };
+        }).sort(function (a, b) { return a.start - b.start; });
+        if (SB.segments.length) sbToast('SponsorBlock: ' + SB.segments.length + ' segment(s) available');
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  // Skip (or mute) right now if playback is inside a segment.
+  function sbApply(video) {
+    if (!SB.enabled || !video) return;
+    var seg = sbSegmentAt(video.currentTime);
+    if (!seg) {
+      if (SB.muted) { try { video.muted = false; } catch (e) {} SB.muted = false; }
+      return;
+    }
+    if (seg.action === 'mute') {
+      try { video.muted = true; SB.muted = true; } catch (e) {}
+      sbToast('SponsorBlock: muted ' + seg.category);
+      return;
+    }
+    if (seg.action === 'full') {
+      // The whole video is the sponsor. Say so, but never navigate the tab away.
+      if (!SB.fullWarnedFor) { SB.fullWarnedFor = true; sbToast('SponsorBlock: entire video is ' + seg.category); }
+      return;
+    }
+    try {
+      video.currentTime = seg.end;
+      sbToast('SponsorBlock: skipped ' + seg.category + ' (' + Math.round(seg.end - seg.start) + 's)');
+    } catch (e) {}
+  }
+
+  var sbTimer = null;
+  function sbEnsurePolling() {
+    if (sbTimer) return;
+    sbTimer = setInterval(function () {
+      try {
+        sbFetch(sbVideoId());
+        var v = document.querySelector('video.html5-main-video, video');
+        var player = document.querySelector('#movie_player, .html5-video-player');
+        if (v && !adShowing(player)) sbApply(v);
+      } catch (e) {}
+    }, 300);
+  }
+
+  // Handy for keybindings / debugging: window.omarchySponsor.toggle() etc.
+  window.omarchySponsor = {
+    enabled: function () { return SB.enabled; },
+    toggle: function () {
+      SB.enabled = !SB.enabled;
+      if (SB.enabled) sbEnsurePolling(); else if (SB.muted) SB.muted = false;
+      sbToast('SponsorBlock ' + (SB.enabled ? 'on' : 'off'));
+      return SB.enabled;
+    },
+    segments: function () { return SB.segments; },
+    current: function () {
+      var v = document.querySelector('video.html5-main-video, video');
+      return v ? sbSegmentAt(v.currentTime) : null;
+    },
+    refresh: function () { SB.fetchedFor = null; sbFetch(sbVideoId()); },
+    categories: SB_CATEGORIES
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 4. MutationObserver + SPA navigation

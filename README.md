@@ -113,6 +113,33 @@ After a plugin update run `:config-source`, then `,ab` (`:adblock-update`) once:
 qutebrowser caches parsed filter lists, so a newly added list only takes effect
 after that refresh.
 
+## SponsorBlock
+
+Segment data comes from the public [SponsorBlock](https://sponsor.ajay.app/) API for
+the video that is playing, and is skipped locally by seeking past it:
+
+- Skipped: `sponsor`, `selfpromo`, `interaction`, `intro`, `outro`, `preview`,
+  `music_offtopic`.
+- Not skipped: `filler` (removes tangents plenty of people want) and `poi` (marks
+  highlights, not skip-bait).
+- `mute` segments are muted instead of seeked past; a `full` segment (the whole
+  video is the sponsor) only shows a toast — the tab is never navigated away.
+- Every skip shows a brief toast naming the category and its length.
+
+Downloads get the same treatment: `,dv` / `,dm` pass yt-dlp `--sponsorblock-remove`
+with those categories, so downloaded files have the segments cut out.
+Override with `SPONSORBLOCK_CATEGORIES=sponsor,selfpromo` (or `""` to keep them).
+
+Toggle it from the page console (`window.omarchySponsor.toggle()`) or bind your own
+key to it if you want one.
+
+## Quick shortcuts
+
+| Key | Action |
+|-----|--------|
+| `,y` | Open YouTube |
+| `,t` | Open Twitch |
+
 ## Key bindings
 
 | Key | Mode | Action |

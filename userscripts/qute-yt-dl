@@ -72,14 +72,22 @@ mkdir -p "$STATE_DIR"
 LOG="$STATE_DIR/latest.log"          # one stable path: easy to tail, easy to report
 PIDFILE="$STATE_DIR/runner.pid"
 
+# SponsorBlock: cut the same segments out of the download (empty = keep them).
+# Categories mirror the in-browser defaults in userscripts/youtube-adblock.js.
+SPONSOR_CATEGORIES="${SPONSORBLOCK_CATEGORIES:-sponsor,selfpromo,interaction,intro,outro,preview}"
+SPONSORBLOCK=()
+if [[ -n "$SPONSOR_CATEGORIES" ]] && "$YTDLP" --help 2>/dev/null | grep -q -- "--sponsorblock-remove"; then
+  SPONSORBLOCK=(--sponsorblock-remove "$SPONSOR_CATEGORIES")
+fi
+
 if [[ "$MODE" == "mp3" ]]; then
   YTDLP_ARGS=(--no-playlist --extract-audio --audio-format mp3 --audio-quality 0
-              --embed-thumbnail --embed-metadata)
+              --embed-thumbnail --embed-metadata "${SPONSORBLOCK[@]}")
 else
   # bv*+ba/b is deliberately permissive: the old mp4-only selector failed with
   # "Requested format is not available" on videos offered only as m3u8/webm.
   YTDLP_ARGS=(--no-playlist --format "bv*+ba/b" --merge-output-format mp4
-              --embed-thumbnail --embed-metadata)
+              --embed-thumbnail --embed-metadata "${SPONSORBLOCK[@]}")
 fi
 
 # ── Run yt-dlp DETACHED, logging to a file ────────────────────────────────────

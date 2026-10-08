@@ -191,6 +191,8 @@ config.bind(",kp", "pass-setup", mode="normal")  # noqa  KePassXC browser setup
 # readable alias instead of e.g. a whole jseval blob.
 # ---------------------------------------------------------------------------
 c.aliases.update({  # noqa: F821
+    'youtube': 'open https://youtube.com',
+    'twitch': 'open https://twitch.tv',
     'ai-site-fix': 'spawn --userscript qute-ai-fix',
     'dark-mode-toggle': 'config-cycle colors.webpage.darkmode.enabled true false',
     'pass-fill': 'spawn --userscript qute-keepassxc-fill',
@@ -235,8 +237,9 @@ config.bind(",dt", "dark-mode-toggle", mode="normal")  # noqa  toggle dark mode
 # Hint mode: open in new tab
 config.bind("F", "hint all tab", mode="normal")  # noqa
 
-# Quick YouTube shortcut
-config.bind(",y", "open https://youtube.com", mode="normal")  # noqa
+# Quick shortcuts: ,y YouTube, ,t Twitch
+config.bind(",y", "youtube", mode="normal")  # noqa
+config.bind(",t", "twitch", mode="normal")   # noqa
 
 # yt-dlp download (floating terminal with live progress)
 config.bind(",dv", "yt-dl-video", mode="normal")  # noqa  download video

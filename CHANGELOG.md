@@ -2,6 +2,28 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.14.0] — 2026-10-08
+
+### Added
+- **SponsorBlock.** The YouTube userscript now fetches segment data from the public
+  SponsorBlock API for whatever video is playing and skips it locally: sponsor,
+  self-promo, interaction reminder, intro, outro, preview and non-music sections.
+  `mute` segments are muted rather than seeked past, and a `full` segment (the whole
+  video is the sponsor) only raises a toast — the tab is never navigated away.
+  `filler` and `poi` are deliberately not skipped. Inspect or toggle it from the
+  page console: `window.omarchySponsor.toggle()`, `.segments()`, `.current()`.
+- **Sponsor segments are cut out of downloads too:** `,dv`/`,dm` pass yt-dlp
+  `--sponsorblock-remove` with the same category list (override with
+  `SPONSORBLOCK_CATEGORIES=...`, set it empty to keep the segments).
+- **Twitch shortcut:** `,t` opens twitch.tv, matching `,y` for YouTube. Both now go
+  through `youtube`/`twitch` aliases, so the keyhint popup reads well.
+
+Verified ad hoc (25 checks): the real functions extracted from the userscript under
+node — video id from watch/shorts URLs, segment lookup with the boundary guard, seek
+past a sponsor segment, mute a mute segment, unmute afterwards, no-op when toggled
+off — plus the config/binding/alias wiring, yt-dlp receiving the category list, and
+the live SponsorBlock API answering in the shape the code parses.
+
 ## [1.13.1] — 2026-10-08
 
 ### Fixed
