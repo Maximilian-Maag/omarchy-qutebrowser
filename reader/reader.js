@@ -168,6 +168,14 @@
         }
       }
     }
+    // Re-write the verdict badge text for paragraphs that were already scored: the
+    // rebuild above strips and re-creates the badges, so without this the "%"
+    // reading is lost whenever the article is rebuilt (e.g. after a removal).
+    blocks.forEach(function (b) {
+      var key = paraKey(b.el);
+      var mark = pState.marks[key];
+      if (mark && b.el.classList.contains('marked')) applyVerdict(b.el, mark);
+    });
   }
 
   // ── focus / paragraph-wise navigation ───────────────────────────────
@@ -213,6 +221,130 @@
     });
   }
 
+  // ── persistence ──────────────────────────────────────────────────────
+  // Annotations (scores, verdicts, summaries, removed paragraphs) and the reading
+  // position are stored on the server, keyed by the article URL: the reader is
+  // served from a random loopback port, so localStorage would be a fresh origin
+  // every run, and a reload used to lose all of it.
+  var restoring = true;   // no saves until restore finishes, or a fresh load would
+                          // overwrite the stored state with an empty one
+  var pState = { v: 1, marks: {}, paras: {}, facts: {}, removed: [], summary: null, pos: null };
+  var saveTimer = null;
+
+  function h32(str) {                       // FNV-1a — stable per paragraph text
+    var h = 0x811c9dc5, i;
+    for (i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = (h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)) >>> 0;
+    }
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
+  function paraKey(el) {
+    return el ? h32((blockText(el) || '').slice(0, 4000)) : '';
+  }
+
+  // The paragraph to resume at is the one the reader is looking at — the lowest
+  // block still at/above the middle of the viewport — not merely the focused one.
+  function visibleKey() {
+    var best = null, bestTop = -Infinity;
+    for (var i = 0; i < blocks.length; i++) {
+      if (blocks[i].summary) continue;                        // resume at real prose
+      var r = blocks[i].el.getBoundingClientRect();
+      if (r.bottom < 40) continue;                            // scrolled past
+      if (r.top > window.innerHeight * 0.5) continue;         // below the fold
+      if (r.top > bestTop) { bestTop = r.top; best = blocks[i].el; }
+    }
+    if (best) return paraKey(best);
+    return activeEl() ? paraKey(activeEl()) : pState.pos;
+  }
+
+  var lastSent = '';
+  function stateSignature() {
+    return JSON.stringify([pState.marks, pState.paras, pState.facts, pState.removed,
+                           pState.summary ? 1 : 0, visibleKey()]);
+  }
+
+  function saveState(immediate) {
+    if (restoring || !PAGE_URL) return;
+    clearTimeout(saveTimer);
+    if (stateSignature() === lastSent) return;        // nothing new to write
+    var payload = JSON.stringify({
+      url: PAGE_URL,
+      state: {
+        v: 1, marks: pState.marks, paras: pState.paras, facts: pState.facts,
+        removed: pState.removed, summary: pState.summary,
+        pos: visibleKey(),
+        scroll: Math.round(window.scrollY || 0)
+      }
+    });
+    var send = function () {
+      var sig = stateSignature();
+      if (sig === lastSent) return;
+      lastSent = sig;
+      try {
+        // A beacon is delivered more reliably than fetch() when the page is going
+        // away — otherwise the unload save races the next load's read and can
+        // overwrite the state with an older one.
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/state?t=' + encodeURIComponent(TOKEN),
+                               new Blob([payload], { type: 'application/json' }));
+          return;
+        }
+        fetch('/state?t=' + encodeURIComponent(TOKEN), {
+          method: 'POST', keepalive: true,
+          headers: { 'Content-Type': 'application/json' },
+          body: payload
+        }).catch(function () {});
+      } catch (e) {}
+    };
+    if (immediate) send(); else saveTimer = setTimeout(send, 900);
+  }
+
+  function restoreState() {
+    if (!PAGE_URL) { restoring = false; return; }
+    restoring = true;
+    fetch('/state?t=' + encodeURIComponent(TOKEN) + '&url=' + encodeURIComponent(PAGE_URL))
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        if (!s || !s.v) { restoring = false; return; }
+        ['marks', 'paras', 'facts', 'removed'].forEach(function (k) {
+          if (s[k] && typeof s[k] === 'object') pState[k] = s[k];
+        });
+        pState.summary = s.summary || null;
+        var applied = 0;
+        blocks.slice().forEach(function (b) {
+          var k = paraKey(b.el);
+          if (!k) return;
+          if (pState.marks[k]) { applyVerdict(b.el, pState.marks[k]); applied++; }
+          if (pState.paras[k]) renderParaSummary(b.el, pState.paras[k]);
+          if (pState.facts[k]) {
+            facts.set(b.el, pState.facts[k]);
+            renderFactCard(b.el, pState.facts[k]);
+            renderWheel(b.el, pState.facts[k]);
+          }
+        });
+        if (pState.summary) renderSummary(pState.summary);
+        var victims = [];
+        blocks.slice().forEach(function (b) {
+          if (!b.summary && b.el && pState.removed.indexOf(paraKey(b.el)) !== -1) victims.push(b.el);
+        });
+        if (victims.length) applyRemoval(victims, true);
+        var landed = false;
+        if (s.pos) {
+          for (var i = 0; i < blocks.length; i++) {
+            if (paraKey(blocks[i].el) === s.pos) { setActive(i); landed = true; break; }
+          }
+        }
+        if (!landed && s.scroll) window.scrollTo(0, s.scroll);
+        restoring = false;
+        if (applied || victims.length || pState.summary) {
+          setStatus('Restored your previous annotations and position');
+          setTimeout(function () { setStatus(''); }, 2600);
+        }
+      })
+      .catch(function () { restoring = false; });
+  }
+
   function verdictClass(v) { return v === 'ai' ? 'v-ai' : v === 'mixed' ? 'v-mixed' : 'v-human'; }
 
   function applyVerdict(el, res) {
@@ -229,6 +361,8 @@
       pct.textContent = typeof res.ai_likelihood === 'number' ? res.ai_likelihood + '%' : '';
       badge.appendChild(pct);
     }
+    pState.marks[paraKey(el)] = { verdict: v, ai_likelihood: res.ai_likelihood, reason: res.reason };
+    saveState();
   }
 
   function markParagraph(el) {
@@ -343,6 +477,8 @@
     if (!existing) articleEl.insertBefore(el, articleEl.firstChild);   // above the title
     buildBlocks();                                                     // → block 0
     setActive(0);
+    pState.summary = res;
+    saveState();
   }
 
   function summarize() {
@@ -401,6 +537,8 @@
       card.appendChild(r);
     }
     el.appendChild(card);
+    pState.paras[paraKey(el)] = res;
+    saveState();
   }
 
   function summarizeParagraph(el) {
@@ -455,6 +593,8 @@
       card.appendChild(q);
     }
     if (!card.parentNode) el.appendChild(card);
+    pState.facts[paraKey(el)] = res;
+    saveState();
   }
 
   function paintWheel(w) {
@@ -632,24 +772,30 @@
   // ── remove / restore AI-written paragraphs (double ←) ───────────────
   var removedAI = [];
 
-  function removeAIWritten() {
-    var victims = [];
-    blocks.forEach(function (b, i) { if (b.el.classList.contains('v-ai')) victims.push(i); });
-    if (!victims.length) {
-      setStatus('No paragraph marked as AI-written — press ← (or M) to score first', true);
-      return;
-    }
-    victims.forEach(function (i) {
-      var el = blocks[i].el;
-      removedAI.push({ el: el, next: el.nextSibling });
-      el.remove();
-    });
+  // Shared by the ←← action and by restore, so a reload brings back exactly the
+  // paragraphs that were hidden (matched by paragraph text, not by index).
+  function applyRemoval(victims, silent) {
+    var keys = victims.map(function (el) { return paraKey(el); });   // before detaching
+    removedAI = victims.map(function (el) { return { el: el, next: el.nextSibling }; });
+    removedAI.forEach(function (rec) { try { rec.el.remove(); } catch (e) {} });
     blurWheel();
     buildBlocks();
     setActive(active < 0 ? 0 : Math.min(active, blocks.length - 1));
     var undo = $('#btn-undo');
     if (undo) undo.hidden = false;
-    setStatus('Removed ' + victims.length + ' AI-written paragraph(s)');
+    pState.removed = keys;
+    if (!silent) setStatus('Removed ' + victims.length + ' AI-written paragraph(s)');
+    saveState(true);
+  }
+
+  function removeAIWritten() {
+    var victims = [];
+    blocks.forEach(function (b) { if (b.el.classList.contains('v-ai')) victims.push(b.el); });
+    if (!victims.length) {
+      setStatus('No paragraph marked as AI-written — press ← (or M) to score first', true);
+      return;
+    }
+    applyRemoval(victims, false);
   }
 
   function restoreAI() {
@@ -658,9 +804,11 @@
     });
     removedAI = [];
     buildBlocks();
+    pState.removed = [];
     var undo = $('#btn-undo');
     if (undo) undo.hidden = true;
     setStatus('Restored hidden paragraphs');
+    saveState(true);
   }
 
   // ── double-tap dispatch (single press vs double press of ← / →) ─────
@@ -800,4 +948,18 @@
   extract();
   buildBlocks();
   if (blocks.length) setActive(0);
+
+  // Bring back whatever was saved for this article, and persist the position when
+  // the user scrolls away or leaves the page.
+  restoreState();
+  var posTimer = null;
+  window.addEventListener('scroll', function () {
+    if (restoring) return;
+    clearTimeout(posTimer);
+    posTimer = setTimeout(function () { saveState(); }, 1500);
+  }, { passive: true });
+  window.addEventListener('pagehide', function () { saveState(true); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') saveState(true);
+  });
 })();

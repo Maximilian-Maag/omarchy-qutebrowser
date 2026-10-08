@@ -15,6 +15,7 @@ per-session token written to server.json. Article HTML lives under the state dir
 Started on demand by userscripts/qute-reader; writes server.json and stays up.
 """
 
+import hashlib
 import html
 import json
 import os
@@ -36,7 +37,31 @@ STATE_DIR = pathlib.Path(
     os.environ.get("XDG_STATE_HOME") or (pathlib.Path.home() / ".local/state")
 ) / "omarchy-qutebrowser" / "reader"
 ARTICLES_DIR = STATE_DIR / "articles"
+STATE_STORE = STATE_DIR / "article-state"      # per-URL annotations + reading position
 SERVER_JSON = STATE_DIR / "server.json"
+
+
+def _state_key(url):
+    """Stable key for an article's saved state.
+
+    The reader's article ids are regenerated on every ingest, so annotations are
+    keyed by the article URL instead — reopening the same URL restores them.
+    """
+    return hashlib.sha1(url.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def _state_path(url):
+    return STATE_STORE / ("%s.json" % _state_key(url))
+
+
+def _write_state(url, state):
+    """Atomically persist one article's annotations (0600)."""
+    path = _state_path(url)
+    tmp = path.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(json.dumps({"url": url, "saved": time.time(), **state}))
+    os.replace(tmp, path)
 
 HERMES = os.environ.get("QUTE_READER_AI", "hermes")
 AI_TIMEOUT = int(os.environ.get("QUTE_READER_AI_TIMEOUT", "180"))
@@ -439,20 +464,47 @@ class Handler(BaseHTTPRequestHandler):
             if not self._authed(q):
                 return self._send(403, {"error": "bad token"})
             return self._reader_page(p.split("/")[-1])
+        if p == "/state":
+            # Saved annotations + reading position for one article URL.
+            if not self._authed(q):
+                return self._send(403, {"error": "bad token"})
+            url = (q.get("url") or [""])[0].strip()
+            if not url:
+                return self._send(400, {"error": "missing url"})
+            path = _state_path(url)
+            if not path.is_file():
+                return self._send(200, {})
+            try:
+                return self._send(200, json.loads(path.read_text()))
+            except (OSError, ValueError):
+                return self._send(200, {})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        url = urlparse(self.path)
-        q = parse_qs(url.query)
-        if url.path != "/ai":
-            return self._send(404, {"error": "not found"})
+        parsed = urlparse(self.path)
+        q = parse_qs(parsed.query)
         if not self._authed(q):
             return self._send(403, {"error": "bad token"})
+        if parsed.path not in ("/ai", "/state"):
+            return self._send(404, {"error": "not found"})
         try:
             length = int(self.headers.get("Content-Length", 0))
             if length > 4 * 1024 * 1024:
                 return self._send(413, {"ok": False, "error": "payload too large"})
             payload = json.loads(self.rfile.read(length) or b"{}")
+        except Exception as exc:  # noqa: BLE001
+            return self._send(400, {"ok": False, "error": str(exc)})
+        if parsed.path == "/state":
+            url = str(payload.get("url") or "").strip()
+            state = payload.get("state")
+            if not url or not isinstance(state, dict):
+                return self._send(400, {"ok": False, "error": "need url and state object"})
+            try:
+                _write_state(url, state)
+            except OSError as exc:
+                return self._send(500, {"ok": False, "error": str(exc)})
+            return self._send(200, {"ok": True})
+        try:
             result = ai_answer(payload)
             return self._send(200, {"ok": True, "result": result})
         except subprocess.TimeoutExpired:
@@ -473,12 +525,22 @@ def _private_dir(path):
 def main():
     _private_dir(STATE_DIR)
     _private_dir(ARTICLES_DIR)
+    _private_dir(STATE_STORE)
 
     # prune old articles
     cutoff = time.time() - 24 * 3600
     for f in ARTICLES_DIR.glob("*"):
         try:
             if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
+
+    # prune long-forgotten annotation state (half a year)
+    state_cutoff = time.time() - 180 * 24 * 3600
+    for f in STATE_STORE.glob("*.json"):
+        try:
+            if f.stat().st_mtime < state_cutoff:
                 f.unlink()
         except OSError:
             pass

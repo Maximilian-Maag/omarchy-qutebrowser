@@ -2,6 +2,31 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.12.0] — 2026-10-08
+
+### Added
+- **Reader: per-article persistence.** Your annotations and where you were are now
+  saved server-side, keyed by the article URL, and restored when you reopen or
+  reload it: per-paragraph AI scores/verdicts, paragraph summaries, fact-check
+  verdicts and their supporting-article wheels, the whole-article summary (with its
+  advertorial warning), the paragraphs you hid with `←←`, and the reading position
+  (the paragraph you were actually looking at, not just the focused one). New
+  endpoints `GET/POST /state` store one JSON file per URL under
+  `~/.local/state/omarchy-qutebrowser/reader/article-state/` (0600, pruned after
+  half a year).
+  Why server-side: the reader is served from a random loopback port, so
+  localStorage would be a different origin on every run.
+
+### Fixed
+- Reader: a fresh load could **overwrite the saved state with an empty one** — the
+  initial `setActive(0)` scheduled a debounced save that raced the restore.
+- Reader: leaving the page could **clobber the state right after a reload** (the
+  unload save raced the next load's read). Saves are now change-detected and sent
+  as a `navigator.sendBeacon`, so an unchanged page never overwrites anything.
+- Reader: rebuilding the article (which happens when you hide AI paragraphs) wiped
+  the "AI 20%" text off every verdict badge — badges are re-written from the saved
+  state after each rebuild.
+
 ## [1.11.0] — 2026-10-08
 
 ### Changed
