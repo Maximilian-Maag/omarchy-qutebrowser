@@ -39,29 +39,32 @@
     }
   }
 
+  // Strip every ad field out of a player / next / ytInitialData payload, at any
+  // depth. YouTube nests them (playerResponse, streamingData, overlay renderers,
+  // feed payloads) and no playback path needs any of them, so a bounded deep sweep
+  // beats enumerating the places they hide.
   function stripAds(obj) {
     try {
-      if (!obj || typeof obj !== 'object') return obj;
-      for (var i = 0; i < AD_FIELDS.length; i++) {
-        if (Object.prototype.hasOwnProperty.call(obj, AD_FIELDS[i])) {
-          try { delete obj[AD_FIELDS[i]]; } catch (e) { obj[AD_FIELDS[i]] = undefined; }
-        }
-      }
-      if (obj.playerResponse) stripAds(obj.playerResponse);      // /youtubei/v1/next
-      if (obj.streamingData) {                                   // SSAI remnants
-        delete obj.streamingData.adPlacements;
-        delete obj.streamingData.adSlots;
-      }
-      if (obj.playerOverlays && obj.playerOverlays.playerOverlayRenderer) {
-        var por = obj.playerOverlays.playerOverlayRenderer;
-        delete por.adSlots;
-        if (por.playerOverlayRenderer) {
-          delete por.playerOverlayRenderer.adSlots;
-          delete por.playerOverlayRenderer.adPlacements;
-        }
-      }
+      walkAds(obj, 0);
     } catch (e) {}
     return obj;
+  }
+
+  function walkAds(node, depth) {
+    if (!node || typeof node !== 'object' || depth > 12) return;
+    var i, k;
+    if (Array.isArray(node)) {
+      for (i = 0; i < node.length; i++) walkAds(node[i], depth + 1);
+      return;
+    }
+    for (i = 0; i < AD_FIELDS.length; i++) {
+      if (Object.prototype.hasOwnProperty.call(node, AD_FIELDS[i])) {
+        try { delete node[AD_FIELDS[i]]; } catch (e) { node[AD_FIELDS[i]] = undefined; }
+      }
+    }
+    for (k in node) {
+      if (Object.prototype.hasOwnProperty.call(node, k)) walkAds(node[k], depth + 1);
+    }
   }
 
   function patchJson(textOrObj) {

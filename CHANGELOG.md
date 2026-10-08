@@ -2,6 +2,16 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.13.1] — 2026-10-08
+
+### Fixed
+- Ad fields are now stripped from player / `ytInitialData` payloads at **any depth**.
+  `stripAds` previously only cleaned the top level plus three hand-picked paths
+  (`playerResponse`, `streamingData`, `playerOverlays`), so an ad field nested
+  anywhere else survived. A bounded deep sweep (`walkAds`) replaced those special
+  cases — found by the ad-hoc verification, which now asserts a nested `adSlots`
+  is removed as well.
+
 ## [1.13.0] — 2026-10-08
 
 ### Changed — no more video ads
