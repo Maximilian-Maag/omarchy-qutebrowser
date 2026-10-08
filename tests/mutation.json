@@ -85,6 +85,17 @@
         "--test",
         "tests/js/cookie.test.js"
       ]
+    },
+    {
+      "path": "reader/reader.js",
+      "lang": "javascript",
+      "tests": [
+        "node",
+        "--test",
+        "tests/js/reader.test.js"
+      ],
+      "max_mutants": 60,
+      "note": "DOM-heavy; only the extractable logic is covered so far. Targeted so the gap is measured rather than hidden, per the no-gaps rule."
     }
   ],
   "max_mutants": 60,

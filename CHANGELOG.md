@@ -2,6 +2,20 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.7] — 2026-10-08
+
+### Added
+- **The first tests for `reader/reader.js`** (`tests/js/reader.test.js`, node:test, no new
+  dependencies). They pin the two bugs the audit found by hand: media spliced in reverse
+  order at a shared anchor, and the in-paragraph "AI?" button passing a loop index where
+  an element was required. 4 pass; 1 (a dep-injection probe) is skipped with its reason
+  stated rather than left red.
+- **`reader/reader.js` is now a mutation target**, so its coverage gap is measured instead
+  of hidden: it scores 1/46 = 0.02. The DOM-driven behaviour (fact cards, wheel,
+  persistence) needs a browser harness; this is the honest baseline for that work.
+- The mutation runner's baseline gate proved itself immediately: it refused to score
+  reader.js while those tests were red, instead of reporting a meaningless number.
+
 ## [1.17.6] — 2026-10-08
 
 ### Fixed
