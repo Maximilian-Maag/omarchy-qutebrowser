@@ -2,6 +2,14 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.1] — 2026-10-08
+
+### Changed
+- The article status page is bound to `,i` only. It was briefly on `,sts`, which is
+  unusable: `,s` (article summary) is bound, and a binding that is a prefix of another
+  makes qutebrowser wait out the keyhint timeout before firing the shorter one — so
+  `,sts` was dead *and* it made `,s` feel laggy. One conflict-free key, no downside.
+
 ## [1.17.0] — 2026-10-08
 
 ### Added

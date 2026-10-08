@@ -292,8 +292,7 @@ config.bind("F", "hint all tab", mode="normal")  # noqa
 config.bind(",y", "youtube", mode="normal")  # noqa
 config.bind(",t", "twitch", mode="normal")   # noqa
 config.bind(",ka", "pass-accounts", mode="normal")  # noqa  choose among several accounts
-config.bind(",sts", "article-status", mode="normal")  # noqa  article status page (metrics, publisher, citation)
-config.bind(",i", "article-status", mode="normal")  # noqa  same, without the ,s prefix wait
+config.bind(",i", "article-status", mode="normal")  # noqa  article status page (metrics, publisher, coverage, citation)
 
 # yt-dlp download (floating terminal with live progress)
 config.bind(",dv", "yt-dl-video", mode="normal")  # noqa  download video

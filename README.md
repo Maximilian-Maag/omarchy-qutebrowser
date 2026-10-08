@@ -145,7 +145,7 @@ dropped, and players are not treated as article text, so the AI never scores the
 
 ## Article status page
 
-`,sts` (or `,i`) opens a status page for the article you are on — the kind of overview
+`,i` opens a status page for the article you are on — the kind of overview
 Ground News gives every story, built from the page itself plus one news search:
 
 - **Cite this article** — every field a citation needs (author, publisher, date,
