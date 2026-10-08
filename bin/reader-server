@@ -323,6 +323,23 @@ def _headlines_for(text, cache):
     return cache[query]
 
 
+MAX_PROMPT_CHARS = 96000          # safely under Linux's ~128 KiB single-argv limit
+
+
+def _paragraph_batches(paras, budget=48000):
+    """Yield [(index, paragraph)] batches whose joined prompt stays under `budget`."""
+    cur, size = [], 0
+    for i, p in enumerate(paras):
+        piece = len(p or "") + 12
+        if cur and size + piece > budget:
+            yield cur
+            cur, size = [], 0
+        cur.append((i, p or ""))
+        size += piece
+    if cur:
+        yield cur
+
+
 def fact_check_article(paras, min_len=20, batch_size=8):
     """Fact-check EVERY paragraph, in batches.
 
@@ -393,8 +410,30 @@ def ai_answer(payload):
         paras = payload.get("paragraphs") or []
         if not paras:
             raise ValueError("no paragraphs")
-        numbered = "\n".join("%d. %s" % (i, p) for i, p in enumerate(paras))
-        return run_ai(ARTICLE_PROMPT % numbered)
+        # Batched by SIZE, not by count. The prompt goes to the model as a command-line
+        # argument, and Linux caps one argv string at ~128 KiB (MAX_ARG_STRLEN), so a
+        # long article made this mode fail with E2BIG and nothing got scored at all.
+        # Results carry an explicit GLOBAL index so the client cannot mis-attribute them
+        # positionally, and the batch order is preserved.
+        out = []
+        for batch in _paragraph_batches(paras):
+            numbered = "\n".join("%d. %s" % (i, p) for i, p in batch)
+            arr = run_ai(ARTICLE_PROMPT % numbered)
+            if not isinstance(arr, list):
+                continue
+            span = (batch[0][0], batch[-1][0])
+            for j, item in enumerate(arr):
+                if not isinstance(item, dict):
+                    continue
+                item = dict(item)
+                idx = item.get("index")
+                if not (isinstance(idx, int) and span[0] <= idx <= span[1]):
+                    idx = batch[j][0] if j < len(batch) else None
+                if idx is None:
+                    continue
+                item["index"] = idx
+                out.append(item)
+        return sorted(out, key=lambda it: it["index"])
     if mode == "summary":
         text = (payload.get("text") or "").strip()
         if not text:
@@ -466,7 +505,14 @@ def publisher_for(url_or_host, name=None):
     for e in entries:
         for cand in (e.get("name", ""), e.get("domain", "").split(".")[0]):
             cand = (cand or "").strip().lower()
-            if cand and (cand == want or cand in want):
+            if not cand:
+                continue
+            # Word-boundary match, never a bare substring. The second candidate is the
+            # domain's FIRST LABEL, which is often two letters — "rt" for rt.com — and
+            # `cand in want` matched that inside unrelated names, so "Auto Motor und
+            # Sport" was labelled RT/state/low and "SPEEDWEEK.com" became Deutsche Welle.
+            # Whole words still match where they should ("CNN" in "CNN Türk").
+            if cand == want or re.search(r"\b" + re.escape(cand) + r"\b", want):
                 return e
     return None
 

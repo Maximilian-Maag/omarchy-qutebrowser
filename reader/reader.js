@@ -588,6 +588,10 @@
     close.addEventListener('click', function (ev) {
       ev.stopPropagation();
       el.remove();
+      // Clearing the card is not enough: renderSummary persisted it, so restoreState
+      // brought it straight back on the next load. Dismissing has to be saved too.
+      pState.summary = null;
+      saveState();
       buildBlocks();
       setActive(Math.min(active, blocks.length - 1));
     });

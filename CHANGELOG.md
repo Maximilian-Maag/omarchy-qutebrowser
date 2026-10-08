@@ -2,6 +2,26 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.8] — 2026-10-08
+
+### Fixed
+From three read-only deep-dive audits; each finding re-verified here before fixing.
+
+- **Publisher mislabelling (status page was confidently wrong).** `publisher_for()` matched
+  a dataset entry by bare substring, and the second candidate is the domain's *first label*
+  — often two letters, e.g. `rt` for `rt.com`. So "Auto Motor und Sport" was labelled
+  **RT / state-controlled / low factual**, "SPEEDWEEK.com" became **Deutsche Welle**, and
+  `Fortune` matched RT. Matching is now word-boundary only. Verified: those three no longer
+  match, while "CNN Türk" → CNN still does.
+- **Dismissing the AI summary didn't stick.** The close button removed the card and rebuilt
+  the blocks but never cleared `pState.summary`, which `renderSummary` had already
+  persisted — so the summary came back on the next load. The dismissal is now saved.
+- **`article_marks` failed wholesale on long articles (E2BIG).** The whole article was sent
+  as one command-line argument, and Linux caps a single argv string at ~128 KiB, so a long
+  article scored *nothing*. Paragraphs are now batched by size, each result carries an
+  explicit global index (the client trusts `item.index` over position, so a batch-local
+  index could have mis-attributed scores), and results are returned in document order.
+
 ## [1.17.7] — 2026-10-08
 
 ### Added
