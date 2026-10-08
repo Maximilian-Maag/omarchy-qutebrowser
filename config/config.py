@@ -243,6 +243,7 @@ c.aliases.update({  # noqa: F821
     'youtube': 'open https://youtube.com',
     'twitch': 'open https://twitch.tv',
     'pass-accounts': 'spawn --userscript qute-keepassxc-fill --pick',
+    'article-status': 'spawn --userscript qute-reader --status',
     'ai-site-fix': 'spawn --userscript qute-ai-fix',
     'dark-mode-toggle': 'config-cycle colors.webpage.darkmode.enabled true false',
     'pass-fill': 'spawn --userscript qute-keepassxc-fill',
@@ -291,6 +292,8 @@ config.bind("F", "hint all tab", mode="normal")  # noqa
 config.bind(",y", "youtube", mode="normal")  # noqa
 config.bind(",t", "twitch", mode="normal")   # noqa
 config.bind(",ka", "pass-accounts", mode="normal")  # noqa  choose among several accounts
+config.bind(",sts", "article-status", mode="normal")  # noqa  article status page (metrics, publisher, citation)
+config.bind(",i", "article-status", mode="normal")  # noqa  same, without the ,s prefix wait
 
 # yt-dlp download (floating terminal with live progress)
 config.bind(",dv", "yt-dl-video", mode="normal")  # noqa  download video

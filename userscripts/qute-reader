@@ -110,6 +110,7 @@ def _running_server():
 
 
 def main() -> int:
+    label = "Status" if "--status" in sys.argv else "Reader"
     if "QUTE_FIFO" not in os.environ:
         print("qute-reader must be run as a qutebrowser userscript", file=sys.stderr)
         return 1
@@ -118,7 +119,7 @@ def main() -> int:
     html_path = os.environ.get("QUTE_HTML", "")
     title = os.environ.get("QUTE_TITLE", "")
     if not url or not html_path or not os.path.isfile(html_path):
-        error("Reader: no page content available")
+        error(label + ": no page content available")
         return 1
 
     # Never re-read a reader page: it nests reader-inside-reader (hiding the real
@@ -130,7 +131,7 @@ def main() -> int:
 
     info = ensure_server()
     if not info:
-        error("Reader: could not start the reader server")
+        error(label + ": could not start the reader server")
         return 1
 
     ARTICLES_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -147,12 +148,15 @@ def main() -> int:
                 os.open(meta_dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as fh:
             fh.write(json.dumps({"url": url, "title": title}))
     except OSError as exc:
-        error("Reader: could not save the article (%s)" % exc)
+        error(label + ": could not save the article (%s)" % exc)
         return 1
 
-    reader_url = "http://127.0.0.1:%s/reader/%s?t=%s" % (info["port"], article_id, info["token"])
+    # --status serves the same stored page through the status view (metrics,
+    # publisher, coverage, citation) instead of the reading view.
+    page = "status" if "--status" in sys.argv else "reader"
+    page_url = "http://127.0.0.1:%s/%s/%s?t=%s" % (info["port"], page, article_id, info["token"])
     target = "--window" if "--window" in sys.argv else "--tab"
-    qute("open %s %s" % (target, reader_url))
+    qute("open %s %s" % (target, page_url))
     return 0
 
 

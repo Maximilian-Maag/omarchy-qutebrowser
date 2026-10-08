@@ -2,6 +2,49 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.0] — 2026-10-08
+
+### Added
+- **Article status page** — press `,sts` (or `,i`) and a local page opens for the
+  article you are on:
+  * **Citation block** — title, author(s), publisher, publication date, site, language,
+    canonical URL and access date, taken from the page's own JSON-LD and meta tags
+    (never guessed: a field the page does not state stays empty), plus APA, MLA,
+    Chicago and BibTeX with a copy button each.
+  * **Article metrics**, computed locally — words, reading time, paragraphs, sentences,
+    quoted passages and quote density, numbers/statistics, attributed vs vague
+    sourcing, outbound links, images, headline length, and framing cues (loaded words in
+    the headline and opening paragraphs) — drawn as a grouped bar chart and explained
+    in words underneath.
+  * **Publisher profile** — a marker on a left/centre/right spectrum (with how many of
+    the other outlets covering the story sit in each band), a low/mixed/high
+    factual-reporting gauge, the funding mix as a legend-ed bar, and the ownership
+    chain (publisher -> owner -> parent group), plus an encyclopaedia summary and the
+    links to verify it all.
+  * **Cross-outlet coverage** — a news search on the story's keywords lists other
+    outlets' headlines, each tagged with its own lean, and a bar showing the
+    left/centre/right spread. Outlets outside the dataset are left grey rather than
+    guessed.
+  * **Framing analysis** on demand: the local model reports the tone, the main claim,
+    the loaded terms and what the piece leaves out.
+
+### Notes
+- The bundled `data/publishers.json` (44 outlets, German and international) carries
+  owner, parent group, funding model and a source per entry. Ownership and funding are
+  documented facts; the lean and factual ratings are a **curated** dataset in the style
+  of public media-bias charts — the page says so, and does not present them as a
+  measurement. Unrated outlets stay unrated.
+- `,i` runs the same command: `,s` (reader summary) is a prefix of `,sts`, so
+  qutebrowser must wait for the keyhint timeout before firing `,s`.
+
+Verified ad hoc (40 checks) against local fixtures for the news search, the
+encyclopaedia and the model, so the test exercises this code and not today's internet:
+token/id guards, publisher + coverage tagging (including the article's own outlet being
+excluded and unknown outlets staying unknown), the citation extractor on JSON-LD and
+meta tags, and the rendered page (citation formats, metric bars, spectrum, gauge,
+funding legend, ownership chain, coverage list with leans, framing). A screenshot pass
+confirmed every diagram is legible and nothing overlaps.
+
 ## [1.16.0] — 2026-10-08
 
 ### Added

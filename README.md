@@ -143,6 +143,32 @@ port), placed back next to the paragraph it followed, keeps its caption and cont
 and embeds get a 16:9 frame plus an "open" link. Ad frames and 1x1 tracking pixels are
 dropped, and players are not treated as article text, so the AI never scores them.
 
+## Article status page
+
+`,sts` (or `,i`) opens a status page for the article you are on — the kind of overview
+Ground News gives every story, built from the page itself plus one news search:
+
+- **Cite this article** — every field a citation needs (author, publisher, date,
+  canonical URL, access date), read from the page's JSON-LD and meta tags and left
+  empty rather than guessed when the page does not state it, in APA, MLA, Chicago and
+  BibTeX with copy buttons.
+- **What is in this article** — length, reading time, quotes and quote density,
+  statistics, attributed vs vague sourcing, links, images, headline length and framing
+  cues, as a grouped bar chart.
+- **Publisher** — lean marker on a left/centre/right spectrum (plus where the other
+  outlets covering the story sit), a factual-reporting gauge, the funding mix, and the
+  ownership chain up to the parent group, with sources.
+- **Who else ran this story** — other outlets' headlines tagged with their lean, and
+  the left/centre/right spread.
+- **How it is framed** — on demand, the local model on the tone, the claim, the loaded
+  terms and the omissions.
+
+Ownership and funding are documented facts with a source each. The lean and
+factual-reporting ratings come from the bundled curated dataset
+(`data/publishers.json`, 44 outlets) in the style of public media-bias charts: they are
+a signpost, not a measurement, and the page says so. Outlets that are not in the
+dataset are shown unrated — never guessed.
+
 ## Ad-free YouTube
 
 Two layers, so an ad is normally never scheduled in the first place:

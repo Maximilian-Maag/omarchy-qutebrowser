@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Article status — __TITLE__</title>
+<link rel="stylesheet" href="/status.css">
+</head>
+<body data-token="__TOKEN__" data-url="__URL__" data-title="__TITLE__">
+<header id="bar">
+  <div id="headline">
+    <h1 id="title">__TITLE__</h1>
+    <div id="sub"><span id="site">…</span> · <span id="pubdate">…</span> · <span id="words">…</span></div>
+  </div>
+  <nav>
+    <button id="copy-cite" title="copy the APA citation">copy citation</button>
+    <a id="open-src" href="__URL__" title="open the original page">original</a>
+  </nav>
+</header>
+
+<main>
+  <section id="cite-card" class="card">
+    <h2>Cite this article</h2>
+    <table id="cite-fields"></table>
+    <div class="formats" id="cite-formats"></div>
+    <p class="note" id="cite-note"></p>
+  </section>
+
+  <section id="metrics-card" class="card">
+    <h2>What is in this article</h2>
+    <div class="diagram" id="metrics-diagram"></div>
+    <ul id="metrics-notes" class="notes"></ul>
+  </section>
+
+  <section id="publisher-card" class="card">
+    <h2>Publisher</h2>
+    <div id="publisher-head"></div>
+    <div class="diagram" id="spectrum"></div>
+    <div class="diagram" id="factual"></div>
+    <div class="diagram" id="funding"></div>
+    <div class="diagram" id="ownership"></div>
+    <div id="wiki"></div>
+    <p class="note" id="publisher-note"></p>
+  </section>
+
+  <section id="coverage-card" class="card">
+    <h2>Who else ran this story</h2>
+    <div class="diagram" id="coverage-balance"></div>
+    <ul id="coverage-list" class="outlets"><li class="muted">searching…</li></ul>
+    <p class="note" id="coverage-note"></p>
+  </section>
+
+  <section id="framing-card" class="card">
+    <h2>How it is framed</h2>
+    <div id="framing-body"><p class="muted">Not analysed yet.</p></div>
+    <button id="framing-run">analyse framing with the local model</button>
+  </section>
+</main>
+
+<footer>
+  <p class="note">
+    Article metrics are computed locally from the page. Ownership and funding are documented
+    facts, each with a source you can follow. Political-lean and factual-reporting ratings are a
+    <strong>curated</strong> dataset in the style of public media-bias charts — not a measurement
+    and not fetched live. Different raters disagree; treat them as a signpost, not a verdict.
+  </p>
+</footer>
+
+<script>
+  var TOKEN = "__TOKEN__";
+  var COLORS = __COLORS__;
+  var CITE = __CITE_JSON__;
+  var ARTICLE_HTML = __ARTICLE_JSON__;
+</script>
+<script src="/status.js"></script>
+</body>
+</html>

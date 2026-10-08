@@ -33,6 +33,8 @@ from urllib.parse import urlparse, parse_qs, quote_plus
 
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parent.parent
 READER_DIR = PLUGIN_DIR / "reader"
+STATUS_DIR = PLUGIN_DIR / "status"
+PUBLISHERS_FILE = PLUGIN_DIR / "data" / "publishers.json"
 STATE_DIR = pathlib.Path(
     os.environ.get("XDG_STATE_HOME") or (pathlib.Path.home() / ".local/state")
 ) / "omarchy-qutebrowser" / "reader"
@@ -245,8 +247,8 @@ def news_query(text):
 def news_search(query, lang):
     hl, gl, ceid = {"en": ("en-US", "US", "US:en"),
                     "de": ("de", "DE", "DE:de")}[lang]
-    url = ("https://news.google.com/rss/search?q=%s&hl=%s&gl=%s&ceid=%s"
-           % (quote_plus(query), hl, gl, ceid))
+    url = ("%s/rss/search?q=%s&hl=%s&gl=%s&ceid=%s"
+           % (_NEWS_BASE, quote_plus(query), hl, gl, ceid))
     req = urllib.request.Request(url, headers={"User-Agent": NEWS_UA})
     with urllib.request.urlopen(req, timeout=NEWS_TIMEOUT) as resp:
         data = resp.read()
@@ -393,6 +395,187 @@ def ai_answer(payload):
 
 
 # --------------------------------------------------------------------------- #
+# Publisher profiles, cross-outlet coverage, citation metadata (status page)
+# --------------------------------------------------------------------------- #
+_NEWS_BASE = os.environ.get("QUTE_STATUS_NEWS_BASE", "https://news.google.com")
+_WIKI_BASE = os.environ.get("QUTE_STATUS_WIKI_BASE", "https://en.wikipedia.org")
+_PUBS = {}
+
+
+def publishers():
+    if not _PUBS:
+        try:
+            _PUBS.update(json.loads(PUBLISHERS_FILE.read_text()))
+        except (OSError, ValueError):
+            _PUBS.update({"publishers": [], "agencies": []})
+    return _PUBS
+
+
+def normalize_host(value):
+    host = (value or "").strip().lower()
+    if "//" in host:
+        host = host.split("//", 1)[1]
+    host = host.split("/", 1)[0].split("?", 1)[0]
+    if "@" in host:
+        host = host.split("@", 1)[1]
+    if ":" in host:
+        host = host.split(":", 1)[0]
+    return host[4:] if host.startswith("www.") else host
+
+
+def publisher_for(url_or_host, name=None):
+    """Look a host, or an outlet name from a headline, up in the dataset."""
+    host = normalize_host(url_or_host)
+    entries = publishers().get("publishers", [])
+    best = None
+    for e in entries:
+        dom = normalize_host(e.get("domain", ""))
+        if host and dom and (host == dom or host.endswith("." + dom)):
+            if best is None or len(dom) > len(normalize_host(best.get("domain", ""))):
+                best = e                       # longest match wins (amp./m. subdomains)
+    if best:
+        return best
+    want = (name or "").strip().lower()
+    if not want:
+        return None
+    for e in entries:
+        for cand in (e.get("name", ""), e.get("domain", "").split(".")[0]):
+            cand = (cand or "").strip().lower()
+            if cand and (cand == want or cand in want):
+                return e
+    return None
+
+
+def wiki_summary(name):
+    """Best-effort encyclopaedia summary for a publisher; never fatal."""
+    if not name:
+        return None
+    url = "%s/api/rest_v1/page/summary/%s" % (_WIKI_BASE.rstrip("/"), quote_plus(name.replace(" ", "_")))
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": NEWS_UA})
+        with urllib.request.urlopen(req, timeout=NEWS_TIMEOUT) as resp:
+            data = json.loads(resp.read())
+    except Exception:  # noqa: BLE001 - enrichment only
+        return None
+    return {"title": data.get("title", ""),
+            "extract": (data.get("extract") or "").strip()[:700],
+            "url": ((data.get("content_urls") or {}).get("desktop") or {}).get("page", "")}
+
+
+LEAN_ORDER = ["left", "lean-left", "center", "lean-right", "right"]
+
+
+def coverage_for(title, url=""):
+    """Other outlets running the same story, tagged with the dataset's lean."""
+    query = news_query(title or "")
+    if not query:
+        return {"query": "", "outlets": [], "balance": {}, "total": 0}
+    hits, seen = [], set()
+    for lang in ("de", "en"):
+        try:
+            found = news_search(query, lang)
+        except Exception:  # noqa: BLE001 - network issues are non-fatal
+            found = []
+        for h in found:
+            key = (h.get("headline") or "").lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            hits.append(h)
+    own = normalize_host(url)
+    balance = {k: 0 for k in LEAN_ORDER + ["unknown"]}
+    outlets, seen_src = [], set()
+    for h in hits:
+        src = (h.get("source") or "").strip() or "(unknown outlet)"
+        if src.lower() in seen_src:
+            continue
+        prof = publisher_for("", src)
+        dom = normalize_host((prof or {}).get("domain", ""))
+        if own and dom and dom == own:
+            continue                           # the article's own outlet
+        seen_src.add(src.lower())
+        lean = (prof or {}).get("lean") or "unknown"
+        balance[lean if lean in balance else "unknown"] += 1
+        outlets.append({"name": src, "headline": h.get("headline", ""), "url": h.get("url", ""),
+                        "lean": lean, "factual": (prof or {}).get("factual") or "",
+                        "known": bool(prof)})
+        if len(outlets) >= 24:
+            break
+    return {"query": query, "outlets": outlets, "balance": balance,
+            "balance_order": LEAN_ORDER, "total": len(outlets)}
+
+
+def citation_from_html(html_text, meta):
+    """Author, date, publisher, canonical URL — everything needed to cite."""
+    def meta_content(*names):
+        for name in names:
+            m = re.search(r"<meta[^>]+(?:name|property|itemprop)=[\"']%s[\"'][^>]*>" % re.escape(name),
+                          html_text, re.I)
+            if not m:
+                continue
+            c = re.search(r"content=[\"]([^\"]*)[\"]", m.group(0), re.I)
+            if c and c.group(1).strip():
+                return html.unescape(c.group(1).strip())
+        return ""
+
+    ld = {}
+    for m in re.finditer(r"<script[^>]+application/ld\+json[^>]*>(.*?)</script>",
+                         html_text, re.I | re.S):
+        try:
+            data = json.loads(m.group(1).strip())
+        except ValueError:
+            continue
+        for item in (data if isinstance(data, list) else [data]):
+            if isinstance(item, dict) and str(item.get("@type", "")).lower() in (
+                    "newsarticle", "article", "reportagenewsarticle", "blogposting"):
+                ld = item
+                break
+        if ld:
+            break
+
+    def names(value):
+        out = []
+        for v in (value if isinstance(value, list) else [value]):
+            if isinstance(v, dict) and v.get("name"):
+                out.append(str(v["name"]).strip())
+            elif isinstance(v, str) and v.strip():
+                out.append(v.strip())
+        return out
+
+    authors = names(ld.get("author")) or [meta_content("author", "byl", "sailthru.author",
+                                                       "article:author")]
+    publisher = names(ld.get("publisher")) or [meta_content("og:site_name", "publisher",
+                                                            "application-name", "twitter:site")]
+    canonical = meta_content("og:url") or ""
+    if not canonical:
+        m = re.search(r"<link[^>]+rel=[\"']canonical[\"'][^>]*href=[\"']([^\"']+)[\"']", html_text, re.I)
+        if m:
+            canonical = html.unescape(m.group(1).strip())
+    url = (meta.get("url") or "").strip() or canonical
+    return {"title": (ld.get("headline") or meta_content("og:title", "twitter:title")
+                      or meta.get("title", "")).strip(),
+            "authors": [a for a in authors if a][:4],
+            "publisher": (publisher[0] if publisher else "") or normalize_host(url),
+            "date": str(ld.get("datePublished") or meta_content(
+                "article:published_time", "datePublished", "pubdate", "date", "og:published_time") or "").strip(),
+            "url": url, "canonical": canonical or url,
+            "site": meta_content("og:site_name") or normalize_host(url),
+            "lang": meta_content("og:locale") or ""}
+
+
+FRAMING_PROMPT = """You analyse how a news article is framed. Reply with ONLY JSON:
+{"tone": "neutral|alarmist|promotional|opinionated|matter-of-fact",
+ "framing": "one or two sentences: what the headline stresses, whose voice leads, what angle the piece takes",
+ "loaded_terms": ["up to 8 words or short phrases that carry the framing"],
+ "omissions": "one sentence on what a reader does not learn from this piece",
+ "claim": "the article's single main claim, one sentence",
+ "confidence": "high|medium|low"}
+Title: %s
+
+Text: %s"""
+
+
+# --------------------------------------------------------------------------- #
 # HTTP
 # --------------------------------------------------------------------------- #
 class Handler(BaseHTTPRequestHandler):
@@ -420,11 +603,45 @@ class Handler(BaseHTTPRequestHandler):
     def _authed(self, query):
         return query.get("t", [""])[0] == self.token
 
-    def _asset(self, name, ctype):
-        path = (READER_DIR / name).resolve()
-        if not path.is_relative_to(READER_DIR.resolve()) or not path.is_file():
+    def _asset(self, name, ctype, base=None):
+        root = (base or READER_DIR).resolve()
+        path = (root / name).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
             return self._send(404, "not found", "text/plain")
         return self._send(200, path.read_bytes(), ctype)
+
+    def _article(self, article_id):
+        """The stored page for an id, or None (ids are server-generated only)."""
+        if not re.fullmatch(r"[0-9a-f]{16}", article_id or ""):
+            return None
+        meta_path = ARTICLES_DIR / ("%s.json" % article_id)
+        html_path = ARTICLES_DIR / ("%s.html" % article_id)
+        if not meta_path.exists() or not html_path.exists():
+            return None
+        try:
+            meta = json.loads(meta_path.read_text())
+        except (OSError, ValueError):
+            return None
+        return meta, html_path.read_text(errors="replace")
+
+    def _status_page(self, article_id):
+        found = self._article(article_id)
+        if not found:
+            return self._send(404, "article not found", "text/plain")
+        meta, article_html = found
+        template = (STATUS_DIR / "index.html").read_text()
+
+        def jdump(obj):
+            return json.dumps(obj).replace("</", "<\\/")
+        cite = citation_from_html(article_html, meta)
+        page = (template
+                .replace("__TOKEN__", self.token)
+                .replace("__TITLE__", html.escape(meta.get("title", ""), quote=True))
+                .replace("__URL__", html.escape(meta.get("url", ""), quote=True))
+                .replace("__COLORS__", jdump(theme_colors()))
+                .replace("__CITE_JSON__", jdump(cite))
+                .replace("__ARTICLE_JSON__", jdump(article_html)))
+        return self._send(200, page, "text/html; charset=utf-8")
 
     def _reader_page(self, article_id):
         # Only accept ids this server's companion userscript generates; never let a
@@ -464,6 +681,26 @@ class Handler(BaseHTTPRequestHandler):
             if not self._authed(q):
                 return self._send(403, {"error": "bad token"})
             return self._reader_page(p.split("/")[-1])
+        if p in ("/status.css", "/status.js"):
+            ctype = "application/javascript" if p.endswith(".js") else "text/css"
+            return self._asset(p.lstrip("/"), ctype, STATUS_DIR)
+        if p.startswith("/status/"):
+            if not self._authed(q):
+                return self._send(403, {"error": "bad token"})
+            return self._status_page(p.split("/")[-1])
+        if p == "/publisher":
+            if not self._authed(q):
+                return self._send(403, {"error": "bad token"})
+            name = (q.get("name") or [""])[0]
+            profile = publisher_for((q.get("domain") or q.get("url") or [""])[0], name) or {}
+            return self._send(200, {"profile": profile,
+                                    "wikipedia": wiki_summary(profile.get("name") or name),
+                                    "agencies": publishers().get("agencies", [])})
+        if p == "/coverage":
+            if not self._authed(q):
+                return self._send(403, {"error": "bad token"})
+            return self._send(200, coverage_for((q.get("title") or [""])[0],
+                                                (q.get("url") or [""])[0]))
         if p == "/state":
             # Saved annotations + reading position for one article URL.
             if not self._authed(q):
@@ -485,7 +722,7 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(parsed.query)
         if not self._authed(q):
             return self._send(403, {"error": "bad token"})
-        if parsed.path not in ("/ai", "/state"):
+        if parsed.path not in ("/ai", "/state", "/framing"):
             return self._send(404, {"error": "not found"})
         try:
             length = int(self.headers.get("Content-Length", 0))
@@ -494,6 +731,17 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length) or b"{}")
         except Exception as exc:  # noqa: BLE001
             return self._send(400, {"ok": False, "error": str(exc)})
+        if parsed.path == "/framing":
+            title = str(payload.get("title") or "").strip()[:300]
+            text = str(payload.get("text") or "").strip()[:8000]
+            if not text:
+                return self._send(400, {"ok": False, "error": "need text"})
+            try:
+                return self._send(200, {"ok": True, "result": run_ai(FRAMING_PROMPT % (title, text))})
+            except subprocess.TimeoutExpired:
+                return self._send(504, {"ok": False, "error": "AI request timed out"})
+            except Exception as exc:  # noqa: BLE001
+                return self._send(500, {"ok": False, "error": str(exc)})
         if parsed.path == "/state":
             url = str(payload.get("url") or "").strip()
             state = payload.get("state")
