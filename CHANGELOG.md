@@ -2,6 +2,24 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.9.2] — 2026-10-06
+
+### Fixed
+- `qute-keepassxc-fill`: **password fill never worked.** It wrote the fill script
+  (81 lines) to qutebrowser's userscript FIFO, and qutebrowser executes that FIFO
+  one line per command (`qutebrowser/commands/userscripts.py`: the Fifo object
+  emits `got_line` for every line). So only `jseval ` — with no JS — was run, and
+  every following JS line was parsed as an unknown command. The JS is now collapsed
+  onto a single line (comments stripped first; whitespace inside string literals
+  preserved), and `qute()` refuses a command containing a newline so this cannot
+  silently regress again. Verified end-to-end in a real engine: a login form ends
+  up with the username and password filled and a hidden decoy left untouched.
+- `install.sh`: now checks that the `python3` qutebrowser will actually use for the
+  fill userscript can import `nacl`. `python-pynacl` is installed for the system
+  interpreter, but the userscript's `#!/usr/bin/env python3` resolves via PATH
+  (e.g. a mise shim), so the two can diverge — that is now reported at install time
+  instead of showing up as "pw does nothing".
+
 ## [1.9.1] — 2026-10-06
 
 Deep-dive bug sweep. No behaviour changes intended.

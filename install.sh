@@ -21,6 +21,19 @@ echo "Checking dependencies..."
 omarchy pkg add qutebrowser keepassxc yt-dlp ffmpeg python-adblock python-pynacl
 echo "  Dependencies OK."
 
+# The password-fill userscript's shebang is '#!/usr/bin/env python3', so it runs
+# under the FIRST python3 on PATH — which is not necessarily the interpreter
+# python-pynacl was just installed for (e.g. a mise/pyenv shim). Check the one
+# qutebrowser will actually use, so a missing nacl surfaces here and not as a
+# silent "pw does nothing".
+if python3 -c 'import nacl' 2>/dev/null; then
+  echo "  PyNaCl OK for $(command -v python3)"
+else
+  echo "  WARNING: $(command -v python3) cannot import nacl."
+  echo "           'pw' password fill will not work. Fix with:"
+  echo "             python3 -m pip install pynacl"
+fi
+
 # ── 2. Config ────────────────────────────────────────────────────────────────
 mkdir -p "$QUTE_CONFIG_DIR"
 

@@ -183,13 +183,77 @@ class KeyStore:
 # --------------------------------------------------------------------------- #
 # qutebrowser plumbing
 # --------------------------------------------------------------------------- #
+def one_line(js):
+    """Collapse a JS snippet onto ONE line, comments stripped.
+
+    qutebrowser reads the userscript FIFO line by line and executes each line as
+    its own command (qutebrowser/commands/userscripts.py: the Fifo object emits
+    got_line per line), so a multi-line `jseval` never runs — only the first
+    fragment is executed and every following JS line is mistaken for a command.
+
+    Two things this must get right:
+      * a trailing `// comment` would swallow the rest of the joined line, and
+      * whitespace inside a string literal (a password with two spaces!) must be
+        left alone, so only whitespace *outside* quotes is collapsed.
+    """
+    out, i, n = [], 0, len(js)
+    quote = None
+    space = False
+    while i < n:
+        ch = js[i]
+        if quote:                                   # inside '…' or "…" — verbatim
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(js[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in "\"'`":
+            if space and out:
+                out.append(" ")
+            space = False
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and js[i + 1] == "/":        # line comment
+            i += 2
+            while i < n and js[i] != "\n":
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and js[i + 1] == "*":        # block comment
+            i += 2
+            while i + 1 < n and not (js[i] == "*" and js[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+        if ch in " \t\r\n":
+            space = True
+            i += 1
+            continue
+        if space and out:
+            out.append(" ")
+        space = False
+        out.append(ch)
+        i += 1
+    return "".join(out).strip()
+
+
 def qute(cmd):
+    # One line == one command; a stray newline would silently break the command.
+    if "\n" in cmd or "\r" in cmd:
+        raise ValueError("qutebrowser FIFO commands must be a single line")
     with open(os.environ["QUTE_FIFO"], "w") as fifo:
         fifo.write(cmd + "\n")
         fifo.flush()
 
 
 def error(msg):
+    # Never smuggle a newline (or a bare quote) into the FIFO command.
+    msg = " ".join(str(msg).splitlines())
     print(msg, file=sys.stderr)
     qute('message-error "%s"' % msg.replace('"', '\\"'))
 
@@ -411,7 +475,7 @@ def main():
             if not token:
                 error("No TOTP configured for this entry")
                 return 1
-            qute("jseval -q " + totp_js(token))
+            qute("jseval -q " + one_line(totp_js(token)))
             return 0
 
         user = cred.get("login") or ""
@@ -420,7 +484,7 @@ def main():
         # only honest feedback of what happened ("filled:username+password",
         # "filled:username" on a Google/Microsoft first step, or "no-fields"
         # when the page has no fillable input, e.g. an account chooser).
-        qute("jseval " + fill_js(user, password))
+        qute("jseval " + one_line(fill_js(user, password)))
         return 0
     except KpError as exc:
         error(str(exc))
