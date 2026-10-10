@@ -74,6 +74,18 @@ RAW_MEDIA = (
 
 STUBS = """
 window.__calls = { fetch: [], beacon: [], open: [] };
+// Record every value the status line takes. The restore writes "Restored ...", but a later
+// update can replace it before any driver starts, so reading #status at a chosen moment is
+// racy. Observing from the start makes "was it ever shown" deterministic.
+window.__statusLog = [];
+(function () {
+  var el = document.getElementById('status');
+  if (!el) return;
+  window.__statusLog.push(el.textContent);
+  new MutationObserver(function () {
+    window.__statusLog.push(el.textContent);
+  }).observe(el, { childList: true, characterData: true, subtree: true });
+})();
 window.__obs = {};
 window.addEventListener('error', function (e) {
   (window.__obs.__errors = window.__obs.__errors || []).push(String(e.message || e.error));
@@ -394,6 +406,11 @@ RESTORE_DRIVER = r"""
   obs.restoredWheels = qa('#article .fact-wheel').length;
   obs.removedRestored = qa('#article .blk').length;
   obs.scrollCalls = window.__calls.scroll || null;
+  // The restore writes a "Restored ..." status, but a later update can replace it within
+  // the same tick, so reading #status once was racy: the assertion failed intermittently in
+  // a full-suite run and passed standalone. Poll briefly and record whether it was SEEN.
+  obs.statusLog = window.__statusLog || [];
+  obs.sawRestoredStatus = obs.statusLog.some(function (t) { return /Restored/.test(t); });
   obs.restoringStatus = q('#status').textContent;
   obs.activeIdxAfterRestore = (function () {
     var a = q('#article .blk.active');

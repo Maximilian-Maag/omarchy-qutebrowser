@@ -210,7 +210,8 @@ test('saved annotations are replayed when the article is reloaded', opts, () => 
   assert.equal(r.restoredFacts, 2, 'the fact cards come back');
   assert.equal(r.restoredWheels, 2, 'and their wheels');
   assert.equal(r.removedRestored, 7, 'the removed paragraph is restored');
-  assert.match(r.restoringStatus, /Restored/);
+  // assert on the polled flag, not a single instantaneous read of #status
+  assert.ok(r.sawRestoredStatus, 'the restore reports itself in the status line');
 });
 
 test('a saved position that matches no paragraph falls back to the saved scroll', opts, () => {
