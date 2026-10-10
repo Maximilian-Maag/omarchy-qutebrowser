@@ -8,13 +8,15 @@
 // The harness needs PyQt6 (and QtWebEngine). Where it is absent the whole file is SKIPPED
 // explicitly rather than silently passing: a skipped assertion must never look like a
 // satisfied one. CI installs PyQt6 so these run there.
-import { test } from 'node:test';
-import assert from 'node:assert';
-import { execFileSync } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// CommonJS on purpose: tools/policy_check.py compiles every .js file with `new vm.Script`,
+// which treats a file as a script, so an ESM `import` is a syntax error there even though
+// node --test accepts it. Using require() keeps the file valid under both.
+const { test } = require('node:test');
+const assert = require('node:assert');
+const { execFileSync } = require('node:child_process');
+const path = require('node:path');
 
-const here = path.dirname(fileURLToPath(import.meta.url));
+const here = __dirname;
 const harness = path.join(here, 'qt_harness.py');
 
 function havePyQt6() {

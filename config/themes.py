@@ -407,6 +407,70 @@ def _alpha(hex_color: str, alpha: float) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
+# The active theme, as Omarchy records it. This is the single source of truth: the
+# hardcoded palettes below drift from the stock themes (hackerman's red, yellow, cyan and
+# several backgrounds had), and a theme added after this file was written was simply
+# unknown — the reader then fell back to catppuccin, so qutebrowser did not match the
+# desktop at all. Reading the applied theme means any theme, stock or user, is followed.
+OMARCHY_CURRENT_THEME = ("~/.local/state/omarchy/current/theme")
+
+# colors.toml key -> the key the rest of this file uses
+TOML_MAP = {
+    "mode": "mode", "background": "bg", "dark_background": "bg_dark",
+    "darker_background": "bg_darker", "lighter_background": "bg_light",
+    "foreground": "fg", "dark_foreground": "fg_dim", "light_foreground": "fg_light",
+    "accent": "accent", "selection": "selection",
+    "red": "red", "green": "green", "yellow": "yellow", "cyan": "cyan",
+    "blue": "blue", "magenta": "magenta", "orange": "orange", "brown": "brown",
+    "bright_red": "bright_red", "bright_green": "bright_green",
+    "bright_yellow": "bright_yellow", "bright_cyan": "bright_cyan",
+    "bright_blue": "bright_blue", "bright_magenta": "bright_magenta",
+}
+
+
+def live_theme():
+    """Return (name, palette) for the applied Omarchy theme, or (None, None).
+
+    Reads ~/.local/state/omarchy/current/theme/colors.toml. Never raises: a missing or
+    malformed file just means the hardcoded palettes are used instead.
+    """
+    import pathlib
+    import tomllib
+    base = pathlib.Path(os.path.expanduser(OMARCHY_CURRENT_THEME))
+    f = base / "colors.toml"
+    try:
+        data = tomllib.loads(f.read_text())
+    except Exception:
+        return None, None
+    # The applied theme is a COPY, so the directory is always named "theme" — the name has
+    # to come from the colours themselves. Match them against the stock and user themes;
+    # this also gives a full palette to overlay onto, rather than only the mapped keys.
+    name = None
+    try:
+        import pathlib as _p
+        candidates = list(_p.Path("/usr/share/omarchy/themes").glob("*/colors.toml"))
+        candidates += list((_p.Path.home() / ".config/omarchy/themes").glob("*/colors.toml"))
+        for cand in candidates:
+            try:
+                if tomllib.loads(cand.read_text()) == data:
+                    name = cand.parent.name
+                    break
+            except Exception:
+                continue
+    except Exception:
+        name = None
+    return name, data
+
+
+def _overlay(palette, live):
+    """Overlay the live colors.toml onto a palette, so every expected key still exists."""
+    out = dict(palette or {})
+    for k, v in (live or {}).items():
+        if k in TOML_MAP and isinstance(v, str):
+            out[TOML_MAP[k]] = v
+    return out
+
+
 def apply_theme(c, theme_name: str | None = None):
     """Apply the Omarchy theme to a qutebrowser config object."""
     if theme_name is None:
@@ -418,9 +482,11 @@ def apply_theme(c, theme_name: str | None = None):
             theme_name = state_file.read_text().strip()
         # 2. Env var (set at launch time)
         if not theme_name:
-            theme_name = os.environ.get("OMARCHY_THEME", "catppuccin")
+            live_name, _ = live_theme()
+            theme_name = os.environ.get("OMARCHY_THEME") or live_name or "catppuccin"
 
-    p = THEMES.get(theme_name)
+    _live_name, _live = live_theme()
+    p = _overlay(THEMES.get(theme_name), _live) if _live else THEMES.get(theme_name)
     if p is None:
         # Try user theme from ~/.config/omarchy/themes/<name>/colors.toml
         import tomllib, pathlib

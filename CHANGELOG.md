@@ -2,6 +2,26 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.18] — 2026-10-08
+
+### Fixed
+- **qutebrowser did not follow the Omarchy theme.** Two causes. The plugin keeps its own
+  hardcoded palette per theme, and those had drifted from the stock themes — hackerman's
+  red was a generic `#ff5555` instead of `#50f872`, and its yellow, cyan, selection, two
+  backgrounds and two foregrounds were all wrong. And when no theme name resolved it fell
+  back to **catppuccin**, so with the theme state file absent qutebrowser showed a
+  completely unrelated theme.
+  The applied theme's `colors.toml` — `~/.local/state/omarchy/current/theme/colors.toml` —
+  is now the source of truth, overlaid onto the built-in palette so every expected key
+  still exists. Any theme, stock or user, is followed exactly. The theme's *name* is
+  recovered by matching its colours against the theme directories, because Omarchy applies
+  a copy rather than a symlink, so the path is always ".../current/theme". Verified against
+  the live theme: zero mismatches, resolved as "hackerman".
+- **tests/js/reader.harness.test.js failed the policy's JS check.** `tools/policy_check.py`
+  compiles every `.js` file with `new vm.Script`, which treats a file as a script, so the
+  file's ESM `import` was a syntax error there even though `node --test` accepted it. It now
+  uses `require()`, which is valid under both.
+
 ## [1.17.17] — 2026-10-08
 
 ### Fixed

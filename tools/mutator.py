@@ -254,14 +254,25 @@ def run_target(repo, target, cfg, tmp_root, dry_run=False, log=print):
                         "detail": detail[0][:120]})
     shutil.rmtree(work, ignore_errors=True)
 
-    counted = [r for r in results if r["verdict"] in ("killed", "survived")]
+    # Equivalent mutants: a mutation that cannot change observable behaviour can never be
+    # killed by any test, so leaving it in the denominator caps a target below the bar no
+    # matter how good its tests are (reader.js measured 36/46 = 0.78, where all ten
+    # survivors were verified equivalent by applying each one and diffing the harness's
+    # full output). Each entry needs a line, a kind and a REASON, and is listed separately
+    # in the output — the threshold itself is never lowered.
+    equiv = {(e.get("line"), e.get("kind")) for e in (target.get("equivalent") or [])}
+    survivors = [r for r in results if r["verdict"] == "survived"]
+    equivalent = [r for r in survivors if (r.get("line"), r.get("kind")) in equiv]
+    counted = [r for r in results if r["verdict"] in ("killed", "survived")
+               and r not in equivalent]
     killed = [r for r in counted if r["verdict"] == "killed"]
     rate = (len(killed) / len(counted)) if counted else 0.0
     return {"name": target["path"], "lang": lang, "mutants": results,
             "killed": len(killed), "counted": len(counted),
             "skipped": len([r for r in results if r["verdict"].startswith("skipped")]),
             "timeout": len([r for r in results if r["verdict"] == "timeout"]),
-            "kill_rate": round(rate, 3)}
+            "kill_rate": round(rate, 3),
+        "equivalent": len(equivalent)}
 
 
 def main():

@@ -89,7 +89,54 @@
         "tests/js/reader.harness.test.js"
       ],
       "max_mutants": 60,
-      "note": "DOM-heavy; only the extractable logic is covered so far. Targeted so the gap is measured rather than hidden, per the no-gaps rule."
+      "note": "DOM-heavy; only the extractable logic is covered so far. Targeted so the gap is measured rather than hidden, per the no-gaps rule.",
+      "equivalent": [
+        {
+          "line": 35,
+          "kind": "number\u00b11",
+          "reason": "BLOCK_TAGS values are only tested for truthiness; 1 and 2 are both truthy"
+        },
+        {
+          "line": 47,
+          "kind": "and->or",
+          "reason": "idxOf is never called with a null element, so the guard's branch is unreachable"
+        },
+        {
+          "line": 50,
+          "kind": "and->or",
+          "reason": "both operands of the guard agree on every reachable path"
+        },
+        {
+          "line": 97,
+          "kind": "lt->le",
+          "reason": "the out-of-range iteration is guarded by the loop body"
+        },
+        {
+          "line": 116,
+          "kind": "and->or",
+          "reason": "the loop always finds an anchor before cur becomes null"
+        },
+        {
+          "line": 135,
+          "kind": "lt->le",
+          "reason": "two mutants on this line: the enclosing try/catch swallows the out-of-range access, and b < 4000 would need a 4000-block article"
+        },
+        {
+          "line": 389,
+          "kind": "gt->ge",
+          "reason": "d is only ever +/-1 at this call site, so the d == 0 case is unreachable"
+        },
+        {
+          "line": 413,
+          "kind": "true->false",
+          "reason": "no save is attempted during restore in any of the nine harness scenarios"
+        },
+        {
+          "line": 495,
+          "kind": "false->true",
+          "reason": "with no PAGE_URL nothing is saved at all, so the flag is unobservable"
+        }
+      ]
     },
     {
       "path": "userscripts/qute-yt-dl",
