@@ -311,3 +311,41 @@ class EquivalentMutantCase(unittest.TestCase):
         self.assertEqual(data["equivalent"], 2, out[-300:])
         self.assertEqual(data["killed"], data["counted"], out[-300:])
         self.assertEqual(rc, 0, "a fully documented target must not fail: " + out[-400:])
+
+
+class ShellCommentMaskCase(unittest.TestCase):
+    """Shell comments must be masked — and only where a comment can actually start.
+
+    The shell-comment rule was added so comment lines stop being mutated into unkillable
+    no-ops, and nothing tested it, which left six mutants alive on that one line.
+    """
+
+    def mask(self, text):
+        return load_mutator().code_mask(text, "shell")
+
+    def test_a_trailing_shell_comment_is_not_code(self):
+        line = "echo hi # a comment"
+        m = self.mask(line)
+        hash_at = line.index("#")
+        self.assertTrue(all(m[:hash_at - 1]), "the command itself is code")
+        self.assertFalse(any(m[hash_at:]), "the comment is not code")
+
+    def test_a_hash_at_the_very_start_of_a_line_is_a_comment(self):
+        m = self.mask("# whole line is a comment")
+        self.assertFalse(any(m), "a leading # starts a comment")
+
+    def test_a_hash_inside_a_word_stays_code(self):
+        self.assertTrue(all(self.mask("echo a#b")), "a#b is not a comment")
+
+    def test_a_length_expansion_stays_code(self):
+        self.assertTrue(all(self.mask("echo ${#x}")), "${#x} is not a comment")
+
+    def test_a_hash_after_a_semicolon_is_a_comment(self):
+        line = "echo a; # note"
+        m = self.mask(line)
+        self.assertFalse(any(m[line.index("#"):]), "a # after ; starts a comment")
+
+    def test_a_comment_does_not_swallow_the_next_line(self):
+        line = "echo a # note\necho b"
+        m = self.mask(line)
+        self.assertTrue(m[line.index("echo b")], "only to end of line")
