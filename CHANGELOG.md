@@ -2,6 +2,17 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.24] — 2026-10-08
+
+### Fixed
+- **The same treatment for Microsoft's sign-in.** The user-agent override and the
+  third-party-cookie exception already covered `login.microsoftonline.com`, `login.live.com`
+  and `login.microsoft.com`, but the JavaScript detection shims in
+  `userscripts/google-signin-compat.js` matched Google hosts only, so Microsoft's pages were
+  left without them. Its `@match` list now includes the Microsoft sign-in hosts and
+  `account.microsoft.com`. The cookie/adblock script's auth-page guard already covered
+  `login.*`; it now also covers `account.*` (singular), which `account.microsoft.com` needed.
+
 ## [1.17.23] — 2026-10-08
 
 ### Fixed

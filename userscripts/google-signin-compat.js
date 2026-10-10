@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         Google sign-in compatibility (Omarchy)
-// @description  Makes the Google sign-in flow accept qutebrowser. config.py already sends a
+// @name         Google / Microsoft sign-in compatibility (Omarchy)
+// @description  Makes the Google and Microsoft sign-in flows accept qutebrowser. config.py already sends a
 //               real Chrome user agent to the sign-in hosts, but the "This browser or app
 //               may not be secure" check also reads JavaScript detection signals that
 //               QtWebEngine simply does not have: real Chrome exposes `window.chrome` and
@@ -11,6 +11,10 @@
 // @match        *://accounts.google.com/*
 // @match        *://accounts.youtube.com/*
 // @match        *://*.google.com/accounts/*
+// @match        *://login.microsoftonline.com/*
+// @match        *://login.live.com/*
+// @match        *://login.microsoft.com/*
+// @match        *://account.microsoft.com/*
 // @run-at       document-start
 // @grant        none
 // ==/UserScript==

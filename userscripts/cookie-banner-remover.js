@@ -28,7 +28,7 @@
     try {
       var h = String((location && location.hostname) || '').toLowerCase();
       var p = String((location && location.pathname) || '').toLowerCase();
-      if (/^(accounts|login|signin|sign-in|auth|sso)\./.test(h)) return true;
+      if (/^(accounts?|login|signin|sign-in|auth|sso)\./.test(h)) return true;
       if (/^account\.google\./.test(h)) return true;
       if (/^\/(signin|sign-in|login|auth|accounts|oauth|consent|logout)/.test(p)) return true;
     } catch (e) { /* a page without location is not reason to skip */ }
