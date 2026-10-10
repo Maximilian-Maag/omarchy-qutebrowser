@@ -676,14 +676,14 @@
     // that was reported. A rebuild never steals focus: keep the active paragraph, found
     // by TEXT key because inserting the card shifts every index. Only when nothing is
     // active does the card take focus.
-    var keepKey = (active >= 0 && blocks[active]) ? paraKey(blocks[active]) : null;
+    var keepKey = (active >= 0 && blocks[active]) ? paraKey(blocks[active].el) : null;
     if (!existing) articleEl.insertBefore(el, articleEl.firstChild);   // above the title
     buildBlocks();
     pState.summary = res;
     saveState();
     if (keepKey) {
       for (var bi = 0; bi < blocks.length; bi++) {
-        if (paraKey(blocks[bi]) === keepKey) { setActive(bi); return; }
+        if (paraKey(blocks[bi].el) === keepKey) { setActive(bi); return; }
       }
     }
     if (active < 0) setActive(0);

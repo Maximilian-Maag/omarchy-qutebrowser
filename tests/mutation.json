@@ -44,11 +44,7 @@
         "python3",
         "-m",
         "unittest",
-        "discover",
-        "-s",
-        "tests",
-        "-p",
-        "test_unit_policy.py",
+        "tests.test_unit_policy_check",
         "-q"
       ]
     },
@@ -98,11 +94,9 @@
       "path": "userscripts/qute-yt-dl",
       "lang": "shell",
       "tests": [
-        "python3",
-        "-m",
-        "unittest",
-        "tests.test_regression_qutebrowser",
-        "-q"
+        "bash",
+        "-c",
+        "bash tests/shell/test_qute_yt_dl.sh && python3 -m unittest tests.test_regression_qutebrowser -q"
       ],
       "max_mutants": 25
     }
