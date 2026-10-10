@@ -85,7 +85,12 @@ def code_mask(text, lang):
     i, n = 0, len(text)
     while i < n:
         ch = text[i]
-        if ch == "#" and lang == "python":
+        # Shell comments count too. Excluding them meant every comment line in a shell
+        # target was mutated into an unkillable no-op, which silently held scores down
+        # (qute-yt-dl could not exceed 17/23 = 0.74 however good its tests were). A `#`
+        # only starts a comment at the start of a word, so ${#var} and a#b stay code.
+        if ch == "#" and (lang == "python" or
+                          (lang == "shell" and (i == 0 or text[i - 1] in " \t;&|(\n"))):
             while i < n and text[i] != "\n":
                 mask[i] = False
                 i += 1

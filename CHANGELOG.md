@@ -2,6 +2,23 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.17] — 2026-10-08
+
+### Fixed
+- **The mutation runner mutated shell comments.** `code_mask` skipped `#` comments for
+  Python and `//`/`/* */` for JS, but explicitly excluded shell — so every comment line in a
+  shell target became an unkillable no-op mutant, silently holding its score down. A shell
+  `#` now starts a comment at the start of a word only, so `${#var}` and `a#b` remain code.
+  `qute-yt-dl` could not have exceeded 17/23 however good its tests were.
+- **A test that assumed a tool from the developer's machine.** `tests/shell/test_qute_yt_dl.sh`
+  asserted mp3 mode works *with ffmpeg present* — CI has no ffmpeg, so the assertion failed
+  there and took the whole target's baseline with it (the runner correctly refused to score
+  it rather than reporting a number). Both branches are now asserted, one per environment.
+- **The yt-dl shell tests were flaky.** They checked for the download log, which the detached
+  runner writes asynchronously, so the target's score moved between runs (0.61–0.74, and one
+  inflated 0.83 I reported earlier). They now check the synchronously-written runner first and
+  only wait a bounded time for the log. Three consecutive runs: identical.
+
 ## [1.17.16] — 2026-10-08
 
 ### Fixed

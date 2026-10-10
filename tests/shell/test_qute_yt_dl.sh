@@ -68,6 +68,20 @@ out="$(run "$TMP/bin:/usr/bin:/bin" "https://www.youtube.com/watch?v=abc" video)
 is "video page exits 0"     "$(printf '%s' "$out" | head -1)" "rc=0"
 case "$out" in *"hint --rapid"*) bad "video page must not ask for a hint";;
   *) ok "video page does not ask for a hint";; esac
+# The runner file is written SYNCHRONOUSLY, the log only once the detached runner gets
+# going — asserting on the log directly raced it and made this suite flaky (the target's
+# score moved between runs). Check the deterministic artifact first...
+runner="$(ls "$TMP/state/omarchy-qutebrowser/yt-dl/runner."*.sh 2>/dev/null | head -1)"
+if [[ -n "$runner" ]] && grep -q -- "abc" "$runner"; then
+  ok "a runner was generated for the page's video"
+else
+  bad "a runner was generated for the page's video (runner='$runner')"
+fi
+# ...then wait (bounded) for the log, which is what proves the download actually started.
+for _ in $(seq 1 25); do
+  [[ -s "$TMP/state/omarchy-qutebrowser/yt-dl/latest.log" ]] && break
+  sleep 0.1
+done
 [[ -s "$TMP/state/omarchy-qutebrowser/yt-dl/latest.log" ]] \
   && ok "the download was started (log written)" || bad "the download was started (log written)"
 
@@ -91,19 +105,20 @@ fi
 out="$(run "$TMP/bin:/usr/bin:/bin" "https://www.youtube.com/watch?v=abc" video)"
 is "video mode works without ffmpeg" "$(printf '%s' "$out" | head -1)" "rc=0"
 
-# 8. mp3 mode with ffmpeg present must proceed — this is what kills the `-z` -> `-n`
-#    mutation of the ffmpeg check (which would demand ffmpeg in the wrong direction).
-#    /bin is a symlink to /usr/bin on Arch, so "ffmpeg absent" cannot be simulated here;
-#    that branch is covered by the conditional below instead.
-out="$(run "$TMP/bin:/usr/bin:/bin" "https://www.youtube.com/watch?v=abc" mp3)"
-is "mp3 mode proceeds when ffmpeg is present" "$(printf '%s' "$out" | head -1)" "rc=0"
-case "$out" in *"ffmpeg not found"*) bad "mp3 mode must not claim ffmpeg is missing";;
-  *) ok "mp3 mode does not claim ffmpeg is missing";; esac
+# 8. mp3 + ffmpeg. The behaviour DEPENDS ON THE ENVIRONMENT, so assert whichever branch
+#    applies: a test that assumed ffmpeg was installed passed here and failed in CI (which
+#    has none), taking the whole target's baseline with it. Both branches are covered, one
+#    on each kind of machine.
 if command -v ffmpeg >/dev/null 2>&1; then
-  ok "SKIPPED: missing-ffmpeg branch (ffmpeg is installed here)"
+  out="$(run "$TMP/bin:/usr/bin:/bin" "https://www.youtube.com/watch?v=abc" mp3)"
+  is "mp3 mode proceeds when ffmpeg is present" "$(printf '%s' "$out" | head -1)" "rc=0"
+  case "$out" in *"ffmpeg not found"*) bad "mp3 mode must not claim ffmpeg is missing";;
+    *) ok "mp3 mode does not claim ffmpeg is missing";; esac
 else
-  out="$(run "$TMP/bin:/bin" "https://www.youtube.com/watch?v=abc" mp3)"
-  is "mp3 without ffmpeg exits 1" "$(printf '%s' "$out" | head -1)" "rc=1"
+  out="$(run "$TMP/bin:/usr/bin:/bin" "https://www.youtube.com/watch?v=abc" mp3)"
+  is "mp3 mode reports ffmpeg missing when it is absent" "$(printf '%s' "$out" | head -1)" "rc=1"
+  case "$out" in *"ffmpeg not found"*) ok "mp3 mode reports ffmpeg missing";;
+    *) bad "mp3 mode reports ffmpeg missing (got: $out)";; esac
 fi
 
 # 9. without a FIFO it must not crash (qutebrowser may not set one)
