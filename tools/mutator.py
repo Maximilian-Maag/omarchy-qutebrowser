@@ -260,7 +260,14 @@ def run_target(repo, target, cfg, tmp_root, dry_run=False, log=print):
     # survivors were verified equivalent by applying each one and diffing the harness's
     # full output). Each entry needs a line, a kind and a REASON, and is listed separately
     # in the output — the threshold itself is never lowered.
-    equiv = {(e.get("line"), e.get("kind")) for e in (target.get("equivalent") or [])}
+    # Only entries that STATE A REASON count. Without that, "equivalent" would be a way to
+    # delete an inconvenient mutant from the denominator rather than document it.
+    entries = target.get("equivalent") or []
+    equiv = {(e.get("line"), e.get("kind")) for e in entries if e.get("reason")}
+    unreasoned = [e for e in entries if not e.get("reason")]
+    if unreasoned:
+        log("  %s: %d 'equivalent' entry(ies) ignored — each needs a reason"
+            % (target.get("path"), len(unreasoned)))
     survivors = [r for r in results if r["verdict"] == "survived"]
     # the mutant record names this field "operator", not "kind" — matching on "kind" read
     # a key that does not exist, so the filter silently never fired
