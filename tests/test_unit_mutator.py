@@ -257,3 +257,57 @@ class MutatorEndToEndCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EquivalentMutantCase(unittest.TestCase):
+    """A mutant that cannot change observable behaviour is documented, not counted.
+
+    The fixture has two survivors on the same line and declares both: the denominator then
+    holds only killed mutants, so the bar is met. (Declaring one leaves the other genuinely
+    unkilled, and the run correctly fails — which is the check that this is not a way to
+    make a bad score disappear.)
+    """
+
+    LIB = "def used(n):\n    return n + 1\n\n\ndef unused(x):\n    if x > 5:\n        return x * 2\n    return 0\n"
+    TEST = ("import unittest\nfrom lib import used\n\n\nclass T(unittest.TestCase):\n"
+            "    def test_used(self):\n        self.assertEqual(used(1), 2)\n")
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        self.dir = pathlib.Path(tempfile.mkdtemp(prefix="equiv-test-"))
+        (self.dir / "lib.py").write_text(self.LIB)
+        (self.dir / "tests").mkdir()
+        (self.dir / "tests" / "test_lib.py").write_text(self.TEST)
+        (self.dir / "tools").mkdir()
+        shutil.copy(pathlib.Path(__file__).resolve().parent.parent / "tools/mutator.py",
+                    self.dir / "tools/mutator.py")
+
+    def _write(self, equivalent):
+        import json
+        cfg = {"min_kill_rate": 0.80, "targets": [{
+            "path": "lib.py", "lang": "python",
+            "tests": ["python3", "-m", "unittest", "tests.test_lib"],
+            "min_kill_rate": 0.80, "equivalent": equivalent}]}
+        (self.dir / "tests" / "mutation.json").write_text(json.dumps(cfg))
+        return self.dir / "report.json"
+
+    def run_mutator(self, rep):
+        p = subprocess.run(["python3", "tools/mutator.py", "--only", "lib.py", "--json", str(rep)],
+                           cwd=str(self.dir), capture_output=True, text=True)
+        return p.returncode, p.stdout + p.stderr, json.loads(rep.read_text())[0]
+
+    def test_undeclared_survivors_fail_the_run(self):
+        rep = self._write([])
+        rc, out, data = self.run_mutator(rep)
+        self.assertEqual(data["equivalent"], 0)
+        self.assertEqual(rc, 1, "survivors below the bar must fail: " + out[-300:])
+
+    def test_declaring_both_survivors_meets_the_bar(self):
+        rep = self._write([
+            {"line": 6, "kind": "gt->ge", "reason": "unused() is never called"},
+            {"line": 6, "kind": "number±1", "reason": "unused() is never called"}])
+        rc, out, data = self.run_mutator(rep)
+        self.assertEqual(data["equivalent"], 2, out[-300:])
+        self.assertEqual(data["killed"], data["counted"], out[-300:])
+        self.assertEqual(rc, 0, "a fully documented target must not fail: " + out[-400:])

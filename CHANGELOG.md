@@ -2,6 +2,19 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.19] — 2026-10-08
+
+### Changed
+- **The mutation runner's equivalent-mutant mechanism is now covered by tests.** Its own code
+  is a mutation target, and the mechanism had ~6 mutants nothing killed, which held
+  `tools/mutator.py` at 0.70. Two tests now pin it: undeclared survivors fail the run, and a
+  target whose survivors are all declared meets the bar with `killed == counted`.
+
+  The fixture also documents the trap I fell into: it has **two** survivors on the same line,
+  so declaring only one leaves a genuinely unkilled mutant and the run correctly fails.
+  Reading `equivalent: 1` beside `counted: 3` as "the filter does not fire" was wrong —
+  4 mutants minus 1 excluded is exactly 3. The mechanism had always worked.
+
 ## [1.17.18] — 2026-10-08
 
 ### Fixed
