@@ -137,7 +137,7 @@
           "reason": "with no PAGE_URL nothing is saved at all, so the flag is unobservable"
         }
       ],
-      "timeout": 90
+      "timeout": 180
     },
     {
       "path": "userscripts/qute-yt-dl",

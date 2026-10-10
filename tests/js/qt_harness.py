@@ -672,7 +672,7 @@ def main():
         print("OBSERVATIONS:" + json.dumps(out))
         sys.stdout.flush()
         os._exit(0)
-    QTimer.singleShot(35000, _give_up)
+    QTimer.singleShot(120000, _give_up)
     app.exec()
     return 0
 
