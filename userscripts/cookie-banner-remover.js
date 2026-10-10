@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cookie Banner Remover + Adblock Defuser (Omarchy)
 // @description  Automatic, reject-by-default cookie-consent handling: click "reject all" when it exists, fall back to accept only when there is no reject option, and remove the banner either way. Also defuses anti-adblock detection and removes "disable your ad blocker" walls (e.g. bild.de), plus a generic overlay fallback.
-// @version      4.0
+// @version      4.1
 // @author       omarchy-qutebrowser
 // @namespace    https://github.com/Maximilian-Maag/omarchy-qutebrowser
 // @match        *://*/*
@@ -18,6 +18,23 @@
   function note(action, detail) {
     try { log.push({ action: action, detail: (detail || '').slice(0, 80), at: Date.now() }); } catch (e) {}
   }
+
+  // ── 0. Never touch authentication pages ──────────────────────────────────
+  // A sign-in flow is full of buttons this script would happily click ("I agree",
+  // "Agree & continue", "Not now", "Decline") and of overlays it would remove — which is
+  // how a login breaks (Gmail sign-in on accounts.google.com). A cookie banner on an auth
+  // page is rare; breaking the login is not worth the risk.
+  function isAuthPage() {
+    try {
+      var h = String((location && location.hostname) || '').toLowerCase();
+      var p = String((location && location.pathname) || '').toLowerCase();
+      if (/^(accounts|login|signin|sign-in|auth|sso)\./.test(h)) return true;
+      if (/^account\.google\./.test(h)) return true;
+      if (/^\/(signin|sign-in|login|auth|accounts|oauth|consent|logout)/.test(p)) return true;
+    } catch (e) { /* a page without location is not reason to skip */ }
+    return false;
+  }
+  if (isAuthPage()) { note('skip', 'authentication page — left untouched'); return; }
 
   // ── 1. CMP containers / overlays ──────────────────────────────────────────
   // Explicit selectors for the CMPs seen in the wild, then generic patterns.
@@ -95,7 +112,10 @@
     /^(close|dismiss|no,?\s*thanks|not\s*now|got\s*it|schlie[ßs]en|sp[äa]ter)[.!]?$/i,
   ];
   var ACCEPT_PATTERNS = [
-    /accept\s*all/i, /allow\s*all/i, /i\s*accept/i, /agree/i,
+    // NOTE: a bare /agree/i used to be here. "I agree"/"Agree & continue"
+    // are terms buttons on sign-in and registration pages, and clicking one
+    // mid-flow is how a login breaks. Banner text says "accept all".
+    /accept\s*all/i, /allow\s*all/i, /i\s*accept/i, /agree\s*(and|&)\s*continue/i,
     /alle\s*akzeptieren/i, /akzeptieren/i, /einverstanden/i, /allen?\s*zustimmen/i, /zustimmen/i,
     /alles\s*(erlauben|annehmen)/i,
   ];

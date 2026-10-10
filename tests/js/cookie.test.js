@@ -259,3 +259,54 @@ test('chainableStub never reports "detected" but fires onNotDetected immediately
 // both the sliced-logic tests and a whole-IIFE vm harness. Requiring it here keeps
 // every target that runs this one file covering the shipped IIFE too.
 require('./cookie.harness.test.js');
+
+// ── the authentication-page guard ────────────────────────────────────────────
+// Observed in the wild: Gmail sign-in broke with this script installed. It matches every
+// page, and a sign-in screen is full of buttons it would click ("I agree", "Not now").
+function consentLogFor(hostname, pathname) {
+  const noop = () => {};
+  const el = () => ({ style: {}, setAttribute: noop, appendChild: noop, removeChild: noop,
+    addEventListener: noop, removeEventListener: noop, click: noop, remove: noop,
+    querySelector: () => null, querySelectorAll: () => [], matches: () => false,
+    classList: { add: noop, remove: noop, contains: () => false } });
+  const document = {
+    readyState: 'complete', documentElement: el(), body: el(), head: el(),
+    createElement: el, createTextNode: () => ({}), getElementById: () => null,
+    querySelector: () => null, querySelectorAll: () => [], addEventListener: noop,
+    removeEventListener: noop, dispatchEvent: () => true,
+  };
+  const win = {
+    document,
+    location: { hostname, pathname, href: `https://${hostname}${pathname}`, protocol: 'https:' },
+    navigator: { userAgent: 'test', languages: [] },
+    MutationObserver: function () { this.observe = noop; this.disconnect = noop; },
+    setTimeout: () => 0, clearTimeout: noop, setInterval: () => 0, clearInterval: noop,
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
+    addEventListener: noop, removeEventListener: noop, open: noop, scrollTo: noop,
+  };
+  win.window = win; win.self = win; win.top = win; win.parent = win;
+  const vm = require('node:vm');
+  const ctx = vm.createContext(win);
+  ctx.MutationObserver = win.MutationObserver;
+  vm.runInContext(require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', '..', 'userscripts', 'cookie-banner-remover.js'), 'utf8'), ctx);
+  return win.__omarchyConsent || [];
+}
+
+test('it leaves Google sign-in pages completely alone', () => {
+  const log = consentLogFor('accounts.google.com', '/signin/v2/challenge/pwd');
+  assert.ok(log.some((e) => e.action === 'skip'), 'an auth page is skipped: ' + JSON.stringify(log));
+  assert.ok(!log.some((e) => e.action === 'reject' || e.action === 'accept'),
+    'nothing is clicked: ' + JSON.stringify(log));
+});
+
+test('it leaves a /login path alone on any host', () => {
+  const log = consentLogFor('example.com', '/login');
+  assert.ok(log.some((e) => e.action === 'skip'), JSON.stringify(log));
+});
+
+test('it still acts on an ordinary page', () => {
+  const log = consentLogFor('example.com', '/article');
+  assert.ok(!log.some((e) => e.action === 'skip'),
+    'a normal page must not be skipped: ' + JSON.stringify(log));
+});

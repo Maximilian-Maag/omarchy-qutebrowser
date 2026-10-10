@@ -2,6 +2,20 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.20] — 2026-10-08
+
+### Fixed
+- **Google sign-in (Gmail) was broken by the cookie/adblock userscript.** It matches
+  `*://*/*`, so it ran on `accounts.google.com` too, and a sign-in screen is full of buttons
+  it would happily click: `ACCEPT_PATTERNS` contained a bare `/agree/i`, so "I agree" and
+  "Agree & continue" were candidates — terms buttons on a sign-in or registration page — and
+  its generic overlay fallback would remove sign-in overlays. That is how a login breaks.
+  Auth pages are now skipped entirely (`accounts.*`, `login.*`, `signin.*`, `auth.*`,
+  `sso.*`, `account.google.*`, and `/signin`, `/login`, `/oauth`, `/consent`, `/logout` paths)
+  and the bare `/agree/i` is gone in favour of `/agree\s*(and|&)\s*continue/i`. Three tests
+  pin it: a Google sign-in page is skipped and nothing is clicked, a `/login` path is skipped,
+  and an ordinary page is still acted on. `tests/js/cookie.test.js`: 27 tests pass.
+
 ## [1.17.19] — 2026-10-08
 
 ### Changed
