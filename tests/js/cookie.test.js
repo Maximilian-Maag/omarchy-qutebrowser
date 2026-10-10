@@ -253,3 +253,9 @@ test('chainableStub never reports "detected" but fires onNotDetected immediately
   const api2 = ctx.chainableStub(false)();
   assert.strictEqual(api2.setBait('x').check().debug().on('x').clearEvent().setBaitClass('y').setBaitStyle(1), api2);
 });
+
+// The sweep and whole-IIFE harness (the shipped entry point, not a sliced copy) now
+// lives in a sibling file mirroring tests/js/adblock.test.js, which likewise carries
+// both the sliced-logic tests and a whole-IIFE vm harness. Requiring it here keeps
+// every target that runs this one file covering the shipped IIFE too.
+require('./cookie.harness.test.js');
