@@ -54,6 +54,24 @@ RAW_ARTICLE = (
     "</div></body></html>"
 )
 
+# A second article whose media exercise the collector's filters: a 1x1 tracking
+# video (must be dropped), a 1-pixel-wide player (must be KEPT — only a 1x1 pair is
+# a pixel), an iframe with no caption (its caption falls back to 'Embedded iframe'),
+# and enough ordinary players that the 12-element readability cap is observable.
+RAW_MEDIA = (
+    "<html><head><title>Media Test Article</title></head><body>"
+    "<div id='content'>"
+    "<h1>Media Test Article</h1>"
+    "<p>Intro paragraph with enough words to be extracted by Readability as real article prose.</p>"
+    "<video src='https://cdn.example.com/pixel.mp4' width='1' height='1'></video>"
+    "<video src='https://cdn.example.com/wide.mp4' width='1' height='360'></video>"
+    "<iframe src='https://player.example.com/nocap'></iframe>"
+    + "".join("<video src='https://cdn.example.com/v%d.mp4' width='640' height='360'></video>" % i
+              for i in range(1, 14))
+    + "<p>Closing paragraph with enough words to be extracted by Readability as real article prose.</p>"
+    "</div></body></html>"
+)
+
 STUBS = """
 window.__calls = { fetch: [], beacon: [], open: [] };
 window.__obs = {};
@@ -170,6 +188,8 @@ DRIVER = r"""
   obs.activeIdx0 = activeIdx();
   obs.summaryBlk0 = !!q('#article .summary-blk');
   obs.mediaBlocks = qa('#article .media-block').length;
+  // the spliced <video> must carry native controls
+  obs.videoControls = (function () { var v = q('#article video'); return v ? v.controls : null; }());
   // media must be placed before a paragraph, not appended at the very end
   obs.mediaPositions = articleLabels().map(function (v, i) { return v.indexOf('MEDIA') === 0 ? i : -1; })
     .filter(function (i) { return i >= 0; });
@@ -194,6 +214,8 @@ DRIVER = r"""
   key('j');
   await wait(30);
   obs.activeAfterJ = activeIdx();
+  // exactly ONE paragraph may be lit — a rebuild/step that leaves two .active is a bug
+  obs.activeCountAfterJ = qa('#article .blk.active').length;
   obs.focusMode = document.body.classList.contains('focus-mode');
   obs.beforeMove = beforeMove;
   // k from a non-first paragraph goes back
@@ -298,6 +320,7 @@ DRIVER = r"""
   window.omarchyReader.restoreai();
   await wait(80);
   obs.blkAfterRestore = qa('#article .blk').length;
+  obs.activeAfterRestore = activeIdx();
   obs.undoHiddenAfterRestore = q('#btn-undo') ? q('#btn-undo').hidden : null;
 
   // ── upOnce on the FIRST paragraph summarises the article (<=0), not move ─
@@ -319,6 +342,27 @@ DRIVER = r"""
   obs.savedKeys = obs.savedState ? Object.keys(obs.savedState.marks || {}).length : null;
   obs.beaconCount = window.__calls.beacon.length;
   obs.beaconUrls = window.__calls.beacon.map(function (b) { return b.url; });
+
+  // ── a focused wheel is released when the reader steps to another paragraph ──
+  // setActive() must blur the wheel before lighting the new block; otherwise the
+  // wheel keeps .focused (and swallows the next ↑/↓) after you move away from it.
+  var anyWheel = q('#article .fact-wheel');
+  if (anyWheel) {
+    var owner = anyWheel.closest('.blk');
+    if (owner) {
+      owner.click();
+      await wait(20);
+      window.omarchyReader.wheelfocus();
+      await wait(20);
+      obs.wheelFocusedBeforeBlockClick = !!q('#article .fact-wheel.focused');
+      var otherBlk = qa('#article .blk').filter(function (b) { return b !== owner; })[0];
+      if (otherBlk) {
+        otherBlk.click();
+        await wait(20);
+        obs.wheelFocusedAfterBlockClick = !!q('#article .fact-wheel.focused');
+      }
+    }
+  }
   obs.__done = true;
   } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
 })();
@@ -407,21 +451,136 @@ RESTORE_EMPTY_DRIVER = r"""
   window.omarchyReader.removeai();          // no AI paragraphs -> sets an error, no save
   var before = window.__calls.beacon.length;
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
-  await wait(1300);                          // applyVerdict -> saveState (900ms debounce)
+  await wait(2200);                          // tap 460ms + applyVerdict -> saveState (900ms debounce)
   obs.savedAfterEmptyRestore = window.__calls.beacon.length - before;
   obs.__done = true;
 })();
 """
 
+MEDIA_DRIVER = r"""
+(async function () {
+  var obs = window.__obs;
+  try {
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function q(s) { return document.querySelector(s); }
+  function qa(s) { return Array.prototype.slice.call(document.querySelectorAll(s)); }
+  await wait(150);
+  obs.mediaCount = qa('#article .media-block').length;
+  obs.captions = qa('#article .media-block .media-caption').map(function (c) { return c.textContent; });
+  obs.mediaSrcs = qa('#article .media-block').map(function (b) {
+    var m = b.querySelector('video,audio,iframe');
+    if (!m) return null;
+    if (m.tagName === 'VIDEO' || m.tagName === 'AUDIO') {
+      var s = m.querySelector('source');
+      return s ? s.src : m.src;
+    }
+    return m.src;
+  });
+  obs.hasPixel = obs.mediaSrcs.some(function (u) { return u && u.indexOf('pixel.mp4') !== -1; });
+  obs.hasWide = obs.mediaSrcs.some(function (u) { return u && u.indexOf('wide.mp4') !== -1; });
+  obs.__done = true;
+  } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
+})();
+"""
+
+VISIBLEKEY_DRIVER = r"""
+(async function () {
+  var obs = window.__obs;
+  try {
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function q(s) { return document.querySelector(s); }
+  function qa(s) { return Array.prototype.slice.call(document.querySelectorAll(s)); }
+  function blockText(el) {
+    var c = el.cloneNode(true);
+    Array.prototype.forEach.call(c.querySelectorAll('.ai-btn,.ai-badge,.fact-card,.fact-wheel,.para-summary'),
+                                 function (n) { n.remove(); });
+    return (c.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  function h32(str) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = (h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)) >>> 0;
+    }
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
+  await wait(120);
+  window.scrollTo(0, 0);
+  await wait(40);
+  var blks = qa('#article .blk');
+  // Absolute-position every block so the viewport tops are exact and controllable.
+  blks.forEach(function (b) {
+    b.style.position = 'absolute'; b.style.left = '0'; b.style.width = '600px';
+    b.style.height = '80px'; b.style.margin = '0'; b.style.top = '10px';
+  });
+  var T = window.innerHeight * 0.5;          // the "below the fold" threshold
+  var A = blks[1], B = blks[2];              // two real paragraphs
+  if (A) A.style.top = T + 'px';
+  if (B) B.style.top = T + 'px';
+  obs.innerHeight = window.innerHeight;
+  obs.threshold = T;
+  obs.topA = A ? A.getBoundingClientRect().top : null;
+  obs.topB = B ? B.getBoundingClientRect().top : null;
+  var activeBlk = q('#article .blk.active');
+  obs.activeText = activeBlk ? blockText(activeBlk) : null;
+  // force a save so the payload's `pos` (visibleKey) is observable
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+  await wait(2400);
+  var last = window.__calls.beacon[window.__calls.beacon.length - 1];
+  if (last && last.blob && last.blob.text) {
+    try { var st = JSON.parse(await last.blob.text()).state; obs.savedPos = st.pos; }
+    catch (e) { obs.savedStateError = String(e); }
+  }
+  obs.keyA = A ? h32(blockText(A)) : null;
+  obs.keyB = B ? h32(blockText(B)) : null;
+  obs.keyActive = activeBlk ? h32(blockText(activeBlk)) : null;
+  obs.__done = true;
+  } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
+})();
+"""
+
+# A page the reader cannot reduce to any block (no paragraph-level elements). The
+# reader must survive a scoring key here rather than reaching into a missing block.
+RAW_NOBLOCKS = (
+    "<html><head><title>Nothing to read</title></head><body>"
+    "<div><span>This page has no paragraph-level elements at all, so no block survives.</span></div>"
+    "</body></html>"
+)
+
+EMPTY_DRIVER = r"""
+(async function () {
+  var obs = window.__obs;
+  try {
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function q(s) { return document.querySelector(s); }
+  function qa(s) { return Array.prototype.slice.call(document.querySelectorAll(s)); }
+  await wait(200);
+  obs.blkCount = qa('#article .blk').length;
+  obs.articleChildren = q('#article') ? q('#article').children.length : null;
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+  await wait(900);
+  obs.errors = (window.__obs.__errors || []).slice();
+  obs.status = q('#status').textContent;
+  obs.__done = true;
+  } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
+})();
+"""
+
 DRIVERS = {"main": DRIVER, "ai_error": AI_ERROR_DRIVER, "restore": RESTORE_DRIVER,
            "capture": CAPTURE_DRIVER, "badjson": BADJSON_DRIVER,
-           "restore_empty": RESTORE_EMPTY_DRIVER}
+           "restore_empty": RESTORE_EMPTY_DRIVER, "media": MEDIA_DRIVER,
+           "visiblekey": VISIBLEKEY_DRIVER, "empty": EMPTY_DRIVER}
+
+# Order matters: `capture` must run before `restore` (restore replays the state
+# capture saved), and `main` first so its observations lead the blob.
+DEFAULT_SCENARIOS = ["main", "ai_error", "badjson", "restore_empty", "capture",
+                     "restore", "media", "visiblekey", "empty"]
 
 
 def build_html(scenario, captured=None):
     colors = json.dumps({"mode": "light", "bg": "#0b0b0b", "accent": "#11aa33",
                          "fg": "#eeeeee", "red": "#ff0000"})
-    article = json.dumps(RAW_ARTICLE)
+    article = json.dumps(RAW_MEDIA if scenario == "media" else RAW_ARTICLE)
     stubs = STUBS
     if scenario == "ai_error":
         stubs += "\nwindow.__AI_ERROR__ = { ok: false, status: 500, data: { ok: false, error: '' } };\n"
@@ -439,7 +598,7 @@ def build_html(scenario, captured=None):
 
 
 def main():
-    scenarios = sys.argv[1].split(",") if len(sys.argv) > 1 else ["main"]
+    scenarios = sys.argv[1].split(",") if len(sys.argv) > 1 else DEFAULT_SCENARIOS
     out = {}
     app = QApplication(sys.argv)
     view = QWebEngineView()

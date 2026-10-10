@@ -146,7 +146,108 @@ test('state is persisted and beaconed to the server', opts, () => {
   assert.ok('verdict' in f && 'headlines' in f, 'facts are saved with their headlines');
 });
 
-// NOTE: the harness emits only the `main` scenario. Its author described ai_error,
-// badjson, restore_empty, capture and restore scenarios, but none of them appear in the
-// OBSERVATIONS output — so there is nothing to assert on and asserting anyway would be a
-// false failure. Worth finishing in the harness rather than faking here.
+// ── the reader chrome: mode, colours, media controls ─────────────────────────
+test('the reader takes its mode and colours from the page', opts, () => {
+  const m = OBS.main;
+  assert.equal(m.mode, 'light', 'data-mode follows the injected colours');
+  assert.equal(m.cssBg, '#0b0b0b', '--bg is set from the colours map');
+  assert.equal(m.cssAccent, '#11aa33', '--accent is set from the colours map');
+});
+
+test('a spliced video carries native controls', opts, () => {
+  assert.equal(OBS.main.videoControls, true);
+});
+
+// ── stepping through paragraphs lights exactly one block ─────────────────────
+test('moving down and back up lights exactly one paragraph', opts, () => {
+  const m = OBS.main;
+  assert.equal(m.activeAfterJ, 1, 'j steps down one paragraph');
+  assert.equal(m.activeCountAfterJ, 1, 'only one paragraph stays lit');
+  assert.equal(m.activeAfterK, 0, 'k steps back up');
+});
+
+test('↑ on the first paragraph summarises the article, it does not move', opts, () => {
+  // Regression: upOnce() must summarise when the first paragraph is active (there is
+  // nowhere above to go), not scroll up.
+  assert.equal(OBS.main.upOnceSummarized, 1);
+});
+
+test('undo restores the paragraph and re-lights the active block', opts, () => {
+  assert.equal(OBS.main.activeAfterRestore, 1);
+});
+
+test('stepping to another paragraph releases a focused wheel', opts, () => {
+  // setActive() must blur the wheel; otherwise it keeps .focused and swallows ↑/↓.
+  const m = OBS.main;
+  assert.equal(m.wheelFocusedBeforeBlockClick, true, 'the wheel is focused first');
+  assert.equal(m.wheelFocusedAfterBlockClick, false, 'stepping away releases it');
+});
+
+// ── error handling ───────────────────────────────────────────────────────────
+test('an AI HTTP error is reported in the status bar', opts, () => {
+  const e = OBS.ai_error;
+  assert.ok(e, 'ai_error scenario ran');
+  assert.equal(e.__done, true);
+  assert.match(e.errorStatus, /^AI error: HTTP 500$/);
+  assert.equal(e.errorClass, true, 'the status is flagged as an error');
+});
+
+test('a malformed AI response is reported, not silently swallowed', opts, () => {
+  const b = OBS.badjson;
+  assert.ok(b, 'badjson scenario ran');
+  assert.equal(b.__done, true);
+  assert.match(b.badJsonStatus, /bad response/);
+});
+
+// ── restore ──────────────────────────────────────────────────────────────────
+test('saved annotations are replayed when the article is reloaded', opts, () => {
+  const r = OBS.restore;
+  assert.ok(r, 'restore scenario ran');
+  assert.equal(r.__done, true);
+  assert.equal(r.summaryRestored, true, 'the summary comes back');
+  assert.equal(r.restoredFacts, 2, 'the fact cards come back');
+  assert.equal(r.restoredWheels, 2, 'and their wheels');
+  assert.equal(r.removedRestored, 7, 'the removed paragraph is restored');
+  assert.match(r.restoringStatus, /Restored/);
+});
+
+test('a saved position that matches no paragraph falls back to the saved scroll', opts, () => {
+  assert.deepEqual(OBS.restore.scrollCalls, [0, 777]);
+});
+
+test('an empty saved state does not block later saves', opts, () => {
+  const e = OBS.restore_empty;
+  assert.ok(e, 'restore_empty scenario ran');
+  assert.equal(e.__done, true);
+  assert.ok(e.savedAfterEmptyRestore >= 1, 'saving resumes after an empty restore');
+});
+
+// ── media collection ─────────────────────────────────────────────────────────
+test('the media collector drops trackers, keeps players and names embeds', opts, () => {
+  const m = OBS.media;
+  assert.ok(m, 'media scenario ran');
+  assert.equal(m.__done, true);
+  assert.equal(m.mediaCount, 12, 'collection stops at the readability cap');
+  assert.equal(m.hasPixel, false, 'a 1x1 video is a tracker, not a player');
+  assert.equal(m.hasWide, true, 'a 1-pixel-WIDE player is a real player');
+  assert.ok(m.captions.includes('Embedded iframe'), 'a captionless embed is named');
+});
+
+// ── persistence key stability ────────────────────────────────────────────────
+test('paragraph state is keyed by a stable hash of the paragraph text', opts, () => {
+  // h32() is FNV-1a; the title paragraph's key must not drift or every previously
+  // saved annotation would be orphaned on reload.
+  assert.ok(OBS.main.savedState.marks['3f6ebeeb'], 'the title paragraph key is stable');
+});
+
+// ── resume position (visibleKey) ─────────────────────────────────────────────
+test('the resume position is the lowest paragraph at or above the fold', opts, () => {
+  const v = OBS.visiblekey;
+  assert.ok(v, 'visiblekey scenario ran');
+  assert.equal(v.__done, true);
+  assert.equal(v.topA, v.threshold, 'block A sits exactly at the fold');
+  assert.equal(v.topB, v.threshold, 'block B sits exactly at the fold');
+  assert.equal(v.savedPos, v.keyA, 'of two tied paragraphs the earlier one wins');
+  assert.notEqual(v.keyA, v.keyActive, 'the saved position is not merely the active block');
+});
+
