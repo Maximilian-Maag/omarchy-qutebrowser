@@ -8,6 +8,7 @@ import ast
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import types
@@ -177,6 +178,72 @@ class UserscriptCase(unittest.TestCase):
         _, note = self.us.choose_account(self.creds(), "https://example.com/", args)
         self.assertIn("press again", note)
         self.assertIn(",ka", note)
+
+    # ── escapes, comments and the FIFO one-line rule ──────────────────────
+    def test_one_line_preserves_backslash_escapes_inside_strings(self):
+        # A backslash escape inside a quoted string must be copied through, not
+        # collapsed away (the `ch == "\\"` branch and its index).
+        self.assertEqual(self.us.one_line('"\\na"'), '"\\na"')
+
+    def test_one_line_closes_a_string_before_a_following_comment(self):
+        # The closing quote must end the string immediately, so a `//` right after
+        # it starts a comment and is stripped — not kept as string contents.
+        self.assertEqual(self.us.one_line('"a"//x'), '"a"')
+
+    def test_one_line_copies_a_trailing_backslash_to_end_of_input(self):
+        # An unterminated string ending in a backslash: reading one past the end
+        # would slip an undefined into the output, so the guard must stop.
+        inp = "'abc\\"
+        self.assertEqual(self.us.one_line(inp), inp)
+
+    def test_one_line_does_not_insert_a_space_before_a_quote(self):
+        # The pending-space flag is only set by whitespace, so `a"b"` keeps no gap.
+        self.assertEqual(self.us.one_line('a"b"'), 'a"b"')
+
+    def test_one_line_does_not_leak_pending_space_past_a_quote(self):
+        self.assertEqual(self.us.one_line('"a"b'), '"a"b')
+
+    def test_one_line_strips_a_line_comment_at_end_of_input(self):
+        self.assertEqual(self.us.one_line("a//b"), "a")
+
+    # ── association key store ─────────────────────────────────────────────
+    def test_store_is_idempotent_over_an_existing_directory(self):
+        path = os.path.join(self.tmp.name, "deep/nested/keepassxc.key")
+        store = self.us.KeyStore(path=path)
+        store.store("assoc-1", bytes(range(32)))
+        store.store("assoc-2", bytes(32))          # the directory already exists
+        self.assertEqual(store.load()[0], "assoc-2")
+
+    # ── account memory ────────────────────────────────────────────────────
+    def test_save_pref_defaults_to_rotating(self):
+        self.us.save_pref("example.com", {"login": "a", "name": "n", "uuid": "u"})
+        prefs = self.us.load_prefs()
+        self.assertIs(prefs["example.com"]["rotate"], True,
+                      "an unspecified choice must rotate, not be pinned")
+
+    def test_match_by_number_one_is_the_first_entry(self):
+        self.assertEqual(self.us.match_index(self.creds(), "1"), 0)
+
+    def test_remembered_index_falls_back_to_a_zero_index(self):
+        # An entry stored without a login/name/uuid is found by its index, and
+        # index 0 is a valid match (not "no match").
+        prefs = {"example.com": {"login": "", "name": "", "uuid": "", "index": 0, "rotate": True}}
+        self.assertEqual(self.us.remembered_index(self.creds(), "https://example.com/", prefs), 0)
+
+    # ── the PyNaCl dependency guard ───────────────────────────────────────
+    def test_missing_pynacl_exits_with_a_hint(self):
+        # Run the shipped script under an interpreter where `nacl` cannot import:
+        # the guard must explain itself and exit 1 (not 2, not continue).
+        pkg = pathlib.Path(self.tmp.name) / "pkg"
+        pkg.mkdir()
+        (pkg / "nacl.py").write_text("raise ImportError('blocked for the test')\n")
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(pkg)
+        env.pop("QUTE_FIFO", None)
+        proc = subprocess.run([sys.executable, str(US)], capture_output=True, text=True,
+                              env=env, timeout=30)
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("PyNaCl", proc.stderr)
 
 
 if __name__ == "__main__":

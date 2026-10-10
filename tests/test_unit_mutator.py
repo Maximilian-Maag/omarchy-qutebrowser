@@ -49,6 +49,46 @@ class MutatorCase(unittest.TestCase):
         self.assertFalse(mask[text.index("y == 3")])
         self.assertTrue(mask[text.index("var b")])
 
+    def test_mask_marks_a_string_at_offset_zero(self):
+        # The scan must start at the first character, or a string/comment that
+        # opens the file leaves mask[0] (the first token) marked as code.
+        mask = self.mut.code_mask('"a == b"\n', "python")
+        self.assertFalse(mask[0])
+        self.assertFalse(mask[3])                  # the `==` inside the string
+
+    def test_mask_handles_a_trailing_comment_without_a_newline(self):
+        # The comment loops run to end-of-input; reading one past the end would
+        # raise instead of stopping.
+        self.assertFalse(any(self.mut.code_mask("# c == d", "python")))
+        self.assertFalse(any(self.mut.code_mask("// c == d", "javascript")))
+
+    def test_mask_comment_skip_does_not_step_over_a_newline(self):
+        text = "#==\nX == Y\n"
+        mask = self.mut.code_mask(text, "python")
+        self.assertFalse(mask[text.index("#")])
+        self.assertTrue(mask[text.index("X")], "code after the comment must stay code")
+
+    def test_mask_marks_the_whole_block_comment(self):
+        # Every character of /* ... */, delimiters included, is not code.
+        text = "/* aaaa == */\n"
+        mask = self.mut.code_mask(text, "javascript")
+        self.assertFalse(any(mask[: text.index("\n")]), "the closing */ is still in the comment")
+        # A comment that opens and closes immediately must not swallow the file.
+        text2 = "/**/a == b\n"
+        mask2 = self.mut.code_mask(text2, "javascript")
+        self.assertTrue(mask2[text2.index("a")], "code after /**/ must stay code")
+        # A block comment after code: the close is found from just past the opener.
+        text3 = "x/* */y == z\n"
+        mask3 = self.mut.code_mask(text3, "javascript")
+        self.assertTrue(mask3[text3.index("y")], "code after /* */ must stay code")
+
+    def test_mask_spans_newlines_in_a_triple_quoted_string(self):
+        text = 'x = """a\n== b"""\ny = 1\n'
+        mask = self.mut.code_mask(text, "python")
+        second = text.index("==", text.index("\n"))
+        self.assertFalse(mask[second], "a triple string covers its second line too")
+        self.assertTrue(mask[text.index("y = 1")])
+
     # ── operators ─────────────────────────────────────────────────────────
     def test_comparison_operator_is_mutated(self):
         labels = [m[3] for m in self.mut.mutants_for("if a == b:\n    pass\n", "python")]

@@ -74,11 +74,12 @@ def read_message(conn, timeout=5):
 class MockKeepass:
     """Enough of KeePassXC-Browser to make the client do its job."""
 
-    def __init__(self, responder=None):
+    def __init__(self, responder=None, handshake=None):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup = self.dir.cleanup
         self.path = os.path.join(self.dir.name, "kp.sock")
         self.responder = responder or (lambda payload: {"success": "true"})
+        self.handshake = handshake or {}
         self.requests = []
         self.handshake_seen = None
         self.error = None
@@ -100,13 +101,15 @@ class MockKeepass:
         self.handshake_seen = hello
         client_key = nacl.public.PublicKey(base64.b64decode(hello["publicKey"]))
         box = nacl.public.Box(server_key, client_key)
-        conn.sendall(json.dumps({
+        reply = {
             "action": "change-public-keys",
             "publicKey": base64.b64encode(server_key.public_key.encode()).decode(),
             "nonce": base64.b64encode(nacl.utils.random(24)).decode(),
             "success": "true",
             "clientID": hello.get("clientID"),
-        }).encode())
+        }
+        reply.update(self.handshake)                   # let a test break the handshake on purpose
+        conn.sendall(json.dumps(reply).encode())
         while True:
             msg = read_message(conn)
             if msg is None:
@@ -136,8 +139,8 @@ class SocketClientCase(unittest.TestCase):
     def setUpClass(cls):
         cls.us = load_userscript()
 
-    def client(self, responder=None):
-        mock = MockKeepass(responder)
+    def client(self, responder=None, **kw):
+        mock = MockKeepass(responder, **kw)
         self.addCleanup(mock.dir.cleanup)
         seed = bytes(range(32))
         kp = self.us.KeePassXC(key_seed=seed, socket_path=mock.path)
@@ -151,6 +154,22 @@ class SocketClientCase(unittest.TestCase):
         self.assertIn("publicKey", mock.handshake_seen)
         self.assertIn("clientID", mock.handshake_seen)
         self.assertIsNotNone(kp.box, "connect() must build the encryption box")
+
+    def test_the_client_socket_gets_a_read_timeout(self):
+        # Without a timeout a KeePassXC that accepts but never answers hangs the
+        # keypress forever, so the socket must carry the plugin's timeout.
+        kp, mock = self.client()
+        kp.connect()
+        self.assertEqual(self.us.SOCKET_TIMEOUT, 8)
+        self.assertEqual(kp.sock.gettimeout(), 8)
+
+    def test_a_rejected_handshake_raises_and_names_the_failure(self):
+        kp, mock = self.client(handshake={"success": "false"})
+        with self.assertRaises(self.us.KpError) as ctx:
+            kp.connect()
+        self.assertEqual(ctx.exception.code, -1)
+        self.assertIn("handshake failed", str(ctx.exception))
+        self.assertIsNone(kp.box, "a failed handshake must not build the box")
 
     def test_connect_without_a_socket_raises_a_clear_error(self):
         kp = self.us.KeePassXC(key_seed=bytes(32),
