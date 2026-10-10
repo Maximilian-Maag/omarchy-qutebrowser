@@ -2,6 +2,17 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.21] — 2026-10-08
+
+### Fixed
+- **Gmail sign-in failed because third-party cookies were blocked.** The config sets
+  `c.content.cookies.accept = "no-3rdparty"`, but Google's sign-in handshake reads cookies in
+  a third-party context, so the flow fails — typically as "This browser or app may not be
+  secure" or a sign-in that will not complete. Third-party cookies are now allowed for the
+  sign-in hosts only (the same list as the user-agent override: accounts.google.com,
+  accounts.youtube.com, login.microsoftonline.com, login.live.com, login.microsoft.com);
+  everything else keeps the stricter policy.
+
 ## [1.17.20] — 2026-10-08
 
 ### Fixed

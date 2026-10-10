@@ -191,6 +191,17 @@ for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
              "https://login.microsoft.com"):
     config.set("content.headers.user_agent", _sso_ua, _sso)        # noqa: F821
 
+# Google's sign-in handshake reads and writes cookies in a THIRD-PARTY context, so the
+# "no-3rdparty" policy set above makes it fail — the classic "This browser or app may not
+# be secure" / failed Gmail login. Allow third-party cookies for the sign-in hosts only:
+# the same list as the UA override, so the exception is as narrow as the fingerprint fix
+# it sits beside. Everything else keeps the stricter policy.
+for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
+             "https://accounts.youtube.com", "https://accounts.youtube.com/*",
+             "https://login.microsoftonline.com", "https://login.live.com",
+             "https://login.microsoft.com"):
+    config.set("content.cookies.accept", "all", _sso)              # noqa: F821
+
 # ---------------------------------------------------------------------------
 # Search engines
 # Override DEFAULT to change the search engine used when typing in the bar.
