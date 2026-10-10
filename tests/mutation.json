@@ -148,6 +148,17 @@
         "bash tests/shell/test_qute_yt_dl.sh && python3 -m unittest tests.test_regression_qutebrowser -q"
       ],
       "max_mutants": 25
+    },
+    {
+      "path": "userscripts/google-signin-compat.js",
+      "lang": "javascript",
+      "tests": [
+        "node",
+        "--test",
+        "tests/js/google-signin-compat.test.js"
+      ],
+      "min_kill_rate": 0.8,
+      "note": "shims for Google's browser-detection signals"
     }
   ],
   "max_mutants": 60,

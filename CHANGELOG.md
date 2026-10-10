@@ -2,6 +2,23 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.22] — 2026-10-08
+
+### Fixed
+- **"Dieser Browser oder diese App ist unter Umständen nicht sicher" on Google sign-in.**
+  config.py already sends a real Chrome user agent (the actual QtWebEngine Chromium version,
+  140.0.7339.225) to the sign-in hosts, but Google's check also reads JavaScript detection
+  signals that an embedded Chromium simply does not have: real Chrome exposes `window.chrome`
+  and `navigator.userAgentData`, QtWebEngine exposes neither. Together with the third-party
+  cookie exception from v1.17.21, this is the JavaScript-side counterpart.
+
+  New userscript `userscripts/google-signin-compat.js` (document-start, scoped to the Google
+  sign-in hosts) provides `window.chrome` with `runtime`/`loadTimes`/`csi`,
+  `navigator.userAgentData` with brands matching the advertised version and a working
+  `getHighEntropyValues`, and reports `navigator.webdriver` as false. It leaves anything the
+  engine already provides untouched. Four tests pin it, including that an existing
+  `window.chrome`/`userAgentData` is never clobbered.
+
 ## [1.17.21] — 2026-10-08
 
 ### Fixed
