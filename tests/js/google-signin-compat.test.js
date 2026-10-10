@@ -47,6 +47,7 @@ test('getHighEntropyValues resolves with a full version matching the UA', () => 
   return nav.userAgentData.getHighEntropyValues(['uaFullVersion']).then((v) => {
     assert.equal(v.uaFullVersion, full);
     assert.equal(v.architecture, 'x86');
+    assert.equal(v.mobile, false, 'the high-entropy object reports mobile: false');
   });
 });
 
@@ -57,4 +58,32 @@ test('it leaves an engine that already provides these alone', () => {
   run(nav, win);
   assert.equal(win.chrome.loadTimes, 'sentinel', 'an existing chrome object is preserved');
   assert.equal(nav.userAgentData, existing, 'existing userAgentData is preserved');
+});
+
+// The guards above each have an else-branch, and asserting only the "absent" case leaves
+// their mutants alive (the target scored 0.25 without these).
+test('a partially-populated chrome object keeps what it has', () => {
+  const win = { chrome: { runtime: 'sentinel', csi: 'sentinel' } };
+  run({}, win);
+  assert.equal(win.chrome.runtime, 'sentinel', 'existing runtime is kept');
+  assert.equal(win.chrome.csi, 'sentinel', 'existing csi is kept');
+  assert.equal(typeof win.chrome.loadTimes, 'function', 'the missing one is added');
+});
+
+test('a null chrome object is replaced, not left null', () => {
+  const win = { chrome: null };
+  run({}, win);
+  assert.ok(win.chrome, 'chrome must end up an object');
+  assert.equal(typeof win.chrome.csi, 'function');
+});
+
+test('the brand list and platform are exactly what the check reads', () => {
+  const nav = {};
+  run(nav, {});
+  const brands = nav.userAgentData.brands.map((b) => b.brand);
+  assert.ok(brands.includes('Chromium') && brands.includes('Google Chrome'),
+    'both Chrome brands are advertised: ' + brands);
+  const j = nav.userAgentData.toJSON();
+  assert.equal(j.platform, 'Linux');
+  assert.equal(j.mobile, false, 'toJSON reports mobile: false');
 });
