@@ -87,3 +87,15 @@ test('the brand list and platform are exactly what the check reads', () => {
   assert.equal(j.platform, 'Linux');
   assert.equal(j.mobile, false, 'toJSON reports mobile: false');
 });
+
+test('navigator.webdriver is reported as false', () => {
+  const nav = { webdriver: true };
+  run(nav, {});
+  assert.equal(nav.webdriver, false, 'an automation flag is not left exposed');
+});
+
+test('a clean navigator stays clean', () => {
+  const nav = {};
+  run(nav, {});
+  assert.notEqual(nav.webdriver, true, 'webdriver must never become true');
+});
