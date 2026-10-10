@@ -81,6 +81,37 @@ test('spliceMedia interleaves media at different anchors in order', function () 
   assert.deepStrictEqual(articleEl.children.map((c) => c.name), ['a', 'p0', 'b', 'p1']);
 });
 
+test('spliceMedia anchors by ELEMENT IDENTITY, not a raw-page block count', function () {
+  // Regression: `before` was counted on the raw page (nav/header/footer included) and
+  // applied to the Readability-extracted article, whose block count is smaller — so media
+  // landed in the wrong place, usually appended at the very end. Here the count is
+  // deliberately wrong (5) and the anchor element is right: identity must win.
+  const nav = makeEl('nav-p');
+  const p0 = makeEl('p0');
+  const p1 = makeEl('p1');
+  const articleEl = makeContainer([nav, p0, p1]);
+  const mod = load(['spliceMedia'], {
+    articleEl,
+    BLOCK_SEL: 'p',
+    buildMediaEl: (m) => makeEl(m.id),
+  });
+  mod.spliceMedia([{ id: 'm', before: 5, anchor: p1 }]);
+  assert.deepStrictEqual(articleEl.children.map((c) => c.name), ['nav-p', 'p0', 'm', 'p1']);
+});
+
+test('spliceMedia falls back to the count when the anchor did not survive', function () {
+  const p0 = makeEl('p0');
+  const p1 = makeEl('p1');
+  const articleEl = makeContainer([p0, p1]);
+  const mod = load(['spliceMedia'], {
+    articleEl,
+    BLOCK_SEL: 'p',
+    buildMediaEl: (m) => makeEl(m.id),
+  });
+  mod.spliceMedia([{ id: 'm', before: 1, anchor: makeEl('dropped-by-readability') }]);
+  assert.deepStrictEqual(articleEl.children.map((c) => c.name), ['p0', 'm', 'p1']);
+});
+
 test('spliceMedia appends media whose anchor is gone', function () {
   const p0 = makeEl('p0');
   const articleEl = makeContainer([p0]);

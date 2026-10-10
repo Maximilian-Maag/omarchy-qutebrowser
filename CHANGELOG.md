@@ -2,6 +2,28 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.11] — 2026-10-08
+
+### Fixed
+More confirmed findings from the deep-dive audits, each verified.
+
+- **Embedded media was anchored to the wrong place (multimedia).** `collectMedia` counted
+  preceding text blocks on the **raw page** — nav, header and footer included — and
+  `spliceMedia` applied that index to the **Readability-extracted** article, whose block
+  count is smaller. So media usually landed somewhere other than the paragraph it followed,
+  and commonly got appended at the very end. Media now carries the nearest preceding block
+  **element**, matched by identity (a dropped anchor falls back to the old index, then to
+  appending). Two regression tests cover it, including the deliberately-wrong-index case.
+- **A second removal pass clobbered the first.** `applyRemoval` replaced `removedAI` and
+  `pState.removed` instead of merging, so remove → score → remove again meant Undo restored
+  only the latest batch, and after a reload the earlier batch came back while the saved
+  state still listed it as removed. Both are merged and deduplicated now.
+- **SponsorBlock's "entire video is sponsor" toast fired once ever.** `SB.fullWarnedFor`
+  is a global that was never reset, so only the first full-sponsor video warned.
+- **A `data:` URL was stored whole as its zoom domain key.** `get_domain` fell back to
+  `parsed.path`, which for a `data:` URL is the entire payload; the key is now a bounded
+  `scheme:/*` pseudo-domain.
+
 ## [1.17.10] — 2026-10-08
 
 ### Fixed

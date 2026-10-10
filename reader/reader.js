@@ -106,6 +106,27 @@
         var cls = String(el.className || '');
         if (/(^|[\s_-])(ad|ads|advert|sponsor|promo)([\s_-]|$)/i.test(cls)) continue;
 
+        // The anchor is the nearest preceding text-block ELEMENT, kept by identity.
+        // The old code counted blocks on the RAW page (nav/header/footer included) and
+        // applied that index to the Readability-EXTRACTED article, whose block count is
+        // smaller — so media landed in the wrong place, usually appended at the very end.
+        var anchor = null;
+        try {
+          var cur = el;
+          while (cur && !anchor) {
+            var sib = cur.previousElementSibling;
+            while (sib && !anchor) {
+              if (BLOCK_TAGS[sib.tagName]) {
+                anchor = sib;
+              } else if (sib.querySelectorAll) {
+                var inner = sib.querySelectorAll(BLOCK_SEL);
+                if (inner.length) anchor = inner[inner.length - 1];
+              }
+              sib = sib.previousElementSibling;
+            }
+            cur = cur.parentElement;
+          }
+        } catch (e) {}
         // How many text blocks precede this element: the reader's article is built
         // from the same block selector, so the count puts the media back in place.
         var before = 0;
@@ -133,7 +154,7 @@
         out.push({ tag: el.tagName.toLowerCase(), src: src,
                    poster: (function () { try { return el.poster || ''; } catch (e) { return ''; } })(),
                    type: (function () { try { return el.getAttribute('type') || ''; } catch (e) { return ''; } })(),
-                   caption: caption, before: before });
+                   caption: caption, before: before, anchor: anchor });
         if (out.length >= 12) break;                            // keep it readable
       } catch (e) {}
     }
@@ -190,7 +211,13 @@
     // the same paragraph came out swapped).
     for (var i = 0; i < ordered.length; i++) {
       var el = buildMediaEl(ordered[i]);
-      var ref = blocks[ordered[i].before] || null;
+      var ref = null;
+      if (ordered[i].anchor) {                       // identity beats a stale index
+        for (var bi = 0; bi < blocks.length; bi++) {
+          if (blocks[bi] === ordered[i].anchor) { ref = blocks[bi]; break; }
+        }
+      }
+      if (!ref) ref = blocks[ordered[i].before] || null;
       if (ref && ref.parentNode) ref.parentNode.insertBefore(el, ref);
       else articleEl.appendChild(el);
     }
@@ -957,14 +984,25 @@
   // paragraphs that were hidden (matched by paragraph text, not by index).
   function applyRemoval(victims, silent) {
     var keys = victims.map(function (el) { return paraKey(el); });   // before detaching
-    removedAI = victims.map(function (el) { return { el: el, next: el.nextSibling }; });
+    // MERGE with anything already removed. Replacing meant a second pass (remove, score,
+    // remove again) dropped the first batch from the records: Undo restored only the
+    // latest one, and after a reload the first batch reappeared while the saved state
+    // still listed it as removed.
+    var known = {};
+    removedAI.forEach(function (rec) { try { known[paraKey(rec.el)] = true; } catch (e) {} });
+    victims.forEach(function (el) {
+      var k = paraKey(el);
+      if (!known[k]) removedAI.push({ el: el, next: el.nextSibling });
+    });
     removedAI.forEach(function (rec) { try { rec.el.remove(); } catch (e) {} });
     blurWheel();
     buildBlocks();
     setActive(active < 0 ? 0 : Math.min(active, blocks.length - 1));
     var undo = $('#btn-undo');
     if (undo) undo.hidden = false;
-    pState.removed = keys;
+    pState.removed = (pState.removed || []).concat(keys.filter(function (k) {
+      return (pState.removed || []).indexOf(k) < 0;
+    }));
     if (!silent) setStatus('Removed ' + victims.length + ' AI-written paragraph(s)');
     saveState(true);
   }

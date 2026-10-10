@@ -337,6 +337,7 @@
   function sbFetch(id) {
     if (!id || SB.fetchedFor === id) return;
     SB.fetchedFor = id;
+  SB.fullWarnedFor = false;      // per video: it is a global, so the toast fired once ever
     SB.segments = [];
     try {
       var url = SB_API + '?videoID=' + encodeURIComponent(id) +
