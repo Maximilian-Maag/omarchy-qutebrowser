@@ -206,3 +206,24 @@ test('the article-wide fact-check renders a wheel per paragraph', async function
     'every fact-checked paragraph must get its wheel');
   assert.deepStrictEqual(cards, ['p0', 'p1', 'p2'], 'and its verdict card');
 });
+
+test('paraKey is never handed a block object (it needs a DOM element)', function () {
+  // Regression: renderSummary's focus-restore loop called paraKey(blocks[bi]) — a block
+  // OBJECT, not blocks[bi].el — so paraKey -> blockText -> el.cloneNode(true) threw
+  // "cloneNode is not a function" on a whole-article summary whenever a paragraph was
+  // active. A static guard, because the behavioural version needs a DOM harness: any
+  // paraKey(x) where x is a block object rather than an element is the same bug.
+  const offenders = [];
+  const re = /paraKey\(([^)]*)\)/g;
+  let m;
+  while ((m = re.exec(SRC)) !== null) {
+    const arg = m[1].trim();
+    // A nested call (e.g. activeEl()) means the regex stopped at an inner ')': treat
+    // anything containing '(' as an expression we cannot judge statically.
+    if (arg.includes('(')) continue;
+    if (/\.el\b/.test(arg) || /^el$/.test(arg) || /^best$/.test(arg) || /\?/.test(arg)) continue;
+    offenders.push(arg);
+  }
+  assert.deepStrictEqual(offenders, [], 'paraKey called with a non-element: ' + offenders.join(', '));
+  assert.ok(!/paraKey\(blocks\[/.test(SRC), 'blocks[i] is an object — use blocks[i].el');
+});
