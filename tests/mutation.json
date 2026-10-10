@@ -32,6 +32,8 @@
         "-m",
         "unittest",
         "tests.test_unit_fact_check_article",
+        "tests.test_unit_reader_server",
+        "tests.test_integration_reader_server_http",
         "-q"
       ]
     },
