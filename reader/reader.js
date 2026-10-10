@@ -826,7 +826,15 @@
       old.remove();
     }
     wheels.delete(el);
-    if (!items.length) return;
+    if (!items.length) {
+      // A fact-checked paragraph with no corroborating outlets looked identical to a
+      // broken wheel. Say so: the search found nothing for this paragraph.
+      var note = document.createElement('div');
+      note.className = 'fact-wheel wheel-empty';
+      note.textContent = 'No supporting articles found for this paragraph';
+      el.appendChild(note);
+      return;
+    }
 
     var wheelEl = document.createElement('div');
     wheelEl.className = 'fact-wheel';
@@ -903,7 +911,11 @@
     if (!w) return false;
     blurWheel();
     w.el.classList.add('focused');
-    try { w.el.focus(); } catch (e) { /* focus is best-effort */ }
+    // preventScroll: el.focus() scrolls the element into view, which lurched the whole
+    // page every time you stepped into a wheel — the reported "focus jumps when using
+    // the wheels". Focus should change without moving the reader.
+    try { w.el.focus({ preventScroll: true }); }
+    catch (e) { try { w.el.focus({ preventScroll: true }); } catch (e2) { /* focus is best-effort */ } }
     focusedWheel = w;
     setStatus('Supporting articles ' + (w.index + 1) + '/' + w.items.length +
               ' — ↑/↓ scroll · Enter open · Esc leave');
@@ -1097,6 +1109,14 @@
   }
 
   // ── wiring ──────────────────────────────────────────────────────────
+  // The status page is keyed by this article's id, which is the last path segment of
+  // /reader/<id>. Opening it from here means the status is always about the article you
+  // are reading, rather than whatever page you happen to be on.
+  (function () {
+    var id = (location.pathname.split('/').filter(Boolean).pop() || '');
+    var link = $('#btn-status');
+    if (link && id) link.href = '/status/' + encodeURIComponent(id) + location.search;
+  })();
   $('#btn-summary').addEventListener('click', summarize);
   $('#btn-markall').addEventListener('click', markAll);
   $('#btn-focus').addEventListener('click', function () { toggleFocus(); });
@@ -1136,7 +1156,8 @@
     wheelopen: wheelOpen,
     wheelfocus: function () { var el = activeEl(); if (el) focusWheel(wheels.get(el)); },
     markAll: markAll,
-    summarize: summarize
+    summarize: summarize,
+    status: function () { var l = $('#btn-status'); if (l) location.href = l.href; }
   };
 
   document.addEventListener('keydown', function (e) {

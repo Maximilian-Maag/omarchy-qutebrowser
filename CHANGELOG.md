@@ -2,6 +2,25 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.16] — 2026-10-08
+
+### Fixed
+- **The page lurched when entering a supporting-article wheel.** `focusWheel` called
+  `el.focus()`, and focusing scrolls the element into view — so stepping into a wheel moved
+  the whole page under the reader. Focus now uses `preventScroll: true`, here and wherever
+  else the reader focuses a block.
+- **A fact-checked paragraph with no corroborating outlets looked identical to a broken
+  wheel.** `renderWheel` returned silently when the news search found nothing, so the wheel
+  simply never appeared. It now says so: "No supporting articles found for this paragraph".
+  (This is the likely shape of "the wheels don't show up": the per-paragraph check is one
+  search and usually finds hits, while a whole-article check fires one search per paragraph
+  in quick succession, and the ones that come back empty render nothing.)
+- **The status page can be opened from the reader.** A Status link in the reader's toolbar
+  points at `/status/<this article's id>` — derived from the reader's own URL — so it always
+  describes the article being read rather than whatever page is current. `,i` from inside
+  the reader could not do this: it re-ingests the *current* page, which is the reader itself.
+  Also exposed as `window.omarchyReader.status()`.
+
 ## [1.17.15] — 2026-10-08
 
 ### Fixed
