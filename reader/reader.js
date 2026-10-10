@@ -425,33 +425,40 @@
     if (restoring || !PAGE_URL) return;
     clearTimeout(saveTimer);
     if (stateSignature() === lastSent) return;        // nothing new to write
-    var payload = JSON.stringify({
-      url: PAGE_URL,
-      state: {
-        v: 1, marks: pState.marks, paras: pState.paras, facts: pState.facts,
-        removed: pState.removed, summary: pState.summary,
-        pos: visibleKey(),
-        scroll: Math.round(window.scrollY || 0)
-      }
-    });
     var send = function () {
       var sig = stateSignature();
       if (sig === lastSent) return;
-      lastSent = sig;
+      // Build the payload HERE, not when the debounce was scheduled: capturing it up
+      // front meant a scroll during the 900 ms wait was never persisted, so you resumed
+      // at the pre-scroll position.
+      var payload = JSON.stringify({
+        url: PAGE_URL,
+        state: {
+          v: 1, marks: pState.marks, paras: pState.paras, facts: pState.facts,
+          removed: pState.removed, summary: pState.summary,
+          pos: visibleKey(),
+          scroll: Math.round(window.scrollY || 0)
+        }
+      });
       try {
         // A beacon is delivered more reliably than fetch() when the page is going
         // away — otherwise the unload save races the next load's read and can
         // overwrite the state with an older one.
+        // lastSent only advances once the write has actually been accepted — otherwise a
+        // dropped beacon counted as delivered and was never retried.
         if (navigator.sendBeacon) {
-          navigator.sendBeacon('/state?t=' + encodeURIComponent(TOKEN),
-                               new Blob([payload], { type: 'application/json' }));
+          if (navigator.sendBeacon('/state?t=' + encodeURIComponent(TOKEN),
+                                   new Blob([payload], { type: 'application/json' }))) {
+            lastSent = sig;
+          }
           return;
         }
         fetch('/state?t=' + encodeURIComponent(TOKEN), {
           method: 'POST', keepalive: true,
           headers: { 'Content-Type': 'application/json' },
           body: payload
-        }).catch(function () {});
+        }).then(function (resp) { if (resp && resp.ok) lastSent = sig; })
+          .catch(function () {});
       } catch (e) {}
     };
     if (immediate) send(); else saveTimer = setTimeout(send, 900);

@@ -96,12 +96,13 @@ fi
 # runs in its own session and writes a live log; the terminal merely *tails* that
 # log, so closing it is harmless and a failure stays diagnosable in $LOG.
 NOTIFY="$(command -v notify-send 2>/dev/null || true)"
-if [[ -n "$NOTIFY" ]]; then
-  NOTIFY_OK="$(printf '%q ' "$NOTIFY")"'yt-dlp'"'"' "Finished — '"$DOWNLOAD_DIR"'"'
-  NOTIFY_FAIL="$(printf '%q ' "$NOTIFY")"'yt-dlp'"'"' "Download failed — see '"$LOG"'"'
-else
-  NOTIFY_OK="true"; NOTIFY_FAIL="true"
-fi
+# Emit the notifier as a single-quoted LITERAL assignment, and call it with the message as
+# a function ARGUMENT. The previous version hand-glued a whole command line together with
+# printf %q and interpolated it unquoted into the runner: unquoted expansion does not
+# process backslashes, so the words split anyway, and a stray quote from the hand-glued
+# quoting made the generated runner a SYNTAX ERROR — meaning on failure the reporting
+# block never ran and a failed download reported nothing at all.
+NOTIFY_LITERAL=$(printf "'%s'" "$NOTIFY")
 
 RUNNER="$(mktemp "$STATE_DIR/runner.XXXXXX.sh")"
 cat > "$RUNNER" <<RUNNER_EOF
@@ -112,14 +113,19 @@ echo \$\$ > "$PIDFILE"
 cd "\$HOME" || exit 1
 $(printf '%q ' "$YTDLP" --newline "${YTDLP_ARGS[@]}" --output "$OUT_TEMPLATE" -- "$URL")2>&1 | tee -a "$LOG"
 rc=\${PIPESTATUS[0]}
+NOTIFY_BIN=$NOTIFY_LITERAL
+notify() {
+  [ -n "\$NOTIFY_BIN" ] || return 0
+  "\$NOTIFY_BIN" yt-dlp "\$1" >/dev/null 2>&1 || true
+}
 {
   echo
   if [ "\$rc" = 0 ]; then
     echo "OK: saved to $DOWNLOAD_DIR"
-    $NOTIFY_OK || true
+    notify "Finished — $DOWNLOAD_DIR"
   else
     echo "FAILED (exit \$rc) — full log: $LOG"
-    $NOTIFY_FAIL || true
+    notify "Download failed — see $LOG"
   fi
 } >> "$LOG" 2>&1
 rm -f "$PIDFILE"

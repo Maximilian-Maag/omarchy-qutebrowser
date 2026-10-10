@@ -2,6 +2,25 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.9] — 2026-10-08
+
+### Fixed
+- **A failed download reported nothing at all (`qute-yt-dl`).** The generated runner glued
+  its notification command together by hand (`'yt-dlp'"'"' …`) and interpolated the result
+  unquoted. Unquoted expansion does not process backslashes, so the words split anyway — and
+  a stray quote from that glue made the runner a **syntax error**, meaning the entire
+  reporting block never ran: no "FAILED (exit N)" in the log, no failure notification. The
+  notifier is now a single-quoted literal assignment called with the message as a function
+  *argument*, so no escaping is involved. Verified by regenerating the runner with stub
+  binaries: valid bash, success notification is exactly `yt-dlp Finished — <dir>`, and a
+  failed run logs `FAILED (exit 3)` and notifies.
+- **Reader state could be lost or silently dropped.** `saveState` captured its payload when
+  the 900 ms debounce was *scheduled*, so a scroll during that window was never persisted
+  (you resumed at the pre-scroll position). It also advanced its "last sent" marker before
+  attempting the write, so a beacon that never landed counted as delivered and was never
+  retried. The payload is now built at send time, and the marker advances only when
+  `sendBeacon` reports the write was accepted or the fetch returns `ok`.
+
 ## [1.17.8] — 2026-10-08
 
 ### Fixed
