@@ -2,6 +2,24 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.13] — 2026-10-08
+
+### Added
+- **`tests/test_regression_qutebrowser.py`** — six regression tests, each naming the bug it
+  pins: publisher names matched by bare substring ("Auto Motor und Sport" → RT/state/low),
+  `,zr` bound to `zoom-load` instead of `zoom-reset`, bare `t` shadowing stock `th`/`tl`,
+  the generated yt-dl runner being invalid bash and reporting nothing on failure, the
+  `max_paras=12` fact-check cap, and the unrecoverable KeePassXC dead association.
+- `userscripts/qute-yt-dl` is a mutation target (the regression test regenerates and runs
+  its runner). Every remaining source file that is not a target is now listed in
+  `tests/mutation.json`'s `exempt` **with a stated reason** — a recorded, visible gap rather
+  than an invisible one.
+
+### Fixed
+- **CI: the `policy` job is green again.** It had been failing on every push since the
+  regression kind was missing and several source files were neither mutated nor exempted.
+  `python3 tools/policy_check.py` now reports 44 files, 0 failed, 0 warnings.
+
 ## [1.17.12] — 2026-10-08
 
 ### Fixed

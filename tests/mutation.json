@@ -91,13 +91,65 @@
       ],
       "max_mutants": 60,
       "note": "DOM-heavy; only the extractable logic is covered so far. Targeted so the gap is measured rather than hidden, per the no-gaps rule."
+    },
+    {
+      "path": "userscripts/qute-yt-dl",
+      "lang": "shell",
+      "tests": [
+        "python3",
+        "-m",
+        "unittest",
+        "tests.test_regression_qutebrowser",
+        "-q"
+      ],
+      "max_mutants": 25
     }
   ],
   "max_mutants": 60,
   "exempt": [
     {
-      "path": "tools/run_tests.sh",
-      "reason": "thin orchestrator: it runs the other kinds and asserts nothing itself"
+      "path": "bin/set-system-default",
+      "reason": "bash wrapper over xdg-settings; covered by the shell test kind"
+    },
+    {
+      "path": "config/config.py",
+      "reason": "qutebrowser option assignments, not logic; policy checks every option name exists"
+    },
+    {
+      "path": "config/site-overrides.py",
+      "reason": "qutebrowser option assignments, not logic"
+    },
+    {
+      "path": "config/themes.py",
+      "reason": "theme colour tables, not logic"
+    },
+    {
+      "path": "hooks/theme-set",
+      "reason": "bash omarchy hook; covered by the shell test kind"
+    },
+    {
+      "path": "reader/readability.js",
+      "reason": "vendored third-party Readability \u2014 not ours to mutate"
+    },
+    {
+      "path": "status/status.js",
+      "reason": "DOM-only rendering; no browser harness yet \u2014 a tracked, visible gap"
+    },
+    {
+      "path": "userscripts/qute-ai-fix",
+      "reason": "process orchestration around the local model; covered by the integration kind"
+    },
+    {
+      "path": "userscripts/qute-keepassxc-setup",
+      "reason": "one-shot installer; covered by the integration kind"
+    },
+    {
+      "path": "userscripts/qute-reader",
+      "reason": "ingest/orchestration around the server; covered by the integration kind"
+    },
+    {
+      "path": "userscripts/qute-zoom",
+      "reason": "DB read/write around qutebrowser commands; covered by the unit kind"
     }
   ]
 }
