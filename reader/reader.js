@@ -1054,14 +1054,20 @@
     return activeEl();
   }
 
-  function scoreArrow() {
+  function scoreArrow(key) {
     // While the supporting-article wheel is focused, ← goes back to the paragraph.
     if (wheelFocused()) {
       blurWheel();
       setStatus('Paragraph focus' + (active >= 0 ? ' — paragraph ' + (active + 1) : ''));
       return;
     }
-    tap('left', function () { var el = ensureActive(); if (el) markParagraph(el); }, removeAIWritten);
+    // The tap name includes the KEY. `m`, ← and the toolbar button all score, and the
+    // double action here is destructive (it removes AI-written paragraphs), so sharing
+    // one tap name meant pressing `m` and then ← within 450 ms DELETED paragraphs
+    // instead of scoring twice — easy to hit, since the single action is deferred with
+    // no acknowledgement. Two presses of the same key still mean "double".
+    tap('left:' + (key || 'btn'),
+        function () { var el = ensureActive(); if (el) markParagraph(el); }, removeAIWritten);
   }
 
   function factArrow() {
@@ -1145,7 +1151,7 @@
       switch (e.key) {
         case 'ArrowDown': case 'j': wheelMove(1); e.preventDefault(); return;
         case 'ArrowUp': case 'k': wheelMove(-1); e.preventDefault(); return;
-        case 'ArrowLeft': scoreArrow(); e.preventDefault(); return;   // back to the paragraph
+        case 'ArrowLeft': scoreArrow('ArrowLeft'); e.preventDefault(); return;   // back to the paragraph
         case 'Enter': wheelOpen(); e.preventDefault(); return;
         case 'Escape': blurWheel(); e.preventDefault(); return;
       }
@@ -1154,10 +1160,10 @@
     switch (e.key) {
       case 'j': case 'ArrowDown': move(1); e.preventDefault(); break;
       case 'k': case 'ArrowUp': upOnce(); e.preventDefault(); break;
-      case 'ArrowLeft': scoreArrow(); e.preventDefault(); break;
+      case 'ArrowLeft': scoreArrow('ArrowLeft'); e.preventDefault(); break;
       case 'ArrowRight': factArrow(); e.preventDefault(); break;
       case 'f': toggleFocus(); break;
-      case 'm': scoreArrow(); break;
+      case 'm': scoreArrow('m'); break;
       case 'M': markAll(); break;
       case 's': summarize(); break;
       case 'Escape': toggleFocus(false); break;

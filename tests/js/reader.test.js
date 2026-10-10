@@ -155,3 +155,31 @@ test('markParagraph asks the AI when given an element and stays silent when give
   assert.strictEqual(calls[0].mode, 'paragraph');
   assert.strictEqual(calls[0].text, el.textContent);
 });
+
+test('two different score keys within the tap window do NOT fire the destructive double', async function () {
+  // Regression: `m` then ← within 450 ms ran removeAIWritten — deleting paragraphs — because
+  // every score source shared the tap name 'left'.
+  const singles = [];
+  const doubles = [];
+  const mod = load(['tap'], {
+    lastTap: {}, pendingTap: {},
+    Date: Date, setTimeout: setTimeout, clearTimeout: clearTimeout,
+  });
+  mod.tap('left:m', () => singles.push('m'), () => doubles.push('m'));
+  mod.tap('left:ArrowLeft', () => singles.push('arrow'), () => doubles.push('arrow'));
+  await new Promise((r) => setTimeout(r, 520));
+  assert.deepStrictEqual(doubles, [], 'a different key must never complete a double');
+  assert.deepStrictEqual(singles, ['m', 'arrow'], 'both presses score normally');
+});
+
+test('the same key twice still fires the double action', async function () {
+  const doubles = [];
+  const mod = load(['tap'], {
+    lastTap: {}, pendingTap: {},
+    Date: Date, setTimeout: setTimeout, clearTimeout: clearTimeout,
+  });
+  mod.tap('left:m', () => {}, () => doubles.push('m'));
+  mod.tap('left:m', () => {}, () => doubles.push('m'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepStrictEqual(doubles, ['m'], 'deliberate double press still works');
+});

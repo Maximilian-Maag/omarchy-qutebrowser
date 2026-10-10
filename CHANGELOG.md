@@ -2,6 +2,18 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.12] — 2026-10-08
+
+### Fixed
+- **Pressing `m` and then ← deleted paragraphs.** `m`, `←` and the toolbar button all score
+  the active paragraph, and they all shared the tap name `left` — whose *double* action is
+  destructive (it removes AI-written paragraphs). So two different keys pressed within
+  450 ms were read as a double-tap and removed paragraphs instead of scoring twice. Easy to
+  hit, because the single action is deferred ~460 ms with no acknowledgement, so pressing
+  again "because nothing happened" was the natural thing to do. The tap name now includes
+  the key: two presses of the *same* key still mean double, different keys never do. Pinned
+  by two tests (different keys do not double; the same key still does).
+
 ## [1.17.11] — 2026-10-08
 
 ### Fixed
