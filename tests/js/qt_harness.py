@@ -662,7 +662,17 @@ def main():
     timer.timeout.connect(tick)
     timer.start(100)
     start_next()
-    QTimer.singleShot(90000, lambda: (print("OBSERVATIONS:" + json.dumps(out)), app.quit()))
+    # Fallback deadline. app.quit() alone does NOT terminate a QtWebEngine process, so a
+    # scenario that hangs (a mutated reader.js can loop forever) left the process alive
+    # and the mutation runner killed it at its own timeout — reported as `timeout`, which
+    # is neither a kill nor a survivor, so those mutants went unmeasured. Print the
+    # partial observations and exit the process for real; a partial blob fails the
+    # harness test, which is the correct outcome for a mutant that hangs.
+    def _give_up():
+        print("OBSERVATIONS:" + json.dumps(out))
+        sys.stdout.flush()
+        os._exit(0)
+    QTimer.singleShot(35000, _give_up)
     app.exec()
     return 0
 

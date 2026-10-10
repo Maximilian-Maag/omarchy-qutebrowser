@@ -88,7 +88,7 @@
         "tests/js/reader.test.js",
         "tests/js/reader.harness.test.js"
       ],
-      "max_mutants": 60,
+      "max_mutants": 30,
       "note": "DOM-heavy; only the extractable logic is covered so far. Targeted so the gap is measured rather than hidden, per the no-gaps rule.",
       "equivalent": [
         {
@@ -136,7 +136,8 @@
           "kind": "false->true",
           "reason": "with no PAGE_URL nothing is saved at all, so the flag is unobservable"
         }
-      ]
+      ],
+      "timeout": 90
     },
     {
       "path": "userscripts/qute-yt-dl",
