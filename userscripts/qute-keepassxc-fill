@@ -76,6 +76,9 @@ def parse_args():
     return p.parse_args()
 
 
+SOCKET_TIMEOUT = 8          # seconds; a hung peer must surface as an error
+
+
 class KpError(Exception):
     def __init__(self, code, desc):
         super().__init__("KeePassXC error [%s]: %s" % (code, desc))
@@ -100,6 +103,9 @@ class KeePassXC:
             raise KpError(-1, "KeePassXC browser socket not found (is Browser Integration enabled?)")
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.connect(self.socket_path)
+        # Without a timeout a KeePassXC that accepts the connection but never answers
+        # left the keypress hanging forever: no message, no fill, nothing until killed.
+        self.sock.settimeout(SOCKET_TIMEOUT)
         self.client_id = base64.b64encode(nacl.utils.random(nacl.public.Box.NONCE_SIZE)).decode()
 
         self._send_plain({
@@ -716,9 +722,23 @@ def connect_keepassxc(args):
         assoc_id, key_seed = store.load()
         kp = KeePassXC(key_seed=key_seed, client_id=assoc_id, socket_path=args.socket)
         kp.assoc_id = assoc_id
-        kp.connect()
-        if not kp.test_associate(assoc_id):
-            error("No KeePassXC association — run again to re-associate")
+        try:
+            kp.connect()
+            ok = kp.test_associate(assoc_id)
+        except (KpError, OSError) as exc:
+            error("KeePassXC: %s" % exc)
+            return None
+        if not ok:
+            # The stored association is dead (KeePassXC restarted, a different database
+            # was opened, or the association was removed). Leaving the key file in place
+            # made this a DEAD END: the next run took this identical branch and failed
+            # identically, so the only recovery was deleting the key by hand.
+            try:
+                os.remove(store.path)          # store.path is a str, not a Path
+            except OSError:
+                pass
+            error("KeePassXC no longer recognises this association — the stale key was "
+                  "removed; press again to re-associate")
             return None
         return kp
     key_seed = nacl.utils.random(32)

@@ -159,7 +159,11 @@ test('press sends the whole pointer sequence and clicks', () => {
   const el = fakeEl();
   ctx.press(el);
   assert.deepStrictEqual(el.events.map((e) => e.ctor + ':' + e.type),
-    ['pointer:pointerdown', 'mouse:mousedown', 'pointer:pointerup', 'mouse:mouseup', 'pointer:click', 'raw:click']);
+    ['pointer:pointerdown', 'mouse:mousedown', 'pointer:pointerup', 'mouse:mouseup', 'mouse:click', 'raw:click']);
+  // press() picks the constructor by name: anything not starting with "pointer" is a
+  // MouseEvent, so `click` is `mouse:click`. This assertion used to say `pointer:click`,
+  // which no code path could ever produce — it was a permanently red test, not a bug in
+  // the page (a click listener receives the event whatever its interface is).
   const dispatched = el.events.filter((e) => e.ctor !== 'raw');
   assert.ok(dispatched.every((e) => e.bubbles === true && e.cancelable === true),
     'events must bubble and be cancelable so frameworks see them');

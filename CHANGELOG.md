@@ -2,6 +2,38 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.10] — 2026-10-08
+
+### Fixed
+- **A dead KeePassXC association was a dead end.** If KeePassXC had restarted, switched
+  database or dropped the association, `connect_keepassxc` reported "run again to
+  re-associate" and *kept the stale key file* — so running again took the identical branch
+  and failed identically. The only recovery was deleting the key by hand. The stale key is
+  now removed on a failed `test-associate`, so pressing again genuinely re-associates.
+  (Found by an audit; my first attempt at the fix used `store.path.unlink()` and crashed —
+  `store.path` is a `str` — which the verification caught before it shipped.)
+- **`pw` could hang forever.** The browser socket had no timeout, so a KeePassXC that
+  accepted the connection but never answered left the keypress doing nothing at all until
+  the process was killed. The socket now times out after 8s, and transport failures are
+  reported instead of raising.
+- **AI timeouts leaked orphaned processes.** `subprocess.run(timeout=)` kills only the
+  direct child, and the model is usually reached through a wrapper — so a timeout left the
+  grandchildren running (measured: 5 stray processes from one timeout, accumulating).
+  The child now starts in its own session and a timeout kills the whole group. Verified:
+  the grandchild does not survive.
+- **`tests/js/cookie.test.js` was permanently red on a wrong assertion** — it expected
+  `pointer:click`, but `press()` builds a `MouseEvent` for anything not starting with
+  "pointer", so `mouse:click` is correct and no code path could ever have produced the
+  expected value. The test now matches the shipped behaviour. `node --test tests/js/` is
+  green.
+
+### Fixed (harness)
+- The reader-server mutation target's command mixed `unittest discover -p
+  test_unit_reader_server.py` (a module that does not exist) with a positional module name,
+  so it ran **nothing** while the run still reported success — the baseline gate now refuses
+  it. Corrected, which exposed the honest score: **2/46 = 0.04**, not the 1.00 previously
+  reported from a command that had stopped running tests.
+
 ## [1.17.9] — 2026-10-08
 
 ### Fixed

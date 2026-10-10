@@ -16,6 +16,7 @@ Started on demand by userscripts/qute-reader; writes server.json and stays up.
 """
 
 import hashlib
+import signal
 import html
 import json
 import os
@@ -215,11 +216,23 @@ def run_ai(prompt, timeout=None):
     # (per-paragraph score + whole-article mark + summary), so bound concurrency
     # instead of letting them pile up.
     with _AI_SLOTS:
-        proc = subprocess.run([HERMES, "-z", prompt, "--cli"],
-                              capture_output=True, text=True, timeout=timeout or AI_TIMEOUT)
+        # start_new_session so a timeout can kill the whole process GROUP. subprocess.run's
+        # timeout SIGKILLs only the direct child, and HERMES is usually a wrapper — its own
+        # children survived as orphans (measured: 5 stray `sleep 30` left by one timeout).
+        proc = subprocess.Popen([HERMES, "-z", prompt, "--cli"], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            out, err = proc.communicate(timeout=timeout or AI_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                pass
+            proc.communicate()
+            raise
     if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or "hermes failed").strip()[:300])
-    return extract_json(proc.stdout)
+        raise RuntimeError((err or "hermes failed").strip()[:300])
+    return extract_json(out)
 
 
 # --------------------------------------------------------------------------- #

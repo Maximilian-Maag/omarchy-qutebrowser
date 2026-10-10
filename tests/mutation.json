@@ -31,11 +31,6 @@
         "python3",
         "-m",
         "unittest",
-        "discover",
-        "-s",
-        "tests",
-        "-p",
-        "test_unit_reader_server.py",
         "tests.test_unit_fact_check_article",
         "-q"
       ]
