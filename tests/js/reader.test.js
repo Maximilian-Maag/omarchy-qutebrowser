@@ -225,5 +225,6 @@ test('paraKey is never handed a block object (it needs a DOM element)', function
     offenders.push(arg);
   }
   assert.deepStrictEqual(offenders, [], 'paraKey called with a non-element: ' + offenders.join(', '));
-  assert.ok(!/paraKey\(blocks\[/.test(SRC), 'blocks[i] is an object — use blocks[i].el');
+  assert.ok(!/paraKey\(blocks\[[^\]]+\](?!\.el)/.test(SRC),
+    'blocks[i] is a block object — paraKey needs blocks[i].el');
 });
