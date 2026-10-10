@@ -19,6 +19,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # PyNaCl is a real RUNTIME dependency of the KeePassXC fill userscript (it speaks the
+      # browser protocol with nacl). Without it, tests/test_integration_keepassxc_socket.py
+      # skips silently — and the fill target's mutation score collapses from 0.50 to 0.18,
+      # because that socket coverage never runs. Installing it is what makes the CI
+      # mutation number mean anything.
+      - name: Install the plugin's runtime dependency (PyNaCl)
+        run: python3 -m pip install --quiet pynacl
       - name: All test kinds (policy, unit, regression, integration, js, shell, mutation)
         run: bash tools/run_tests.sh
         env:

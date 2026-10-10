@@ -2,6 +2,16 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.15] — 2026-10-08
+
+### Fixed
+- **CI: the KeePassXC socket integration tests were skipping silently.** PyNaCl is a real
+  runtime dependency of the fill userscript, but CI never installed it, so
+  `tests/test_integration_keepassxc_socket.py` skipped every test — and the fill target's
+  mutation score read 0.18 in CI while it measures 0.50 locally, because that coverage was
+  not running at all. The workflow now installs PyNaCl before the suite. (Found by reading
+  the actual CI log rather than trusting the local number.)
+
 ## [1.17.14] — 2026-10-08
 
 ### Fixed
