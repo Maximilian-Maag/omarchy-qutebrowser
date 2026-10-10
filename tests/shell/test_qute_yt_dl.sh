@@ -53,8 +53,9 @@ case "$out" in *",dv"*",dm"*) ok "no mode prints the usage hint";;
 # 2. an unknown mode is an error
 out="$(run "$TMP/bin:/usr/bin:/bin" "https://example.com" bogus)"
 is "unknown mode exits 1"   "$(printf '%s' "$out" | head -1)" "rc=1"
-case "$out" in *"unknown mode"*) ok "unknown mode is reported";;
-  *) bad "unknown mode is reported";; esac
+# It must be an ERROR, not just a message: swapping err() for msg() left this passing.
+case "$out" in *"message-error 'qute-yt-dl: unknown mode"*) ok "unknown mode is reported as an error";;
+  *) bad "unknown mode is reported as an error (got: $out)";; esac
 
 # 3. no URL on a NON-video page: ask for a hint, and succeed
 out="$(run "$TMP/bin:/usr/bin:/bin" "https://example.com/list" video)"
