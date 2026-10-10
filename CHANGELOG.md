@@ -2,6 +2,15 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.14] — 2026-10-08
+
+### Fixed
+- **A whole-article fact-check produced no outlet wheels.** `factCheckArticle` rendered each
+  paragraph's verdict card but never called `renderWheel`, so the supporting-article wheels
+  that sit to the right of a paragraph were missing — they only appeared after a
+  single-paragraph check, which does call it. Now every fact-checked paragraph gets its
+  wheel, and the status line says → focuses one. Pinned by a test that fails without it.
+
 ## [1.17.13] — 2026-10-08
 
 ### Added

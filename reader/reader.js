@@ -968,10 +968,14 @@
         if (k >= 0 && k < targets.length) {
           facts.set(targets[k].el, item);
           renderFactCard(targets[k].el, item);
+          // renderWheel was missing here, so the whole-article fact-check produced no
+          // outlet wheels beside the paragraphs — they only ever appeared after a
+          // single-paragraph check, which does call it.
+          renderWheel(targets[k].el, item);
           n++;
         }
       });
-      setStatus('Fact-checked ' + n + ' paragraph(s) of the article');
+      setStatus('Fact-checked ' + n + ' paragraph(s) — → focuses a paragraph\'s article wheel');
     }).catch(function (e) {
       setStatus('Fact-check error: ' + e.message, true);
     }).finally(function () { if (btn) btn.disabled = false; });

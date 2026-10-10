@@ -183,3 +183,26 @@ test('the same key twice still fires the double action', async function () {
   await new Promise((r) => setTimeout(r, 20));
   assert.deepStrictEqual(doubles, ['m'], 'deliberate double press still works');
 });
+
+test('the article-wide fact-check renders a wheel per paragraph', async function () {
+  // Regression: factCheckArticle() rendered the verdict card but never called renderWheel,
+  // so a whole-article fact-check produced no outlet wheels beside the paragraphs — while
+  // a single-paragraph check (which does call it) showed them.
+  const wheels = [];
+  const cards = [];
+  const els = [makeEl('p0'), makeEl('p1'), makeEl('p2')];
+  const mod = load(['factCheckArticle'], {
+    articleBlocks: () => els.map((el) => ({ el, text: 'a paragraph of article text' })),
+    $: () => null,
+    setStatus: () => {},
+    facts: new Map(),
+    renderFactCard: (el) => cards.push(el.name),
+    renderWheel: (el) => wheels.push(el.name),
+    ai: () => Promise.resolve(els.map((el, i) => ({ index: i, verdict: 'supported' }))),
+  });
+  mod.factCheckArticle();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepStrictEqual(wheels, ['p0', 'p1', 'p2'],
+    'every fact-checked paragraph must get its wheel');
+  assert.deepStrictEqual(cards, ['p0', 'p1', 'p2'], 'and its verdict card');
+});
