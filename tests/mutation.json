@@ -85,7 +85,8 @@
       "tests": [
         "node",
         "--test",
-        "tests/js/reader.test.js"
+        "tests/js/reader.test.js",
+        "tests/js/reader.harness.test.js"
       ],
       "max_mutants": 60,
       "note": "DOM-heavy; only the extractable logic is covered so far. Targeted so the gap is measured rather than hidden, per the no-gaps rule."

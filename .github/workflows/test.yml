@@ -26,6 +26,17 @@ jobs:
       # mutation number mean anything.
       - name: Install the plugin's runtime dependency (PyNaCl)
         run: python3 -m pip install --quiet pynacl
+      # reader/reader.js is a browser script: the only honest way to test it is in a
+      # browser engine. tests/js/qt_harness.py drives the real reader page in an offscreen
+      # QtWebEngine view and tests/js/reader.harness.test.js asserts on what it observes.
+      # Without PyQt6 those assertions skip and reader.js's mutation score collapses
+      # from 0.30 to 0.02 — the same trap as the missing PyNaCl. The harness uses
+      # /usr/bin/python3, so the distribution package is what matters, not setup-python's.
+      - name: Install QtWebEngine (for the reader.js browser harness)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pyqt6 python3-pyqt6.qtwebengine
+
       - name: All test kinds (policy, unit, regression, integration, js, shell, mutation)
         run: bash tools/run_tests.sh
         env:
