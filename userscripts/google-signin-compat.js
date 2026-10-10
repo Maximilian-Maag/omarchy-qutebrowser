@@ -48,6 +48,23 @@
     }
   } catch (e) { /* best effort */ }
 
+  // QtWebEngine carries Chromium's WebAuthn code but Qt implements no authenticator
+  // service, so a passkey prompt can only fail — reported as "signing in with passkey not
+  // working". Reporting no public-key support makes the page offer its password flow
+  // instead, which does work here. Only on the sign-in hosts (see @match above).
+  try {
+    if (window.PublicKeyCredential) {
+      Object.defineProperty(window, 'PublicKeyCredential',
+        { value: undefined, configurable: true });
+    }
+    if (navigator.credentials) {
+      Object.defineProperty(navigator.credentials, 'get',
+        { value: undefined, configurable: true });
+      Object.defineProperty(navigator.credentials, 'create',
+        { value: undefined, configurable: true });
+    }
+  } catch (e) { /* best effort */ }
+
   try {
     if (navigator.webdriver) {
       Object.defineProperty(navigator, 'webdriver', { get: function () { return false; } });

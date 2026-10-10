@@ -2,6 +2,20 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.23] — 2026-10-08
+
+### Fixed
+- **Passkey (WebAuthn) sign-in could never work, and left the sign-in stuck.** QtWebEngine
+  carries Chromium's WebAuthn code — the library is full of `PublicKeyCredential` symbols —
+  but Qt implements no authenticator service, so the page is offered a passkey and the
+  request can only fail. `userscripts/google-signin-compat.js` now reports no public-key
+  support on the sign-in hosts, so Google offers its password flow instead, which does work
+  there with the fixes from v1.17.20–v1.17.22. The overrides stay redefinable rather than
+  locking the native APIs down for other scripts.
+
+  Engine limitation, not a configuration one: no setting can make a passkey work in
+  qutebrowser today.
+
 ## [1.17.22] — 2026-10-08
 
 ### Fixed

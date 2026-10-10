@@ -99,3 +99,35 @@ test('a clean navigator stays clean', () => {
   run(nav, {});
   assert.notEqual(nav.webdriver, true, 'webdriver must never become true');
 });
+
+test('it reports no public-key support, so the password flow is offered instead', () => {
+  const win = { PublicKeyCredential: function () {}, hello: 'x' };
+  const nav = { credentials: { get() {}, create() {} } };
+  run(nav, win);
+  assert.equal(win.PublicKeyCredential, undefined, 'the passkey signal is gone');
+  assert.equal(win.hello, 'x', 'nothing else on window is touched');
+  assert.equal(nav.credentials.get, undefined, 'credentials.get is gone');
+  assert.equal(nav.credentials.create, undefined, 'credentials.create is gone');
+});
+
+test('a page without any of it is left alone', () => {
+  const win = {};
+  const nav = {};
+  run(nav, win);
+  assert.equal(win.PublicKeyCredential, undefined);
+  assert.equal(nav.credentials, undefined, 'an absent credentials object stays absent');
+});
+
+test('the overrides stay redefinable, so nothing is locked down for other scripts', () => {
+  const win = { PublicKeyCredential: function () {} };
+  const nav = { credentials: { get() {}, create() {} } };
+  run(nav, win);
+  // A non-configurable override would make these permanent for the whole page; the shims
+  // must leave the door open. (This is also what distinguishes `configurable: true`.)
+  Object.defineProperty(win, 'PublicKeyCredential', { value: 'restored', configurable: true });
+  assert.equal(win.PublicKeyCredential, 'restored');
+  Object.defineProperty(nav.credentials, 'get', { value: 'restored', configurable: true });
+  assert.equal(nav.credentials.get, 'restored');
+  Object.defineProperty(nav.credentials, 'create', { value: 'restored', configurable: true });
+  assert.equal(nav.credentials.create, 'restored');
+});
