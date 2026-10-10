@@ -1,4 +1,57 @@
 #!/bin/bash
+
+# ── Progress bar (drawn by --watch; --bar renders one line, so it is testable) ──
+# yt-dlp runs with --newline, so each progress update is its own log line:
+#   [download]  45.2% of  12.34MiB at  1.23MiB/s ETA 00:08
+# A bare `tail -f` scrolls through hundreds of those; draw ONE bar instead. This must
+# come before the argument parsing below, because --watch runs with NO QUTE_* env.
+BAR_WIDTH=32
+
+bar_line() {
+  local line="$1" pct speed eta filled empty f e
+  pct=$(printf '%s' "$line" | sed -n 's/.*\[download\][[:space:]]*\([0-9.]*\)%.*/\1/p')
+  if [ -z "$pct" ]; then
+    printf 'downloading…'
+    return 0
+  fi
+  speed=$(printf '%s' "$line" | sed -n 's/.*[[:space:]]at[[:space:]]*\([^ ]*\).*/\1/p')
+  eta=$(printf '%s' "$line" | sed -n 's/.*ETA[[:space:]]*\([^ ]*\).*/\1/p')
+  filled=$(awk -v p="$pct" -v w="$BAR_WIDTH" 'BEGIN{n=int(p*w/100+0.5); if(n<0)n=0; if(n>w)n=w; print n}')
+  empty=$((BAR_WIDTH - filled))
+  f=""; e=""
+  if [ "$filled" -gt 0 ]; then f=$(printf '#%.0s' $(seq 1 "$filled")); fi
+  if [ "$empty" -gt 0 ]; then e=$(printf -- '-%.0s' $(seq 1 "$empty")); fi
+  printf '[%s%s] %5s%%  %s  ETA %s' "$f" "$e" "$pct" "${speed:---}" "${eta:---}"
+}
+
+# What the floating terminal runs: redraw one line until the runner exits, then show
+# the tail of the log so the outcome is still readable.
+watch_log() {
+  local log="$1" pidfile="$2" pid line ticks=0
+  for _ in $(seq 1 100); do [ -s "$pidfile" ] && break; sleep 0.1; done
+  pid=$(cat "$pidfile" 2>/dev/null || true)
+  # Stop when the runner is gone — but do NOT rely on the pid alone. `kill -0` also
+  # succeeds on a ZOMBIE, so a runner that exited but was not reaped would spin here
+  # forever (found by running --watch end to end: it hung for 30 s). The runner writes
+  # its outcome into the log, so that is the reliable signal; the tick bound is a
+  # last-resort backstop (~8 h at 0.3 s) so this can never become an infinite loop.
+  while [ "$ticks" -lt 96000 ]; do
+    if grep -aqE '^(OK: saved to|FAILED \(exit)' "$log" 2>/dev/null; then break; fi
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then break; fi
+    line=$(tr '\r' '\n' < "$log" 2>/dev/null | grep -a '\[download\]' | tail -1)
+    printf '\r%*s\r' "$((BAR_WIDTH + 34))" ''
+    bar_line "$line"
+    sleep 0.3
+    ticks=$((ticks + 1))
+  done
+  printf '\r%*s\r' "$((BAR_WIDTH + 34))" ''
+  [ -s "$log" ] && tail -n 12 "$log"
+  printf '\nDone — press Enter to close.\n'
+  read -r _ || true
+}
+
+if [ "${1:-}" = "--bar" ]; then bar_line "${2:-}"; _rc=$?; echo; exit "$_rc"; fi
+if [ "${1:-}" = "--watch" ]; then watch_log "${2:-}" "${3:-}"; _rc=$?; exit "$_rc"; fi
 # qute-yt-dl — download a video or extract MP3 via yt-dlp.
 #
 # Invocation (config.py):
@@ -138,7 +191,7 @@ setsid "$RUNNER" >/dev/null 2>&1 &
 # ── The terminal only WATCHES the log (closing it does not stop the download) ──
 # foot + Omarchy auto-float for app-id org.omarchy.yt-dl. tail --pid exits on its
 # own once the runner is gone, so the window shows the result and can be closed.
-WATCH="for i in \$(seq 1 100); do [ -s '$PIDFILE' ] && break; sleep 0.1; done; tail -f --pid=\$(cat '$PIDFILE' 2>/dev/null) -n +1 '$LOG'; echo; echo 'Done — press Enter to close.'; read"
+WATCH="'$0' --watch '$LOG' '$PIDFILE'"
 setsid uwsm-app -- xdg-terminal-exec --app-id=org.omarchy.yt-dl --title='yt-dlp' -- \
   bash -c "$WATCH" >/dev/null 2>&1 &
 disown || true

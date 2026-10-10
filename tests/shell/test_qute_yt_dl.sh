@@ -144,6 +144,81 @@ else
   ok "sponsorblock is omitted when unsupported"
 fi
 
+
+# ── progress bar ──────────────────────────────────────────────────────────────
+# --bar renders ONE log line, so the bar is verifiable without a live download.
+US="$ROOT/userscripts/qute-yt-dl"
+bar() { bash "$US" --bar "$1"; }
+
+is "a 45.2% line draws a 32-wide bar with 14 filled" \
+   "$(bar '[download]  45.2% of  12.34MiB at  1.23MiB/s ETA 00:08')" \
+   "[##############------------------]  45.2%  1.23MiB/s  ETA 00:08"
+
+is "0% is an empty bar" \
+   "$(bar '[download]   0.0% of   1.00MiB at    1.00MiB/s ETA 00:01')" \
+   "[--------------------------------]   0.0%  1.00MiB/s  ETA 00:01"
+
+is "100% is a full bar" \
+   "$(bar '[download] 100% of   1.00MiB at    1.00MiB/s ETA 00:00')" \
+   "[################################]   100%  1.00MiB/s  ETA 00:00"
+
+is "over 100% clamps to a full bar" \
+   "$(bar '[download] 120% of   1.00MiB at    1.00MiB/s ETA 00:00')" \
+   "[################################]   120%  1.00MiB/s  ETA 00:00"
+
+is "a line without a percentage reads as downloading" \
+   "$(bar '[download] Destination: /home/x/Downloads/Clip.mp4')" \
+   "downloading…"
+
+is "missing speed and ETA fall back to dashes" \
+   "$(bar '[download]  10.0% of   1.00MiB')" \
+   "[###-----------------------------]  10.0%  --  ETA --"
+
+# ── watch mode (end to end: it must DRAW a bar and must EXIT) ──────────────────
+# --watch hung for 30 s in the first end-to-end run because `kill -0` also succeeds on
+# a zombie, so a runner that exited without being reaped kept the loop alive. `timeout`
+# here turns any recurrence into a failed assertion instead of a hung suite.
+WLOG=$(mktemp); WPID=$(mktemp)
+sleep 60 & WSLEEP=$!
+echo "$WSLEEP" > "$WPID"
+printf '[download]  10.0%% of 1.00MiB at 1.00MiB/s ETA 00:10\n' > "$WLOG"
+( sleep 1; printf 'OK: saved to /home/x/Downloads\n' >> "$WLOG" ) &
+WOUT=$(timeout 12 bash "$US" --watch "$WLOG" "$WPID" </dev/null 2>&1; echo "RC=$?")
+kill "$WSLEEP" 2>/dev/null; wait "$WSLEEP" 2>/dev/null
+rm -f "$WLOG" "$WPID"
+
+is "watch exits once the runner reports its outcome (not RC=124)" \
+   "$(printf '%s' "$WOUT" | grep -c 'RC=0')" "1"
+is "watch draws a progress bar" \
+   "$(printf '%s' "$WOUT" | grep -cE '\[#+-+\]')" "1"
+is "watch still shows the outcome line afterwards" \
+   "$(printf '%s' "$WOUT" | grep -c 'OK: saved to')" "1"
+
+# A bar with exactly ONE filled cell (2% of 32 rounds to 1) — the boundary between an
+# empty bar and a one-cell bar, which a `-gt 0` mutant to `-gt 1` gets wrong.
+is "2% draws exactly one filled cell" \
+   "$(bar '[download]   2.0% of   1.00MiB at    1.00MiB/s ETA 00:10')" \
+   "[#-------------------------------]   2.0%  1.00MiB/s  ETA 00:10"
+
+# Exit statuses are part of the contract: --bar must report success for a line it draws
+# *and* for one it cannot parse (it says so in the text instead).
+bash "$US" --bar '[download]  45.2% of 1MiB at 1MiB/s ETA 00:01' >/dev/null 2>&1
+if [ $? -eq 0 ]; then ok "--bar exits 0 for a progress line"; else bad "--bar exits 0 for a progress line"; fi
+bash "$US" --bar '[download] Destination: /tmp/x.mp4' >/dev/null 2>&1
+if [ $? -eq 0 ]; then ok "--bar exits 0 for an unparsable line"; else bad "--bar exits 0 for an unparsable line"; fi
+
+# Watch must also stop when the runner DISAPPEARS without writing an outcome line
+# (a killed or crashed runner). This is the pid path, not the log path.
+WLOG2=$(mktemp); WPID2=$(mktemp)
+printf '[download]  10.0%% of 1MiB at 1MiB/s ETA 00:10\n' > "$WLOG2"
+sleep 0.5 & WCORPSE=$!
+wait "$WCORPSE" 2>/dev/null || true          # reap it: a zombie would keep `kill -0` true
+echo "$WCORPSE" > "$WPID2"
+WOUT2=$(timeout 15 bash "$US" --watch "$WLOG2" "$WPID2" </dev/null 2>&1; echo "RC=$?")
+rm -f "$WLOG2" "$WPID2"
+is "watch exits when the runner vanishes with no outcome line (not RC=124)" \
+   "$(printf '%s' "$WOUT2" | grep -c 'RC=0')" "1"
+
 echo
 if [[ "$fails" -eq 0 ]]; then echo "qute-yt-dl: all shell assertions passed"; exit 0; fi
 echo "qute-yt-dl: $fails assertion(s) failed"; exit 1

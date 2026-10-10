@@ -2,6 +2,21 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.25] — 2026-10-08
+
+### Added
+- **A live progress bar for yt-dlp downloads.** The floating terminal used to `tail -f` the
+  log, so a download scrolled through hundreds of per-second percentage lines. It now runs
+  the userscript's own `--watch` mode, which redraws ONE bar in place:
+  `[##############------------------]  45.2%  1.23MiB/s  ETA 00:08`, then shows the tail of
+  the log and the outcome when the runner finishes. `--bar "<log line>"` renders a single
+  line, which is what makes the bar testable without a live download.
+
+  Found and fixed by running it end to end: `--watch` first hung for 30 s, because `kill -0`
+  also succeeds on a **zombie** — a runner that exited without being reaped kept the loop
+  alive. It now stops on the runner's own outcome line in the log, treats the pid check as
+  secondary, and has an iteration bound as a backstop, so it cannot spin forever.
+
 ## [1.17.24] — 2026-10-08
 
 ### Fixed
