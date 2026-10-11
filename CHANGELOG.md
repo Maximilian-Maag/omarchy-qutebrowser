@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.17.33
+
+### Fixed
+- **The KeePassXC fill no longer puts your credentials in the browser log.** It sent the fill to the
+  page as an inline `jseval` command carrying the username and password, and qutebrowser logs every
+  command it runs — so at debug log level the credentials appeared in plaintext:
+
+      Got userscript command: jseval (function () { var USER = "...", PASS = "...", ...
+
+  The script now goes to a 0600 temporary file and only the path is sent
+  (`:jseval --file <path>`, verified working on a live browser; the file is removed once read).
+  `qute_js_file()` covers both the fill and the TOTP path.
+
+### Known follow-up
+- `one_line()` is now unused — page scripts travel as files, so nothing needs collapsing onto a
+  single line. It and its 12 tests should be removed deliberately rather than left as dead code;
+  kept here so this fix stands on its own.
+
 ## 1.17.32
 
 ### Added

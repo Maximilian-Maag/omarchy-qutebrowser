@@ -27,6 +27,7 @@ import argparse
 import base64
 import json
 import os
+import shlex
 import socket
 import subprocess
 import sys
@@ -306,6 +307,10 @@ def one_line(js):
     return "".join(out).strip()
 
 
+# NB: qutebrowser reads the FIFO line by line and runs each line as its own command,
+# so a command must never carry a newline - every following line would be executed
+# as a separate command. That is also why page scripts are sent as a file (see
+# qute_js_file) rather than inline.
 def qute(cmd):
     # One line == one command; a stray newline would silently break the command.
     if "\n" in cmd or "\r" in cmd:
@@ -313,6 +318,40 @@ def qute(cmd):
     with open(os.environ["QUTE_FIFO"], "w") as fifo:
         fifo.write(cmd + "\n")
         fifo.flush()
+
+
+# How long to leave the generated script on disk for qutebrowser to pick it up. It reads the file
+# when it processes the command, which happens after this process has written it, so the file
+# cannot be removed immediately.
+JS_FILE_GRACE = 1.5
+
+
+def qute_js_file(js, extra_args=""):
+    """Run `js` in the page via a temporary file, never on a command line.
+
+    The credentials must not travel as command text: qutebrowser logs every command it runs
+    (`Got userscript command: jseval (function () { var USER = "...", PASS = "..."`) and they are
+    readable with `ps` while it executes. `:jseval --file` takes a path instead, so only the path
+    ever appears in a log or a command line. The file is 0600 and removed once it has been read.
+    """
+    handle, path = tempfile.mkstemp(prefix="qute-keepassxc-fill-", suffix=".js")
+    try:
+        os.fchmod(handle, 0o600)
+        with os.fdopen(handle, "w") as script:
+            script.write(js)
+    except Exception:
+        os.unlink(path)
+        raise
+    try:
+        qute("jseval %s--file %s" % (extra_args, shlex.quote(path)))
+    except Exception:
+        os.unlink(path)
+        raise
+    time.sleep(JS_FILE_GRACE)          # let qutebrowser read it before it disappears
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 def msg(text):
@@ -871,7 +910,7 @@ def main():
             if not token:
                 error("No TOTP configured for this entry")
                 return 1
-            qute("jseval -q " + one_line(totp_js(token)))
+            qute_js_file(totp_js(token), extra_args="-q ")
             return 0
 
         user = cred.get("login") or ""
@@ -880,8 +919,7 @@ def main():
         # only honest feedback of what happened ("filled:username+password",
         # "filled:username" on a Google/Microsoft first step, or "no-fields"
         # when the page has no fillable input, e.g. an account chooser).
-        qute("jseval " + one_line(fill_js(user, password,
-                                          advance=not args.fill_only)))
+        qute_js_file(fill_js(user, password, advance=not args.fill_only))
         return 0
     except KpError as exc:
         error(str(exc))

@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import subprocess
+import stat
 import sys
 import tempfile
 import types
@@ -276,3 +277,63 @@ class PasskeyFrameGuard(UserscriptCase):
 
     def test_the_match_is_case_insensitive(self):
         self.assertTrue(self.us.is_passkey_frame("HTTPS://LOGIN.MICROSOFT.COM/BRIDGE/FIDO"))
+
+
+class JsFileRoute(UserscriptCase):
+    """Page scripts - and therefore credentials - must never travel as command text.
+
+    Measured: qutebrowser logs every command it runs, so the old inline `jseval` put the username
+    and password into the browser log in plaintext:
+
+        Got userscript command: jseval (function () { var USER = "...", PASS = "...", ...
+
+    `qute_js_file` writes the script to a 0600 file and sends `jseval --file <path>`, so only a path
+    can appear in a log or a command line. `:jseval --file` was verified working on a live browser.
+    """
+
+    def _spy(self):
+        """Replace qute() with a spy, and capture the file while it still exists."""
+        sent, captured = [], {}
+        self.addCleanup(setattr, self.us, "qute", self.us.qute)
+        self.addCleanup(setattr, self.us, "JS_FILE_GRACE", self.us.JS_FILE_GRACE)
+        self.us.JS_FILE_GRACE = 0
+
+        def spy(cmd):
+            sent.append(cmd)
+            path = cmd.split("--file ", 1)[1].strip()
+            captured["path"] = path
+            captured["mode"] = stat.S_IMODE(os.stat(path).st_mode)
+            with open(path) as handle:
+                captured["body"] = handle.read()
+
+        self.us.qute = spy
+        return sent, captured
+
+    def test_the_command_carries_a_path_only(self):
+        sent, captured = self._spy()
+        self.us.qute_js_file("var PASS = 's3cret-pw';")
+        self.assertEqual(1, len(sent))
+        self.assertRegex(sent[0], r"^jseval --file \S+$")
+        self.assertNotIn("s3cret-pw", sent[0], "the script must never travel as command text")
+        self.assertIn("s3cret-pw", captured["body"], "it must arrive through the file")
+
+    def test_the_script_is_0600_while_it_exists(self):
+        _, captured = self._spy()
+        self.us.qute_js_file("var a = 1;")
+        self.assertEqual(0o600, captured["mode"])
+
+    def test_the_script_does_not_linger(self):
+        _, captured = self._spy()
+        self.us.qute_js_file("var a = 1;")
+        self.assertFalse(os.path.exists(captured["path"]), "the credential file must not persist")
+
+    def test_extra_args_are_passed_through(self):
+        sent, _ = self._spy()
+        self.us.qute_js_file("var t = 1;", extra_args="-q ")
+        self.assertRegex(sent[0], r"^jseval -q --file \S+$")
+
+    def test_a_fill_leaks_neither_username_nor_password(self):
+        sent, _ = self._spy()
+        self.us.qute_js_file(self.us.fill_js("user@example.test", "hunter2", advance=True))
+        self.assertNotIn("user@example.test", sent[0])
+        self.assertNotIn("hunter2", sent[0])
