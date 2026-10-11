@@ -19,6 +19,7 @@ kept off Google, which refuses the sign-in for even that much. `test_the_one_exc
 holds it to both conditions.
 """
 import pathlib
+import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -68,11 +69,16 @@ class SigninUntouched(unittest.TestCase):
                     self.assertIn(needle, rules["allowed"],
                                   "%s may touch %s only because it is listed in `allowed`"
                                   % (name, needle))
-            lowered = text.lower()
-            for host in rules["must_not_match"]:
-                self.assertNotIn(host, lowered,
-                                 "%s must never be scoped to %s — Google refuses the sign-in for "
-                                 "even a single corrected probe" % (name, host))
+            # What actually scopes a userscript is its @match directives, so that is what is held
+            # to the condition — not prose in a comment explaining the exclusion.
+            patterns = re.findall(r"^//\s*@match\s+(\S+)", text, re.M)
+            self.assertTrue(patterns, "%s declares no @match, so its scope is not asserted" % name)
+            for pattern in patterns:
+                for host in rules["must_not_match"]:
+                    self.assertNotIn(host, pattern.lower(),
+                                     "%s @match %s must never cover %s — Google refuses the sign-in "
+                                     "for even a single corrected probe"
+                                     % (name, pattern, host))
 
     def test_the_shim_stays_retired(self):
         self.assertFalse((ROOT / "userscripts" / "google-signin-compat.js").exists(),
