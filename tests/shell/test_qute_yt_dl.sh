@@ -167,7 +167,7 @@ is "over 100% clamps to a full bar" \
    "[################################]   120%  1.00MiB/s  ETA 00:00"
 
 is "a line without a percentage reads as downloading" \
-   "$(bar '[download] Destination: /home/x/Downloads/Clip.mp4')" \
+   "$(bar '[download] Destination: /tmp/x/Downloads/Clip.mp4')" \
    "downloading…"
 
 is "missing speed and ETA fall back to dashes" \
@@ -182,7 +182,7 @@ WLOG=$(mktemp); WPID=$(mktemp)
 sleep 60 & WSLEEP=$!
 echo "$WSLEEP" > "$WPID"
 printf '[download]  10.0%% of 1.00MiB at 1.00MiB/s ETA 00:10\n' > "$WLOG"
-( sleep 1; printf 'OK: saved to /home/x/Downloads\n' >> "$WLOG" ) &
+( sleep 1; printf 'OK: saved to /tmp/x/Downloads\n' >> "$WLOG" ) &
 WOUT=$(timeout 12 bash "$US" --watch "$WLOG" "$WPID" </dev/null 2>&1; echo "RC=$?")
 kill "$WSLEEP" 2>/dev/null; wait "$WSLEEP" 2>/dev/null
 rm -f "$WLOG" "$WPID"
@@ -220,5 +220,5 @@ is "watch exits when the runner vanishes with no outcome line (not RC=124)" \
    "$(printf '%s' "$WOUT2" | grep -c 'RC=0')" "1"
 
 echo
-if [[ "$fails" -eq 0 ]]; then echo "qute-yt-dl: all shell assertions passed"; exit 0; fi
+if (( fails == 0 )); then echo "qute-yt-dl: all shell assertions passed"; exit 0; fi
 echo "qute-yt-dl: $fails assertion(s) failed"; exit 1

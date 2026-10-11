@@ -373,3 +373,5 @@ config.bind("gd", "zoom-load", mode="normal")  # noqa
 config.set("content.autoplay", True, "*.youtube.com")                    # noqa
 config.set("content.autoplay", True, "*.twitch.tv")                       # noqa
 config.set("content.notifications.enabled", True, "*.github.com")         # noqa
+
+config.source("captcha-bindings.py")

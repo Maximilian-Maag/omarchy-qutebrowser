@@ -2,6 +2,23 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.26] — 2026-10-11
+
+### Fixed
+- **A locked KeePassXC database now asks for the master password instead of erroring.**
+  `get-logins` and `get-totp` did not carry `triggerUnlock`, so a locked database was
+  answered with "Database not opened" and the fill died on an error the user could do
+  nothing with. Both requests now carry `triggerUnlock`, which makes KeePassXC raise its
+  own unlock dialog — that dialog *is* the password prompt — and the userscript recognises
+  the lock wording, waits (bounded) for the unlock and carries on. It also no longer
+  deletes the stored association key over a lock: a locked database is not a dead
+  association.
+- `connect()` closes a previous socket before reconnecting, so the unlock poll cannot leak
+  descriptors.
+
+### Changed
+- Sources `captcha-bindings.py` when it exists, so omarchy-captcha's keybindings are wired.
+
 ## [1.17.25] — 2026-10-08
 
 ### Added

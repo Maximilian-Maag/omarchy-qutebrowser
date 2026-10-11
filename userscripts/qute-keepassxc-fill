@@ -77,6 +77,8 @@ def parse_args():
 
 
 SOCKET_TIMEOUT = 8          # seconds; a hung peer must surface as an error
+UNLOCK_WAIT = 60            # seconds to give the user to unlock KeePassXC
+UNLOCK_POLL = 1.5           # seconds between unlock checks
 
 
 class KpError(Exception):
@@ -84,6 +86,24 @@ class KpError(Exception):
         super().__init__("KeePassXC error [%s]: %s" % (code, desc))
         self.code = code
         self.description = desc
+
+
+# KeePassXC answers a request made against a LOCKED database with an error instead of the
+# entries ("Database not opened", "…is locked", "Please unlock…"). Every wording it has
+# used is recognised here so the caller can PROMPT for the master password instead of
+# printing a raw error code: with triggerUnlock="true" on the request KeePassXC raises its
+# own unlock dialog — that dialog IS the password prompt — and we then wait for the user
+# to fill it in.
+LOCKED_HINTS = ("not open", "locked", "unlock", "no database")
+
+
+def looks_locked(exc):
+    """True when `exc` is KeePassXC saying the database is closed/locked.
+
+    A locked database is NOT a broken association: it must lead to an unlock prompt, and
+    the stored association key must be left in place."""
+    text = str(exc).lower()
+    return any(hint in text for hint in LOCKED_HINTS)
 
 
 class KeePassXC:
@@ -101,6 +121,13 @@ class KeePassXC:
     def connect(self):
         if not os.path.exists(self.socket_path):
             raise KpError(-1, "KeePassXC browser socket not found (is Browser Integration enabled?)")
+        # Close any previous socket first: the unlock wait reconnects in a loop and must
+        # not leak a descriptor (or keep a half-dead peer) on every attempt.
+        if self.sock is not None:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.connect(self.socket_path)
         # Without a timeout a KeePassXC that accepts the connection but never answers
@@ -179,13 +206,16 @@ class KeePassXC:
         return self._recv()["id"]
 
     def get_logins(self, url):
+        # triggerUnlock: KeePassXC opens its unlock dialog instead of answering an error
+        # when the database is locked, so the user is prompted for the master password.
         self._send({"action": "get-logins", "url": url,
                     "keys": [{"id": self.assoc_id,
-                              "key": base64.b64encode(self.id_key.public_key.encode()).decode()}]})
+                              "key": base64.b64encode(self.id_key.public_key.encode()).decode()}]},
+                   triggerUnlock="true")
         return self._recv().get("entries") or []
 
     def get_totp(self, uuid):
-        self._send({"action": "get-totp", "uuid": uuid})
+        self._send({"action": "get-totp", "uuid": uuid}, triggerUnlock="true")
         resp = self._recv()
         if str(resp.get("success")) != "true" or not resp.get("totp"):
             return None
@@ -716,6 +746,26 @@ def totp_js(token):
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
+def wait_for_unlock(kp, assoc_id):
+    """Give the user time to unlock KeePassXC; True once the association answers again.
+
+    Reached only when KeePassXC reported a LOCKED database. triggerUnlock="true" on the
+    request made it open its unlock dialog — the master-password prompt — so the answer is
+    NOT fatal and the association key is deliberately left in place: a locked database is
+    not a dead association. Poll until the database opens or the wait is up."""
+    msg("KeePassXC database is locked — enter your master password there to unlock it")
+    deadline = time.monotonic() + UNLOCK_WAIT
+    while time.monotonic() < deadline:
+        time.sleep(UNLOCK_POLL)
+        try:
+            kp.connect()
+            if kp.test_associate(assoc_id):
+                return True
+        except (KpError, OSError):
+            continue
+    return False
+
+
 def connect_keepassxc(args):
     store = KeyStore(args.key_file)
     if store.exists():
@@ -726,8 +776,16 @@ def connect_keepassxc(args):
             kp.connect()
             ok = kp.test_associate(assoc_id)
         except (KpError, OSError) as exc:
-            error("KeePassXC: %s" % exc)
-            return None
+            if looks_locked(exc):
+                # Locked, not broken: prompt (via KeePassXC's own dialog) and wait for the
+                # unlock instead of erroring out, and NEVER delete the key here.
+                ok = wait_for_unlock(kp, assoc_id)
+                if not ok:
+                    msg("KeePassXC is still locked — unlock the database, then press pw again")
+                    return None
+            else:
+                error("KeePassXC: %s" % exc)
+                return None
         if not ok:
             # The stored association is dead (KeePassXC restarted, a different database
             # was opened, or the association was removed). Leaving the key file in place

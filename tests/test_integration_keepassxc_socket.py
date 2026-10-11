@@ -81,6 +81,10 @@ class MockKeepass:
         self.responder = responder or (lambda payload: {"success": "true"})
         self.handshake = handshake or {}
         self.requests = []
+        # The plaintext envelope (action/message/nonce/clientID + top-level fields such as
+        # triggerUnlock) is NOT inside the encrypted payload, so record it separately —
+        # that is the only place a test can see triggerUnlock.
+        self.envelopes = []
         self.handshake_seen = None
         self.error = None
         self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -117,6 +121,7 @@ class MockKeepass:
             payload = json.loads(box.decrypt(base64.b64decode(msg["message"]),
                                              base64.b64decode(msg["nonce"])).decode())
             self.requests.append(payload)
+            self.envelopes.append(msg)
             reply = self.responder(payload)
             if reply is None:
                 reply = {"success": "true"}
@@ -252,6 +257,155 @@ class SocketClientCase(unittest.TestCase):
         with self.assertRaises(self.us.KpError) as ctx:
             kp.get_logins("https://example.com")
         self.assertEqual(ctx.exception.code, -1)
+
+
+class FakeKp:
+    """A stand-in for the client, for the unlock-wait loop (no socket involved)."""
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.connects = 0
+
+    def connect(self):
+        self.connects += 1
+        if self.answers and isinstance(self.answers[0], Exception):
+            raise self.answers.pop(0)
+
+    def test_associate(self, assoc_id):
+        return self.answers.pop(0) if self.answers else False
+
+
+@unittest.skipUnless(nacl, "PyNaCl missing")
+class LockedDatabaseCase(unittest.TestCase):
+    """A locked database must PROMPT for the master password, never just error out.
+
+    triggerUnlock="true" is what makes KeePassXC raise its own unlock dialog; these tests
+    pin that it is sent on every request, that the lock wording is recognised, and that a
+    locked database never costs the user the stored association key.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.us = load_userscript()
+
+    def setUp(self):
+        self.saved = {k: os.environ.get(k) for k in ("QUTE_FIFO", "XDG_DATA_HOME")}
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.fifo = os.path.join(self.tmp.name, "fifo")
+        os.environ["QUTE_FIFO"] = self.fifo
+        self.messages = []
+        self.us.msg = lambda text: self.messages.append(str(text))
+        self.us.error = lambda text: self.messages.append("ERROR " + str(text))
+        # Each test may shorten the unlock wait; restore the real constants afterwards so
+        # test_the_unlock_wait_is_bounded_and_polled always sees the shipped values.
+        self._constants = (self.us.UNLOCK_WAIT, self.us.UNLOCK_POLL)
+
+    def tearDown(self):
+        self.us.UNLOCK_WAIT, self.us.UNLOCK_POLL = self._constants
+        for key, value in self.saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def client(self, responder=None, **kw):
+        mock = MockKeepass(responder, **kw)
+        self.addCleanup(mock.dir.cleanup)
+        kp = self.us.KeePassXC(key_seed=bytes(range(32)), socket_path=mock.path)
+        return kp, mock
+
+    # ── triggerUnlock goes out on every request ───────────────────────────
+    def test_test_associate_asks_keepassxc_to_unlock(self):
+        kp, mock = self.client(lambda p: {"success": "true"})
+        kp.connect()
+        kp.test_associate("assoc-1")
+        self.assertEqual(mock.envelopes[-1].get("triggerUnlock"), "true")
+
+    def test_get_logins_asks_keepassxc_to_unlock(self):
+        kp, mock = self.client(lambda p: {"success": "true", "entries": []})
+        kp.connect()
+        kp.assoc_id = "assoc-1"
+        kp.get_logins("https://example.com")
+        self.assertEqual(mock.envelopes[-1].get("triggerUnlock"), "true",
+                         "get-logins must carry triggerUnlock or a locked DB errors out")
+
+    def test_get_totp_asks_keepassxc_to_unlock(self):
+        kp, mock = self.client(lambda p: {"success": "true", "totp": "123456"})
+        kp.connect()
+        kp.get_totp("uuid-1")
+        self.assertEqual(mock.envelopes[-1].get("triggerUnlock"), "true")
+
+    # ── recognising the lock wording ──────────────────────────────────────
+    def test_looks_locked_recognises_every_wording_keepassxc_uses(self):
+        for desc in ("Database not opened", "Database is locked", "Please unlock the database",
+                     "No database found"):
+            exc = self.us.KpError(1, desc)
+            self.assertTrue(self.us.looks_locked(exc), desc)
+
+    def test_looks_locked_does_not_swallow_real_errors(self):
+        for desc in ("invalid request", "connection refused", "unknown"):
+            exc = self.us.KpError(-1, desc)
+            self.assertFalse(self.us.looks_locked(exc), desc)
+
+    # ── the wait loop ─────────────────────────────────────────────────────
+    def test_the_unlock_wait_is_bounded_and_polled(self):
+        # Prompt and wait, but not forever, and without spinning the CPU.
+        self.assertEqual(self.us.UNLOCK_WAIT, 60)
+        self.assertEqual(self.us.UNLOCK_POLL, 1.5)
+
+    def test_wait_for_unlock_returns_true_once_the_database_opens(self):
+        fake = FakeKp([False, False, True])
+        self.us.UNLOCK_POLL = 0.01
+        self.us.UNLOCK_WAIT = 5
+        self.assertTrue(self.us.wait_for_unlock(fake, "assoc-1"))
+        self.assertEqual(fake.connects, 3, "it must reconnect (and retry) each poll")
+
+    def test_wait_for_unlock_tolerates_a_socket_error_while_polling(self):
+        fake = FakeKp([OSError("peer went away"), True])
+        self.us.UNLOCK_POLL = 0.01
+        self.us.UNLOCK_WAIT = 5
+        self.assertTrue(self.us.wait_for_unlock(fake, "assoc-1"))
+
+    def test_wait_for_unlock_gives_up_when_it_stays_locked(self):
+        fake = FakeKp([False] * 100)
+        self.us.UNLOCK_POLL = 0.01
+        self.us.UNLOCK_WAIT = 0.05
+        self.assertFalse(self.us.wait_for_unlock(fake, "assoc-1"))
+
+    def test_wait_for_unlock_tells_the_user_to_unlock(self):
+        fake = FakeKp([True])
+        self.us.UNLOCK_POLL = 0.01
+        self.us.UNLOCK_WAIT = 5
+        self.us.wait_for_unlock(fake, "assoc-1")
+        self.assertTrue(any("master password" in m for m in self.messages), self.messages)
+
+    # ── the end-to-end locked path keeps the association key ──────────────
+    def test_connect_keepassxc_prompts_and_keeps_the_key_when_locked(self):
+        store = self.us.KeyStore(path=os.path.join(self.tmp.name, "keepassxc.key"))
+        store.store("assoc-1", bytes(range(32)))
+        mock = MockKeepass(lambda p: {"error": "Database not opened", "errorCode": 1,
+                                      "outer": True})
+        self.addCleanup(mock.dir.cleanup)
+        self.us.UNLOCK_WAIT = 0.2
+        self.us.UNLOCK_POLL = 0.02
+        args = types.SimpleNamespace(key_file=store.path, socket=mock.path)
+        self.assertIsNone(self.us.connect_keepassxc(args),
+                          "a locked database must not yield a client")
+        self.assertTrue(store.exists(),
+                        "a LOCKED database must never cost the user the association key")
+        self.assertTrue(any("locked" in m.lower() for m in self.messages), self.messages)
+        self.assertFalse(any(m.startswith("ERROR") for m in self.messages),
+                         "a locked database is a prompt, not an error")
+
+    def test_connect_keepassxc_errors_on_a_non_lock_failure(self):
+        store = self.us.KeyStore(path=os.path.join(self.tmp.name, "keepassxc.key"))
+        store.store("assoc-1", bytes(range(32)))
+        mock = MockKeepass(handshake={"success": "false"})
+        self.addCleanup(mock.dir.cleanup)
+        args = types.SimpleNamespace(key_file=store.path, socket=mock.path)
+        self.assertIsNone(self.us.connect_keepassxc(args))
+        self.assertTrue(any(m.startswith("ERROR") for m in self.messages), self.messages)
 
 
 @unittest.skipUnless(nacl, "PyNaCl missing")
