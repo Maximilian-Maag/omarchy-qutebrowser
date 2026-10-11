@@ -2,6 +2,36 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.30] — 2026-10-11
+
+### Removed
+- **The `google-signin-compat.js` shim — which was itself the reason sign-in was refused.** It
+  rewrote the browser from JavaScript: `navigator.userAgentData` redefined as an *own* property on
+  the navigator instance (real Chrome keeps it on `Navigator.prototype`, so an own property is
+  trivially detectable), `window.chrome` populated, `navigator.webdriver` forced, and on Microsoft
+  hosts `PublicKeyCredential` deleted outright. Google's submit-time integrity check read that
+  surgery as a tampered browser and answered "This browser or app may not be secure" — while the
+  page itself loaded perfectly, which is what kept this hidden for so long.
+
+  Confirmed by A/B in isolated profiles (fresh data dir, real config): the config alone, with no
+  userscripts at all, reaches Google's password step; adding the shim is what produced the
+  refusal. The live profile now walks through to the passkey step.
+
+  Everything the shim tried to achieve is either unnecessary or belongs in config, not JavaScript:
+    * the Chrome User-Agent and the matching `sec-ch-ua` client hints are set per sign-in host in
+      `config/config.py` — a request header, not a JS override, so there is nothing for a page to
+      inspect;
+    * `canvas_reading` and Do-Not-Track are stock on those hosts for the same reason (an unreadable
+      canvas is itself a tampering signal);
+    * QtWebEngine natively reports no platform authenticator, so a sign-in page offers its password
+      flow with no help from us;
+    * the Microsoft "a security window will open" hang came from the passkey bridge installing on
+      those hosts, which the broker's host policy now prevents.
+
+  `tests/test_regression_signin_untouched.py` now fails the build if any shipped userscript touches
+  WebAuthn, `userAgentData`, `navigator.plugins`, `navigator.mimeTypes`, `pdfViewerEnabled` or
+  `navigator.webdriver`, and if the shim ever reappears.
+
 ## [1.17.29] — 2026-10-11
 
 ### Fixed
