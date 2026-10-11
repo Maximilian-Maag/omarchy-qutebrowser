@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.17.34
+
+### Added
+- **Google sign-in works** (`userscripts/omarchy-google-signin-chrome-identity.js`). Google refused
+  this browser at submit — "Couldn't sign you in / This browser or app may not be secure" — reading
+  the engine's Chromium-only `userAgentData.brands`, empty `window.chrome` and
+  `pdfViewerEnabled: false` as a tampered browser. Correcting those three tells, prototype-level and
+  scoped to Google hosts, gets past the identifier step, after which Google offers the passkey.
+  Verified live.
+- The Microsoft platform-probe now matches every host its flow actually uses: `fpt.live.com` and
+  `login.microsoftonline.com` were missing, and both appear in the sign-in chain.
+
+### Fixed
+- **The fill no longer synthesises the submit click on sign-in providers.** Measured: an automated
+  advance got Google's sign-in refused, and coincided with Microsoft's passkey step never starting.
+  It still fills there; it just no longer presses anything itself (`is_signin_host`).
+- The regression guard scans *code* for rewritten browser APIs rather than comments, and holds each
+  exception's `@match` to an allow-list, so neither can be widened silently.
+
 ## 1.17.33
 
 ### Fixed

@@ -13,7 +13,9 @@
 //              Google sign-in therefore stays on the password path, and Microsoft gets passkeys.
 // @match       https://login.microsoft.com/*
 // @match       https://login.live.com/*
+// @match       https://fpt.live.com/*
 // @match       https://account.microsoft.com/*
+// @match       https://login.microsoftonline.com/*
 // @run-at      document-start
 // ==/UserScript==
 (function () {

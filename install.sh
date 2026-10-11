@@ -58,6 +58,9 @@ ln -sf "$PLUGIN_DIR/userscripts/cookie-banner-remover.js" \
 # deliberately NOT Google (measured: Google refuses the sign-in even for this one probe).
 ln -sf "$PLUGIN_DIR/userscripts/omarchy-ms-passkey-platform-probe.js" \
        "$GREASEMONKEY_DIR/omarchy-ms-passkey-platform-probe.js"
+# Google's sign-in refuses this browser at submit without it (measured); scoped to Google hosts only.
+ln -sf "$PLUGIN_DIR/userscripts/omarchy-google-signin-chrome-identity.js" \
+       "$GREASEMONKEY_DIR/omarchy-google-signin-chrome-identity.js"
 # site-fixes.js is gone — per-domain fixes are generated scripts now
 # (config/site-overrides.py -> greasemonkey/omarchy-sitefix-<domain>.js).
 rm -f "$GREASEMONKEY_DIR/site-fixes.js"

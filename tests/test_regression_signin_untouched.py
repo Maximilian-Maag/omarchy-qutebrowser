@@ -43,17 +43,35 @@ EXCEPTIONS = {
         "allowed": ("PublicKeyCredential",),
         "must_not_match": ("google.com", "gstatic.com", "youtube.com", "googleusercontent.com"),
     },
+    # Verified: this is what makes Google's sign-in accept the browser at all. Held to Google hosts
+    # and to the three tells it needs - widening either is how the original shim broke sign-in.
+    "omarchy-google-signin-chrome-identity.js": {
+        "allowed": ("userAgentData", "pdfViewerEnabled"),
+        "must_not_match": ("live.com", "microsoft.com", "microsoftonline.com", "apple.com"),
+        "must_match_only": ("google.com",),
+    },
 }
+
+
+def code_only(text):
+    """Strip comments, so a comment *naming* an API is not mistaken for a rewrite of it.
+
+    The API scan is about what a script does, not what it says. A URL's `//` (https://...) must
+    survive, so a line comment only starts at a `//` not preceded by a colon; block comments go
+    whole. Scope (@match) is still read from the raw text, where it lives in comments.
+    """
+    without_block = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"(?<!:)//[^\n]*", "", without_block)
 
 
 class SigninUntouched(unittest.TestCase):
     def test_no_shipped_userscript_touches_browser_apis(self):
         offenders = []
         for path in sorted((ROOT / "userscripts").glob("*.js")):
-            text = path.read_text()
+            code = code_only(path.read_text())
             allowed = set(EXCEPTIONS.get(path.name, {}).get("allowed", ()))
             for needle in FORBIDDEN:
-                if needle in text and needle not in allowed:
+                if needle in code and needle not in allowed:
                     offenders.append("%s touches %s" % (path.name, needle))
         self.assertEqual([], offenders,
                          "a userscript is rewriting the browser's own APIs:\n  "
@@ -65,19 +83,24 @@ class SigninUntouched(unittest.TestCase):
             self.assertTrue(path.exists(), "%s is exempted but not shipped" % name)
             text = path.read_text()
             for needle in FORBIDDEN:
-                if needle in text:
+                if needle in code_only(text):
                     self.assertIn(needle, rules["allowed"],
                                   "%s may touch %s only because it is listed in `allowed`"
                                   % (name, needle))
             # What actually scopes a userscript is its @match directives, so that is what is held
-            # to the condition — not prose in a comment explaining the exclusion.
+            # to the conditions - not prose in a comment explaining the exclusion.
             patterns = re.findall(r"^//\s*@match\s+(\S+)", text, re.M)
             self.assertTrue(patterns, "%s declares no @match, so its scope is not asserted" % name)
             for pattern in patterns:
+                lowered = pattern.lower()
+                for host in rules.get("must_match_only", ()):
+                    self.assertIn(host, lowered,
+                                  "%s @match %s must stay inside %s - widening it is how the "
+                                  "original shim broke sign-in" % (name, pattern, host))
                 for host in rules["must_not_match"]:
-                    self.assertNotIn(host, pattern.lower(),
-                                     "%s @match %s must never cover %s — Google refuses the sign-in "
-                                     "for even a single corrected probe"
+                    self.assertNotIn(host, lowered,
+                                     "%s @match %s must never cover %s - Google refuses the "
+                                     "sign-in for even a single corrected probe"
                                      % (name, pattern, host))
 
     def test_the_shim_stays_retired(self):

@@ -345,3 +345,35 @@ class JsFileRoute(UserscriptCase):
         self.us.qute_js_file(self.us.fill_js("user@example.test", "hunter2", advance=True))
         self.assertNotIn("user@example.test", sent[0])
         self.assertNotIn("hunter2", sent[0])
+
+
+class SigninHostAdvance(UserscriptCase):
+    """The fill must not press anything itself on a sign-in provider.
+
+    Measured: synthesising the advance got Google's sign-in refused outright ("Couldn't sign you
+    in"), and on Microsoft it coincided with the passkey step never starting. Filling is fine
+    there - only the automated click is not.
+    """
+
+    def test_providers_are_recognised(self):
+        for url in ("https://accounts.google.com/v3/signin/identifier",
+                    "https://login.live.com/login.srf?lc=1033",
+                    "https://login.microsoft.com/x/bridge/fido",
+                    "https://fpt.live.com/?session_id=x",
+                    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+                    "https://appleid.apple.com/auth/authorize"):
+            self.assertTrue(self.us.is_signin_host(url), url)
+
+    def test_ordinary_sites_are_not_treated_as_providers(self):
+        for url in ("https://github.com/login", "https://news.ycombinator.com/login", ""):
+            self.assertFalse(self.us.is_signin_host(url), url)
+
+    def test_lookalike_hosts_are_not_trusted(self):
+        # The suffix match must respect the dot boundary.
+        for url in ("https://notaccounts.google.com/login",
+                    "https://accounts.google.com.evil.test/login"):
+            self.assertFalse(self.us.is_signin_host(url), url)
+
+    def test_a_port_or_path_does_not_confuse_the_host_check(self):
+        self.assertTrue(self.us.is_signin_host("https://login.live.com:443/login.srf?x=1"))
+        self.assertFalse(self.us.is_signin_host(None))
