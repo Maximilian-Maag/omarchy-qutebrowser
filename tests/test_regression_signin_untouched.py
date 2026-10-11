@@ -10,6 +10,13 @@ it stayed hidden for so long.
 Anything that genuinely needs to differ per host belongs in config (request headers, canvas
 setting), not in JavaScript that a page can inspect. This test makes that class of change
 impossible to reintroduce silently.
+
+One exception exists, and it is asserted here rather than merely tolerated: the Microsoft
+platform-probe, because QtWebEngine answers
+`isUserVerifyingPlatformAuthenticatorAvailable()` false and Microsoft's passkey page therefore
+never starts a ceremony. It corrects that single answer and nothing else, and it is deliberately
+kept off Google, which refuses the sign-in for even that much. `test_the_one_exception_stays_narrow`
+holds it to both conditions.
 """
 import pathlib
 import unittest
@@ -27,18 +34,45 @@ FORBIDDEN = (
     "pdfViewerEnabled",
 )
 
+# The single deliberate exception, and the conditions that keep it narrow. `allowed` names the only
+# browser API this file may touch; `must_not_match` names hosts it must never be scoped to, so the
+# exception can never grow into the thing that broke sign-in in the first place.
+EXCEPTIONS = {
+    "omarchy-ms-passkey-platform-probe.js": {
+        "allowed": ("PublicKeyCredential",),
+        "must_not_match": ("google.com", "gstatic.com", "youtube.com", "googleusercontent.com"),
+    },
+}
+
 
 class SigninUntouched(unittest.TestCase):
     def test_no_shipped_userscript_touches_browser_apis(self):
         offenders = []
         for path in sorted((ROOT / "userscripts").glob("*.js")):
             text = path.read_text()
+            allowed = set(EXCEPTIONS.get(path.name, {}).get("allowed", ()))
             for needle in FORBIDDEN:
-                if needle in text:
+                if needle in text and needle not in allowed:
                     offenders.append("%s touches %s" % (path.name, needle))
         self.assertEqual([], offenders,
                          "a userscript is rewriting the browser's own APIs:\n  "
                          + "\n  ".join(offenders))
+
+    def test_the_one_exception_stays_narrow(self):
+        for name, rules in EXCEPTIONS.items():
+            path = ROOT / "userscripts" / name
+            self.assertTrue(path.exists(), "%s is exempted but not shipped" % name)
+            text = path.read_text()
+            for needle in FORBIDDEN:
+                if needle in text:
+                    self.assertIn(needle, rules["allowed"],
+                                  "%s may touch %s only because it is listed in `allowed`"
+                                  % (name, needle))
+            lowered = text.lower()
+            for host in rules["must_not_match"]:
+                self.assertNotIn(host, lowered,
+                                 "%s must never be scoped to %s — Google refuses the sign-in for "
+                                 "even a single corrected probe" % (name, host))
 
     def test_the_shim_stays_retired(self):
         self.assertFalse((ROOT / "userscripts" / "google-signin-compat.js").exists(),
