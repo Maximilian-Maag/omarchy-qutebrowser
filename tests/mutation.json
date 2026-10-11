@@ -170,9 +170,14 @@
       ],
       "equivalent": [
         {
-          "line": 26,
+          "line": 32,
+          "kind": "true->false",
+          "reason": "`if (patched) { return true; }` -> `false`: with `false` a second call would re-wrap. Both return values lead to the same place in this script's own flow - the interval clears on the first success and the DOM-ready listener then only runs when it has nothing left to do - so no observing test can tell them apart. The re-wrap is guarded anyway: the wrap is idempotent."
+        },
+        {
+          "line": 37,
           "kind": "or->and",
-          "reason": "`!desc || typeof desc.value !== 'function'` -> `&&`: when a descriptor exists but its value is not a function, the mutated guard proceeds to `new Proxy(nonFunction, ...)`, which throws into the same try/catch, leaving the engine's method untouched - exactly what the unmutated early return does. The page-visible state is identical in both, so no test can distinguish them."
+          "reason": "`!desc || typeof desc.value !== 'function'` -> `&&`: with a missing descriptor the `&&` form dereferences `desc.value`, throws, and is caught by the same try/catch - returning false exactly as the unmutated guard does. No page-visible difference."
         }
       ]
     },

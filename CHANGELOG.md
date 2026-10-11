@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.17.36
+
+### Fixed
+- **The Microsoft passkey prompt now appears reliably.** The platform-probe read the engine's
+  `isUserVerifyingPlatformAuthenticatorAvailable` once at `document-start` and gave up if the method
+  was not defined yet. QtWebEngine installs `PublicKeyCredential` at its own pace, so the correction
+  landed on some loads and silently did nothing on others. Measured live on Microsoft's bridge page:
+  `BRIDGE_UVPA=false`, with the script demonstrably loaded and injected. That race is why the passkey
+  prompt appeared once (`qb12`) and then stopped appearing, with an identical script — it was never
+  reliable, it won a coin toss.
+
+  The probe now retries until the API appears (every 50 ms, at most 200 tries), stops as soon as it
+  lands, and warns rather than failing silently when it cannot. `tests/js/ms-passkey-probe.test.js`
+  gained a test named THE RACE that reproduces the exact symptom, plus retry-limit, idempotence and
+  failure-path tests: 15 tests, mutation 1.00.
+
 ## 1.17.35
 
 ### Changed
