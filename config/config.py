@@ -202,20 +202,19 @@ for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
              "https://login.microsoft.com"):
     config.set("content.cookies.accept", "all", _sso)              # noqa: F821
 
-# Google and Microsoft ALSO read detection signals, and our privacy defaults are themselves the
-# tell — a canvas that cannot be read at all is a classic automation signal (bot-detection suites
-# probe canvas/WebGL and treat a blocked read as a fake or tampered browser), and a
-# non-default WebRTC policy plus send-Do-Not-Track are further outliers. Both sites answer such
-# a browser with the same "This browser or app may not be secure" they use for automation, even
-# with a correct Chrome user agent and working cookies. On the SIGN-IN HOSTS ONLY, look like a
-# stock browser; every other site keeps the stricter privacy defaults.
+# Google and Microsoft ALSO read detection signals, and our privacy defaults were themselves the
+# tell: a canvas that cannot be read at all is the classic automation signal (bot-detection suites
+# probe canvas/WebGL and treat a blocked read as a fake or tampered browser), and
+# send-Do-Not-Track is a further outlier. Both sites answer such a browser with the same
+# "This browser or app may not be secure" they use for automation, even with a correct Chrome
+# user agent and working cookies. On the SIGN-IN HOSTS ONLY, look like a stock browser; every
+# other site keeps the stricter privacy defaults.
 for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
              "https://accounts.youtube.com", "https://accounts.youtube.com/*",
              "https://login.microsoftonline.com", "https://login.live.com",
              "https://login.microsoft.com", "https://account.microsoft.com"):
     config.set("content.canvas_reading", True, _sso)               # noqa: F821
     config.set("content.headers.do_not_track", False, _sso)        # noqa: F821
-    config.set("content.webrtc_ip_handling_policy", "default", _sso)  # noqa: F821
 
 # ---------------------------------------------------------------------------
 # Search engines
