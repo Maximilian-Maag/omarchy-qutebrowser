@@ -265,6 +265,14 @@ class PasskeyFrameGuard(UserscriptCase):
             "-36a304b66dad/bridge/fido?fluent=2&cancelUrl=x"))
         self.assertTrue(self.us.is_passkey_frame("https://example.test/webauthn/ceremony"))
 
+    def test_recognises_googles_passkey_challenge(self):
+        # Measured: Google's passkey page was missed by the first version of this guard, the fill
+        # ran on it twice, throwing `webelem` and breaking the ceremony before it began.
+        self.assertTrue(self.us.is_passkey_frame(
+            "https://accounts.google.com/v3/signin/challenge/pk?TL=x&continue=https"))
+        self.assertTrue(self.us.is_passkey_frame(
+            "https://accounts.google.com/v3/signin/challenge/pk/presend?TL=y"))
+
     def test_ordinary_login_pages_are_not_passkey_frames(self):
         for url in ("https://accounts.google.com/v3/signin/identifier",
                     "https://login.live.com/login.srf?lc=1033",

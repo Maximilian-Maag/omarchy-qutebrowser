@@ -851,10 +851,12 @@ def connect_keepassxc(args):
 
 
 # A passkey / WebAuthn frame is not a login form: it carries no credentials to fill, and writing
-# into it breaks the ceremony. Measured on Microsoft's `login.microsoft.com/.../bridge/fido` frame,
-# where an injected fill threw `Cannot read properties of undefined (reading 'webelem')` once a
-# second and the passkey sign-in never started.
-PASSKEY_FRAME_HINTS = ("bridge/fido", "/webauthn", "webauthn/")
+# into it breaks the ceremony. Measured twice:
+#   * Microsoft's `login.microsoft.com/.../bridge/fido` frame - an injected fill threw `Cannot read
+#     properties of undefined (reading 'webelem')` once a second and the passkey sign-in never began.
+#   * Google's `accounts.google.com/v3/signin/challenge/pk` page - same crash, and its WebAuthn
+#     request never reached the engine. This path was missed by the first version of this guard.
+PASSKEY_FRAME_HINTS = ("bridge/fido", "/webauthn", "webauthn/", "signin/challenge", "challenge/pk")
 
 
 def is_passkey_frame(url):
