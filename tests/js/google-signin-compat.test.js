@@ -13,8 +13,9 @@ const vm = require('node:vm');
 const SRC = fs.readFileSync(
   path.join(__dirname, '..', '..', 'userscripts', 'google-signin-compat.js'), 'utf8');
 
-function run(nav, win) {
-  const ctx = vm.createContext({ window: win, navigator: nav, Promise });
+function run(nav, win, hostname) {
+  const ctx = vm.createContext({ window: win, navigator: nav, Promise,
+                                 location: hostname ? { hostname } : undefined });
   vm.runInContext(SRC, ctx);
   return ctx;
 }
@@ -100,14 +101,59 @@ test('a clean navigator stays clean', () => {
   assert.notEqual(nav.webdriver, true, 'webdriver must never become true');
 });
 
-test('it reports no public-key support, so the password flow is offered instead', () => {
+test('on the MICROSOFT hosts it reports no public-key support, so the password flow is offered', () => {
   const win = { PublicKeyCredential: function () {}, hello: 'x' };
   const nav = { credentials: { get() {}, create() {} } };
-  run(nav, win);
+  run(nav, win, 'login.live.com');
   assert.equal(win.PublicKeyCredential, undefined, 'the passkey signal is gone');
   assert.equal(win.hello, 'x', 'nothing else on window is touched');
   assert.equal(nav.credentials.get, undefined, 'credentials.get is gone');
   assert.equal(nav.credentials.create, undefined, 'credentials.create is gone');
+});
+
+test('on the GOOGLE hosts WebAuthn is LEFT INTACT', () => {
+  // QtWebEngine already answers isUserVerifyingPlatformAuthenticatorAvailable() === false
+  // natively, so Google offers its password flow regardless. Deleting the API only left a
+  // browser claiming Chrome with no PublicKeyCredential at all — which no real Chrome has —
+  // and that is what "This browser or app may not be secure" reacts to.
+  const win = { PublicKeyCredential: function () {} };
+  const nav = { credentials: { get() {}, create() {} } };
+  run(nav, win, 'accounts.google.com');
+  assert.equal(typeof win.PublicKeyCredential, 'function', 'PublicKeyCredential survives');
+  assert.equal(typeof nav.credentials.get, 'function', 'credentials.get survives');
+  assert.equal(typeof nav.credentials.create, 'function', 'credentials.create survives');
+});
+
+test('the Google exemption covers google.com/youtube.com and not lookalikes', () => {
+  const keep = ['google.com', 'accounts.google.com', 'myaccount.google.com', 'accounts.youtube.com'];
+  for (const host of keep) {
+    const win = { PublicKeyCredential: function () {} };
+    run({ credentials: { get() {}, create() {} } }, win, host);
+    assert.equal(typeof win.PublicKeyCredential, 'function', host + ' must keep WebAuthn');
+  }
+  const del = ['notgoogle.com', 'google.com.evil.test', 'login.microsoftonline.com',
+               'account.microsoft.com'];
+  for (const host of del) {
+    const win = { PublicKeyCredential: function () {} };
+    run({ credentials: { get() {}, create() {} } }, win, host);
+    assert.equal(win.PublicKeyCredential, undefined, host + ' must still have it deleted');
+  }
+});
+
+test('an unknown host keeps the old behaviour (deletion)', () => {
+  const win = { PublicKeyCredential: function () {} };
+  run({ credentials: { get() {}, create() {} } }, win);
+  assert.equal(win.PublicKeyCredential, undefined);
+});
+
+test('a hostname that cannot be read is treated as NOT Google, so the deletion still applies', () => {
+  // Conservative on purpose: an unreadable host must never silently drop the protection.
+  const win = { PublicKeyCredential: function () {} };
+  const trap = { get hostname() { throw new Error('unreadable'); } };
+  const ctx = vm.createContext({ window: win, navigator: { credentials: { get() {}, create() {} } },
+                                 Promise, location: trap });
+  vm.runInContext(SRC, ctx);
+  assert.equal(win.PublicKeyCredential, undefined, 'the deletion still runs');
 });
 
 test('a page without any of it is left alone', () => {

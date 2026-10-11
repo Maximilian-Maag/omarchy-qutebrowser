@@ -52,20 +52,37 @@
     }
   } catch (e) { /* best effort */ }
 
-  // QtWebEngine carries Chromium's WebAuthn code but Qt implements no authenticator
-  // service, so a passkey prompt can only fail — reported as "signing in with passkey not
-  // working". Reporting no public-key support makes the page offer its password flow
-  // instead, which does work here. Only on the sign-in hosts (see @match above).
+  // ── deleting WebAuthn: still right for Microsoft, harmful on Google ───────
+  // Deleting the API makes a sign-in page offer its PASSWORD flow rather than a passkey
+  // ceremony QtWebEngine cannot serve. But QtWebEngine ALREADY answers
+  // isUserVerifyingPlatformAuthenticatorAvailable() === false natively (measured), so the page
+  // offers its password anyway — and on Google the deletion is actively harmful: it leaves a
+  // browser advertising Chrome/140 with NO PublicKeyCredential at all, which no real Chrome
+  // ever has. Google answers a browser that tampered with its own WebAuthn surface with
+  // "This browser or app may not be secure" — i.e. the shim can cost the very sign-in it exists
+  // to protect. So: delete on the Microsoft hosts (where the passkey broker is allowed to
+  // install and would otherwise take the page over), leave Google's native API intact (the
+  // broker is kept out of google.com, see the broker's per-site policy).
+  function isGoogleHost() {
+    try {
+      var h = String((location && location.hostname) || '').toLowerCase();
+      return h === 'google.com' || /(^|\.)google\.com$/.test(h)
+             || /(^|\.)youtube\.com$/.test(h);
+    } catch (e) { return false; }
+  }
+
   try {
-    if (window.PublicKeyCredential) {
-      Object.defineProperty(window, 'PublicKeyCredential',
-        { value: undefined, configurable: true });
-    }
-    if (navigator.credentials) {
-      Object.defineProperty(navigator.credentials, 'get',
-        { value: undefined, configurable: true });
-      Object.defineProperty(navigator.credentials, 'create',
-        { value: undefined, configurable: true });
+    if (!isGoogleHost()) {
+      if (window.PublicKeyCredential) {
+        Object.defineProperty(window, 'PublicKeyCredential',
+          { value: undefined, configurable: true });
+      }
+      if (navigator.credentials) {
+        Object.defineProperty(navigator.credentials, 'get',
+          { value: undefined, configurable: true });
+        Object.defineProperty(navigator.credentials, 'create',
+          { value: undefined, configurable: true });
+      }
     }
   } catch (e) { /* best effort */ }
 

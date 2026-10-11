@@ -2,6 +2,22 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.27] — 2026-10-11
+
+### Fixed
+- **The sign-in shim was itself the reason Google refused the sign-in.** It deleted
+  `PublicKeyCredential` and `navigator.credentials.create/get` on the Google hosts, which leaves
+  a browser advertising **Chrome/140 with no WebAuthn API at all** — something no real Chrome
+  has — and Google answers a tampered-with WebAuthn surface with *"This browser or app may not be
+  secure"*. Measured on this machine: QtWebEngine already answers
+  `isUserVerifyingPlatformAuthenticatorAvailable()` with **false** natively, so Google offers its
+  password flow without any help; the deletion bought nothing and cost the login. Google's hosts
+  now keep their native WebAuthn (and the passkey broker is kept out of `google.com` by the
+  broker's own per-site policy, so nothing else takes the page over).
+- Microsoft's sign-in hosts still get the deletion, deliberately: that is where the broker IS
+  allowed to install, and without it the broker would take over with an authenticator it cannot
+  serve for a site it holds no credential for.
+
 ## [1.17.26] — 2026-10-11
 
 ### Fixed
