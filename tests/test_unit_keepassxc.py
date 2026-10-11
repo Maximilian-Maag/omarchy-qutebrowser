@@ -248,3 +248,31 @@ class UserscriptCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PasskeyFrameGuard(UserscriptCase):
+    """The fill must stay out of WebAuthn/passkey frames.
+
+    Measured on Microsoft's passkey frame (login.microsoft.com/.../bridge/fido): filling it threw
+    `Cannot read properties of undefined (reading 'webelem')` once a second and the passkey sign-in
+    never started. A passkey frame has no login form, so the fill must decline outright.
+    """
+
+    def test_recognises_a_passkey_frame(self):
+        self.assertTrue(self.us.is_passkey_frame(
+            "https://login.microsoft.com/9188040d-6c67-4c5b-b112"
+            "-36a304b66dad/bridge/fido?fluent=2&cancelUrl=x"))
+        self.assertTrue(self.us.is_passkey_frame("https://example.test/webauthn/ceremony"))
+
+    def test_ordinary_login_pages_are_not_passkey_frames(self):
+        for url in ("https://accounts.google.com/v3/signin/identifier",
+                    "https://login.live.com/login.srf?lc=1033",
+                    "https://github.com/login"):
+            self.assertFalse(self.us.is_passkey_frame(url), url)
+
+    def test_nothing_is_not_a_passkey_frame(self):
+        self.assertFalse(self.us.is_passkey_frame(""))
+        self.assertFalse(self.us.is_passkey_frame(None))
+
+    def test_the_match_is_case_insensitive(self):
+        self.assertTrue(self.us.is_passkey_frame("HTTPS://LOGIN.MICROSOFT.COM/BRIDGE/FIDO"))

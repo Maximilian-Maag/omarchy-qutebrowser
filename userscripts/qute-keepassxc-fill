@@ -811,6 +811,21 @@ def connect_keepassxc(args):
     return kp
 
 
+# A passkey / WebAuthn frame is not a login form: it carries no credentials to fill, and writing
+# into it breaks the ceremony. Measured on Microsoft's `login.microsoft.com/.../bridge/fido` frame,
+# where an injected fill threw `Cannot read properties of undefined (reading 'webelem')` once a
+# second and the passkey sign-in never started.
+PASSKEY_FRAME_HINTS = ("bridge/fido", "/webauthn", "webauthn/")
+
+
+def is_passkey_frame(url):
+    """True for a frame that is running a WebAuthn ceremony rather than showing a login form."""
+    if not url:
+        return False
+    lowered = url.lower()
+    return any(hint in lowered for hint in PASSKEY_FRAME_HINTS)
+
+
 def main():
     if "QUTE_FIFO" not in os.environ:
         print("qute-keepassxc-fill must be run as a qutebrowser userscript", file=sys.stderr)
@@ -820,6 +835,10 @@ def main():
         args = parse_args()
         if not args.url:
             error("No URL available")
+            return 1
+
+        if is_passkey_frame(args.url):
+            error("This page is a WebAuthn/passkey frame - there is no login form here to fill")
             return 1
 
         kp = connect_keepassxc(args)

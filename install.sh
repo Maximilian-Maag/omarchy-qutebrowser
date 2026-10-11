@@ -53,6 +53,11 @@ ln -sf "$PLUGIN_DIR/userscripts/youtube-adblock.js" \
        "$GREASEMONKEY_DIR/youtube-adblock.js"
 ln -sf "$PLUGIN_DIR/userscripts/cookie-banner-remover.js" \
        "$GREASEMONKEY_DIR/cookie-banner-remover.js"
+# Passkey platform-probe: QtWebEngine answers isUserVerifyingPlatformAuthenticatorAvailable()
+# false, so Microsoft's passkey page never starts a ceremony. Scoped to the Microsoft hosts,
+# deliberately NOT Google (measured: Google refuses the sign-in even for this one probe).
+ln -sf "$PLUGIN_DIR/userscripts/omarchy-ms-passkey-platform-probe.js" \
+       "$GREASEMONKEY_DIR/omarchy-ms-passkey-platform-probe.js"
 # site-fixes.js is gone — per-domain fixes are generated scripts now
 # (config/site-overrides.py -> greasemonkey/omarchy-sitefix-<domain>.js).
 rm -f "$GREASEMONKEY_DIR/site-fixes.js"

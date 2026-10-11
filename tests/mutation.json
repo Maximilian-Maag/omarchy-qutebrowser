@@ -104,7 +104,7 @@
       "equivalent": [
         {
           "line": 35,
-          "kind": "number±1",
+          "kind": "number\u00b11",
           "reason": "BLOCK_TAGS values are only tested for truthiness; 1 and 2 are both truthy"
         },
         {
@@ -159,6 +159,22 @@
         "bash tests/shell/test_qute_yt_dl.sh && python3 -m unittest tests.test_regression_qutebrowser -q"
       ],
       "max_mutants": 25
+    },
+    {
+      "path": "userscripts/omarchy-ms-passkey-platform-probe.js",
+      "lang": "javascript",
+      "tests": [
+        "node",
+        "--test",
+        "tests/js/ms-passkey-probe.test.js"
+      ],
+      "equivalent": [
+        {
+          "line": 26,
+          "kind": "or->and",
+          "reason": "`!desc || typeof desc.value !== 'function'` -> `&&`: when a descriptor exists but its value is not a function, the mutated guard proceeds to `new Proxy(nonFunction, ...)`, which throws into the same try/catch, leaving the engine's method untouched - exactly what the unmutated early return does. The page-visible state is identical in both, so no test can distinguish them."
+        }
+      ]
     }
   ],
   "max_mutants": 60,
@@ -185,11 +201,11 @@
     },
     {
       "path": "reader/readability.js",
-      "reason": "vendored third-party Readability — not ours to mutate"
+      "reason": "vendored third-party Readability \u2014 not ours to mutate"
     },
     {
       "path": "status/status.js",
-      "reason": "DOM-only rendering; no browser harness yet — a tracked, visible gap"
+      "reason": "DOM-only rendering; no browser harness yet \u2014 a tracked, visible gap"
     },
     {
       "path": "userscripts/qute-ai-fix",

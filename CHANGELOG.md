@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.17.32
+
+### Added
+- **Microsoft passkey sign-in works.** QtWebEngine answers
+  `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()` with `false`, so Microsoft's
+  passkey page concludes there is no passkey capability and never starts a ceremony — it spins on
+  "Verifying…" forever, with no FIDO activity and no prompt. `userscripts/omarchy-ms-passkey-platform-probe.js`
+  corrects that one answer (a Proxy over the engine's own method; nothing else about the browser is
+  touched) and the Microsoft passkey flow completes: engine → YubiKey → PIN → touch → signed in.
+
+  Deliberately NOT applied to Google: measured, Google refuses the sign-in outright ("Couldn't sign
+  you in — This browser or app may not be secure") for even this single corrected probe. Google
+  sign-in stays on the password path.
+
+### Fixed
+- **The KeePassXC fill no longer runs against WebAuthn/passkey frames.** Filling Microsoft's
+  `login.microsoft.com/…/bridge/fido` frame injected a script that threw `Cannot read properties of
+  undefined (reading 'webelem')` once a second and broke the ceremony before it began. A passkey
+  frame has no login form, so the fill now declines outright (`is_passkey_frame`).
+
+### Measured deviations from Chrome (for the record)
+`window.chrome` is empty (Chrome exposes app/runtime/csi/loadTimes), `navigator.userAgentData.brands`
+says Chromium only (Chrome says "Google Chrome"), `navigator.plugins` 0 (Chrome: 5),
+`navigator.mimeTypes` 0 (Chrome: 2), `pdfViewerEnabled` false (Chrome: true), `isUVPAA` false, and
+`navigator.languages` reports en-US on a German machine. Each is a candidate cause for a site
+deciding the browser is unsupported.
+
 ## 1.17.31
 
 ### Added
