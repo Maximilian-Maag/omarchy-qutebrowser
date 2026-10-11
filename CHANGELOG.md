@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.35
+
+### Changed
+- `omarchy-google-signin-chrome-identity.js` carries the plugin's own namespace rather than the
+  experiment's, now that it is a shipped feature.
+
 ## 1.17.34
 
 ### Added
