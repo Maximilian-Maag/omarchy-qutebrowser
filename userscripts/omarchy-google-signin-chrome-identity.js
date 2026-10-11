@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        Google sign-in: Chrome identity tells
-// @namespace   Maximilian-Maag.experiment
+// @namespace   Maximilian-Maag.omarchy-qutebrowser
 // @description Makes Google's sign-in accept this browser. Verified: with it, Google passes the
 //              identifier step and offers the passkey; without it, the submit is refused
 //              ('Couldn't sign you in - This browser or app may not be secure'). It is a
