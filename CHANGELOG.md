@@ -2,6 +2,25 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.29] — 2026-10-11
+
+### Fixed
+- **The browser contradicted itself about being Chrome — and that is what the sign-in read as a
+  fake.** The User-Agent sent to the sign-in hosts claims Chrome, but QtWebEngine derives its
+  client hints from its own build info: `sec-ch-ua` came back as
+  `"Not=A?Brand";v="24", "Chromium";v="140"` and `navigator.userAgentData.brands` said the same —
+  no "Google Chrome" anywhere. A UA that claims Chrome beside hints that deny it is a textbook
+  spoofed-browser signal, and Google and Microsoft answer it with *"This browser or app may not be
+  secure"*. Measured directly, not assumed (a local page + logged request headers).
+  - `config.py`: the sign-in hosts now send client hints that agree with the UA
+    (`"Google Chrome";v="<major>", "Chromium";v="<major>", "Not=A?Brand";v="24"`), with the major
+    taken from the same UA the config builds. Verified: a custom header REPLACES the engine's
+    (exactly one `sec-ch-ua` is sent, never a duplicate).
+  - `userscripts/google-signin-compat.js`: `navigator.userAgentData` is now always restated with
+    those brands, via `Object.defineProperty`. It previously skipped the spoof whenever the engine
+    supplied `userAgentData` (which it always does) *and* used plain assignment, which cannot
+    replace a prototype getter — so that part of the shim never took effect at all.
+
 ## [1.17.28] — 2026-10-11
 
 ### Fixed

@@ -191,6 +191,28 @@ for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
              "https://login.microsoft.com"):
     config.set("content.headers.user_agent", _sso_ua, _sso)        # noqa: F821
 
+# ...and the client hints have to agree with that User-Agent. QtWebEngine derives sec-ch-ua from
+# its own build info, so it keeps saying "Chromium" (no "Google Chrome") while the UA claims
+# Chrome — a contradiction a bot-detection suite reads as a spoofed browser, and the same
+# "this browser or app may not be secure" answer. A custom header REPLACES the engine's (verified:
+# exactly one sec-ch-ua is sent), so the hints can be made to match the UA. The grease brand and
+# version mirror what the engine itself sends, and the major tracks the UA's Chromium version.
+try:
+    _sso_major = _sso_ua.split("Chrome/")[-1].split(".")[0]          # noqa: F821
+    _sso_hints = {
+        "sec-ch-ua": ('"Google Chrome";v="%s", "Chromium";v="%s", "Not=A?Brand";v="24"'
+                      % (_sso_major, _sso_major)),
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Linux"',
+    }
+    for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
+                 "https://accounts.youtube.com", "https://accounts.youtube.com/*",
+                 "https://login.microsoftonline.com", "https://login.live.com",
+                 "https://login.microsoft.com"):
+        config.set("content.headers.custom", _sso_hints, _sso)      # noqa: F821
+except Exception:
+    pass
+
 # Google's sign-in handshake reads and writes cookies in a THIRD-PARTY context, so the
 # "no-3rdparty" policy set above makes it fail — the classic "This browser or app may not
 # be secure" / failed Gmail login. Allow third-party cookies for the sign-in hosts only:

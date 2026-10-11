@@ -36,20 +36,33 @@
   } catch (e) { /* a page that forbids this is not worth breaking */ }
 
   try {
-    if (!navigator.userAgentData) {
-      var brands = [{ brand: 'Chromium', version: MAJOR },
-                    { brand: 'Google Chrome', version: MAJOR },
-                    { brand: 'Not?A_Brand', version: '24' }];
-      navigator.userAgentData = {
-        brands: brands, mobile: false, platform: 'Linux',
-        getHighEntropyValues: function () {
-          return Promise.resolve({ architecture: 'x86', bitness: '64', brands: brands,
-            mobile: false, model: '', platform: 'Linux', platformVersion: '6.0.0',
-            uaFullVersion: FULL });
-        },
-        toJSON: function () { return { brands: brands, mobile: false, platform: 'Linux' }; }
-      };
-    }
+    // ALWAYS restate the client hints, even though QtWebEngine already provides userAgentData:
+    // its brands say "Chromium" only, while the User-Agent these hosts get claims Google Chrome.
+    // A UA that claims Chrome next to client hints and JS brands that deny it is a classic
+    // spoofed-browser signal, and it is exactly what a "this browser may not be secure" check
+    // reads. The grease brand name and version mirror what the engine itself sends
+    // ("Not=A?Brand";v="24"), so the JS and the sec-ch-ua header tell one story.
+    // defineProperty, not assignment: userAgentData is a getter on the prototype, so assigning
+    // to it silently does nothing at all.
+    var brands = [{ brand: 'Google Chrome', version: MAJOR },
+                  { brand: 'Chromium', version: MAJOR },
+                  { brand: 'Not=A?Brand', version: '24' }];
+    var uaData = {
+      brands: brands, mobile: false, platform: 'Linux',
+      getHighEntropyValues: function () {
+        return Promise.resolve({
+          architecture: 'x86', bitness: '64', brands: brands,
+          fullVersionList: [{ brand: 'Google Chrome', version: FULL },
+                            { brand: 'Chromium', version: FULL },
+                            { brand: 'Not=A?Brand', version: '24.0.0.0' }],
+          mobile: false, model: '', platform: 'Linux', platformVersion: '6.0.0',
+          uaFullVersion: FULL
+        });
+      },
+      toJSON: function () { return { brands: brands, mobile: false, platform: 'Linux' }; }
+    };
+    Object.defineProperty(navigator, 'userAgentData',
+      { configurable: true, get: function () { return uaData; } });
   } catch (e) { /* best effort */ }
 
   // ── deleting WebAuthn: still right for Microsoft, harmful on Google ───────

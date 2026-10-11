@@ -52,13 +52,26 @@ test('getHighEntropyValues resolves with a full version matching the UA', () => 
   });
 });
 
-test('it leaves an engine that already provides these alone', () => {
-  const existing = { brands: [{ brand: 'Keep', version: '1' }] };
+test('an engine-supplied userAgentData is REPLACED, because its brands contradict the UA', () => {
+  // QtWebEngine ships userAgentData whose brands say "Chromium" only, while the User-Agent these
+  // hosts are given claims Google Chrome. That contradiction is the spoofed-browser signal the
+  // sign-in's "not secure" check reads, so it is deliberately overwritten rather than left alone.
+  const MAJOR = SRC.match(/var MAJOR = '(\d+)'/)[1];
+  const engine = { brands: [{ brand: 'Chromium', version: '140' },
+                            { brand: 'Not=A?Brand', version: '24' }],
+                   mobile: false, platform: 'Linux' };
   const win = { chrome: { loadTimes: 'sentinel' } };
-  const nav = { userAgentData: existing };
+  const nav = { userAgentData: engine };
   run(nav, win);
   assert.equal(win.chrome.loadTimes, 'sentinel', 'an existing chrome object is preserved');
-  assert.equal(nav.userAgentData, existing, 'existing userAgentData is preserved');
+  assert.notEqual(nav.userAgentData, engine, 'the engine object is not left in place');
+  const brands = nav.userAgentData.brands;
+  assert.ok(brands.find((b) => b.brand === 'Google Chrome'),
+            'the Chrome brand is added, matching the User-Agent');
+  assert.equal(brands.find((b) => b.brand === 'Chromium').version, MAJOR,
+               'the Chromium brand carries the advertised version');
+  assert.ok(brands.find((b) => b.brand === 'Not=A?Brand' && b.version === '24'),
+            'the grease brand is the one the engine itself sends');
 });
 
 // The guards above each have an else-branch, and asserting only the "absent" case leaves
@@ -176,4 +189,6 @@ test('the overrides stay redefinable, so nothing is locked down for other script
   assert.equal(nav.credentials.get, 'restored');
   Object.defineProperty(nav.credentials, 'create', { value: 'restored', configurable: true });
   assert.equal(nav.credentials.create, 'restored');
+  Object.defineProperty(nav, 'userAgentData', { value: 'restored', configurable: true });
+  assert.equal(nav.userAgentData, 'restored', 'the userAgentData override is redefinable too');
 });
