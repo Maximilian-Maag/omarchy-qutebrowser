@@ -2,6 +2,22 @@
 
 All notable changes to omarchy-qutebrowser are documented here.
 
+## [1.17.28] — 2026-10-11
+
+### Fixed
+- **Our own privacy settings were the reason Google AND Microsoft refused the sign-in.** Both
+  answer a browser whose canvas cannot be read with the same *"This browser or app may not be
+  secure"* they use for automation, and `content.canvas_reading = False` makes a canvas readback
+  fail (measured: the same page throws `SecurityError: ... tainted by cross-origin data` without
+  the override and reads `255,0,0` normally with it) — a textbook tampering signal for a
+  bot-detection suite. A non-default WebRTC policy and send-Do-Not-Track are further outliers.
+  On the sign-in hosts only, `content.canvas_reading`, `content.headers.do_not_track` and
+  `content.webrtc_ip_handling_policy` now take stock-browser values; every other site keeps the
+  stricter privacy defaults, and the exception list is the same one the UA/cookie fixes use.
+- Also measured while chasing this: userscripts run on `accounts.google.com` but do NOT survive
+  on `login.live.com` (Microsoft's sign-in replaces the document), so the sign-in shim cannot be
+  relied on there — a reason the compatibility work belongs in settings, not only in a userscript.
+
 ## [1.17.27] — 2026-10-11
 
 ### Fixed
