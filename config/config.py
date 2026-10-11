@@ -27,6 +27,23 @@ if config_dir not in sys.path:
 from themes import apply_theme
 
 # ---------------------------------------------------------------------------
+# WebAuthn / passkeys — the WebAuthn UX the engine asks the browser to show
+# ---------------------------------------------------------------------------
+# QtWebEngine drives a FIDO2 token (it discovers the key and reads its GetInfo) and then emits
+# QWebEnginePage.webAuthUxRequested so the browser can prompt: choose an account, enter the PIN,
+# touch the token. qutebrowser never connects that signal, so every ceremony waits forever with no
+# prompt and no result — which is why a passkey sign-in simply hangs. omarchy_webauthn installs the
+# missing handler. It shows Qt dialogs and touches no page JavaScript, so no site can see it, and
+# it is the reason a passkey works here WITHOUT overriding the WebAuthn API — which sign-in pages
+# refuse as a tampered browser.
+try:
+    import omarchy_webauthn
+
+    omarchy_webauthn.install()
+except Exception:  # never let this stop the browser from starting
+    pass
+
+# ---------------------------------------------------------------------------
 # Theme
 # ---------------------------------------------------------------------------
 apply_theme(c)  # noqa: F821  (c is injected by qutebrowser)

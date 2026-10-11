@@ -13,6 +13,17 @@
   "per_operator": 4,
   "targets": [
     {
+      "path": "config/omarchy_webauthn.py",
+      "lang": "python",
+      "tests": [
+        "python3",
+        "-m",
+        "unittest",
+        "tests.test_unit_webauthn",
+        "-q"
+      ]
+    },
+    {
       "path": "userscripts/qute-keepassxc-fill",
       "lang": "python",
       "tests": [

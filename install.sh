@@ -71,6 +71,8 @@ echo "  Reader server: $PLUGIN_DIR/bin/reader-server (started on demand by ,r)"
 
 # ── 4b. Config modules ────────────────────────────────────────────────────────
 ln -sf "$PLUGIN_DIR/config/site-overrides.py" "$QUTE_CONFIG_DIR/site-overrides.py"
+# WebAuthn UX handler: qutebrowser never answers Qt's WebAuthn UX request, so passkeys hang.
+ln -sf "$PLUGIN_DIR/config/omarchy_webauthn.py" "$QUTE_CONFIG_DIR/omarchy_webauthn.py"
 echo "  Linked site-overrides.py -> $QUTE_CONFIG_DIR/"
 
 # ── 5. Theme-set hook ────────────────────────────────────────────────────────

@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.17.31
+
+### Added
+- **WebAuthn / passkey support — the engine was always able to do it; the browser just never
+  answered.** QtWebEngine drives a FIDO2 token itself (`CTAP2 AuthenticatorGetInfo` against the
+  key, real AAGUID) and then emits `QWebEnginePage.webAuthUxRequested` for the browser to show the
+  prompt. qutebrowser never connects that signal, so every ceremony waited forever with no dialog —
+  which is why a passkey sign-in simply appeared to hang. `config/omarchy_webauthn.py` installs the
+  missing handler: it attaches to every page (present and future) and drives the account choice,
+  the PIN prompt and the "touch your security key" notice.
+
+  This replaces the userscript override route entirely. A userscript that rewrites
+  `navigator.credentials` is detectable, and sign-in pages refuse such a browser — with the engine
+  handling WebAuthn natively there is nothing to detect.
+
+  Known gap: sign-in pages that open a silent *conditional* passkey request (Google, Microsoft) get
+  no UI from QtWebEngine for it, and that pending request then blocks every later call
+  ("A request is already pending"). Plain ceremonies work; those sites' autofill-style flow does
+  not yet.
+
+
 All notable changes to omarchy-qutebrowser are documented here.
 
 ## [1.17.30] — 2026-10-11
