@@ -56,11 +56,12 @@ EXCEPTIONS = {
 def code_only(text):
     """Strip comments, so a comment *naming* an API is not mistaken for a rewrite of it.
 
-    The API scan is about what a script does, not what it says. A URL's `//` (https://...) must
-    survive, so a line comment only starts at a `//` not preceded by a colon; block comments go
-    whole. Scope (@match) is still read from the raw text, where it lives in comments.
+    The API scan is about what a script does, not what it says. Two subtleties, both measured:
+    a URL contains `//` (`https://...`) and `/*` (`google.com/*`), so a line comment only starts at
+    a `//` not preceded by a colon, and a block comment only starts at the beginning of a line.
+    Getting these wrong strips the code itself and turns the scan into a no-op.
     """
-    without_block = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    without_block = re.sub(r"(?m)^[ \t]*/\*.*?\*/", "", text, flags=re.S)
     return re.sub(r"(?<!:)//[^\n]*", "", without_block)
 
 
@@ -110,3 +111,49 @@ class SigninUntouched(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CodeOnly(unittest.TestCase):
+    """The API scan must read code, not prose - and must not eat the code either.
+
+    Measured: a first version stripped `/*` out of `google.com/*` in an @match URL and, with
+    DOTALL, ran to the next `*/`, collapsing a 4244-char script to 26 chars. Every scan then passed
+    silently - worse than failing, because it looks like a guarantee.
+    """
+
+    SAMPLE = (
+        "// @match       https://accounts.google.com/*\n"
+        "/* a block note naming navigator.credentials */\n"
+        "// a line note naming PublicKeyCredential\n"
+        "var u = 'https://login.live.com/x';\n"
+        "Object.defineProperty(navigator, 'userAgentData', {});\n"
+        "function f() { return 1; }\n"
+    )
+
+    def test_it_keeps_the_code(self):
+        code = code_only(self.SAMPLE)
+        self.assertIn("Object.defineProperty(navigator, 'userAgentData', {});", code)
+        # Every non-comment line must survive intact; a length ratio is fragile in a sample that is
+        # deliberately comment-heavy.
+        for line in self.SAMPLE.splitlines():
+            if line.strip() and not line.strip().startswith(("//", "/*")):
+                self.assertIn(line, code, "a code line was stripped: " + line)
+
+    def test_a_url_star_slash_is_not_a_block_comment(self):
+        code = code_only("// @match       https://accounts.google.com/*\nvar a = 1;\nvar b = 2;")
+        self.assertIn("var a = 1;", code)
+        self.assertIn("var b = 2;", code)
+
+    def test_url_slashes_are_not_a_line_comment(self):
+        self.assertIn("https://login.live.com/", code_only("var u = 'https://login.live.com/x';"))
+
+    def test_it_drops_line_and_block_comments(self):
+        code = code_only(self.SAMPLE)
+        self.assertNotIn("a block note", code)
+        self.assertNotIn("a line note", code)
+        self.assertNotIn("PublicKeyCredential", code)
+        self.assertNotIn("navigator.credentials", code)
+
+    def test_a_rewrite_hidden_in_code_is_still_visible(self):
+        self.assertIn("navigator.credentials", code_only("navigator.credentials = 1;"))
+        self.assertIn("PublicKeyCredential", code_only("delete window.PublicKeyCredential;"))
