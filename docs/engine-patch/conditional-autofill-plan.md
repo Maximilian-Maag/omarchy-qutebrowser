@@ -72,6 +72,22 @@ Files, in dependency order:
   reports `drift` on the next Qt upgrade (the guard added in 1.17.42 will catch that loudly).
 - Payoff: the modal chooser becomes an inline, non-modal list. Function is identical.
 
+## Measured on this machine (2026-10-12)
+
+The verdict below is conditioned on *"unless the modal chooser's intrusiveness bites in practice"*.
+The **mechanism is now demonstrated**: a page that issues
+`navigator.credentials.get({ mediation: "conditional" })` **on load** makes the patched engine engage
+the UX *immediately* — no field focus and no user gesture. Measured with the patch-2 probe (see
+`README.md`, "Behavioural verification"): `webAuthUxRequested=1` and state `CollectPin` within a few
+seconds, where the unpatched engine engaged nothing at all. The same probe with
+`mediation: "optional"` behaves identically either way, which is what isolates this to the
+conditional path.
+
+So with patch 2's `kModal` fallback, a site that starts a conditional request on load shows the
+passkey prompt unprompted — exactly the trigger listed above. What is *not* measured is whether that
+actually bothers you on the sites you use: the mechanism is real, the nuisance is a judgement call.
+This note exists so that call is made from the measurement, not from a guess.
+
 ## Recommendation
 
 Accepted, not built, **unless the modal chooser's intrusiveness bites in practice** (e.g. a site
