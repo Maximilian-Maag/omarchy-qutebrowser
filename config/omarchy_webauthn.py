@@ -19,6 +19,12 @@ thirteen reasons. Ignoring those is how a ceremony dies with a spinner: a too-sh
 silently, a wrong PIN is re-asked with no explanation, and a transient failure (a key briefly
 unplugged) ends the sign-in instead of offering to retry. Each of those is handled here.
 
+When the token holds several passkeys, the chooser is a **non-modal suggestion list** anchored to
+the page (see ``_AccountPopup``) rather than a blocking dialog: a conditional ("sign in with a
+passkey") request fires as soon as the page loads, and a modal that jams the UI at that moment is
+exactly the wrong shape. The list is keyboard-driven (j/k or arrows, Enter, Escape), reads the
+applied Omarchy theme, and never blocks the page.
+
 Everything is wrapped defensively: a browser must never fail to start because of this module.
 """
 try:                                                  # pragma: no cover - exercised in the browser
@@ -68,6 +74,40 @@ PIN_PROMPT = {
     "Change": "Enter your CURRENT security key PIN",
     "Challenge": "Enter your security key PIN",
 }
+
+# Key -> what the suggestion list should do. Kept as a plain table so both the widget and the
+# tests speak the same names; the widget turns Qt key codes into these names.
+KEY_ACTIONS = {
+    "Down": "down", "j": "down", "J": "down",
+    "Up": "up", "k": "up", "K": "up",
+    "Return": "accept", "Enter": "accept",
+    "Escape": "dismiss",
+}
+
+
+def step_index(current, count, delta):
+    """Move a list cursor by `delta`, clamped to [0, count-1] (0 when the list is empty)."""
+    if count <= 0:
+        return 0
+    return min(max(current + delta, 0), count - 1)
+
+
+def key_action(name):
+    """The action for a key name ('down' / 'up' / 'accept' / 'dismiss'), or None."""
+    return KEY_ACTIONS.get(name)
+
+
+def place_popup(anchor, viewport, size):
+    """Where to put a popup of `size` near `anchor`, clamped inside `viewport`.
+
+    anchor/viewport are (x, y, w, h) in the same (global) coordinate space; `size` is (w, h).
+    The popup is placed just below the anchor, then clamped so it can never leave the viewport.
+    """
+    ax, ay, _aw, ah = anchor
+    vx, vy, vw, vh = viewport
+    px = min(max(ax, vx), vx + vw - size[0])
+    py = min(max(ay + ah + 2, vy), vy + vh - size[1])
+    return px, py
 
 
 def _notice(text):
@@ -153,7 +193,11 @@ def _pin_message(pin_request):
 
 
 def _ask_pin(pin_request):
-    """Prompt for the token's PIN, explaining the reason, the last error and the limits."""
+    """Prompt for the token's PIN, explaining the reason, the last error and the limits.
+
+    A PIN is a secret the user is actively typing, so this one stays a focused modal dialog: there
+    is nothing to suggest and nothing to do in the page until it returns.
+    """
     from PyQt6.QtWidgets import QInputDialog, QLineEdit
     prompt = _pin_message(pin_request)
     try:
@@ -163,23 +207,6 @@ def _ask_pin(pin_request):
         log.webview.exception("could not show the security key PIN prompt")
         return None
     return text if ok else None
-
-
-def _ask_account(names):
-    """Pick one of the discoverable credentials the token holds."""
-    from PyQt6.QtWidgets import QInputDialog
-    names = list(names or [])
-    if not names:
-        return None
-    if len(names) == 1:
-        return names[0]
-    try:
-        choice, ok = QInputDialog.getItem(None, "Choose an account", "Sign in with:",
-                                          names, 0, False)
-    except Exception:
-        log.webview.exception("could not show the account chooser")
-        return None
-    return choice if ok else None
 
 
 def _ask_retry(text):
@@ -193,8 +220,184 @@ def _ask_retry(text):
     return answer == QMessageBox.StandardButton.Yes
 
 
-def handle(request):
+def _colors():
+    """The applied Omarchy theme's colours for the popup, or {} when it cannot be read.
+
+    Read live (``themes.live_theme``), never a frozen palette, so the suggestion list follows the
+    desktop the same way the rest of the browser does.
+    """
+    try:
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import themes
+        _name_, palette = themes.live_theme()
+        return palette if palette else {}
+    except Exception:
+        return {}
+
+
+def _view_for(page):
+    """The widget showing `page`, if it can be found (Qt exposes no page -> view link)."""
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except Exception:
+        return None
+    for widget in QApplication.allWidgets():
+        try:
+            if hasattr(widget, "page") and widget.page() is page:
+                return widget
+        except Exception:
+            continue
+    return None
+
+
+class _AccountPopup:
+    """A non-modal list of the token's passkeys, anchored to the page.
+
+    Built lazily so the module still imports (and its pure logic still runs) without Qt. The
+    *shape* of the widget is kept out of the logic: what keys do, how the cursor moves and where
+    the popup lands are all pure functions above, which is what the tests pin.
+    """
+
+    def __init__(self, names, callback):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QWidget
+
+        self._names = list(names)
+        self._callback = callback
+        self._done = False
+        self._index = 0
+        outer = self
+
+        # Qt dispatches events to C++ virtuals, so the handlers must be real overrides - assigning
+        # keyPressEvent as an instance attribute would never be called. Hence a subclass per popup.
+        class _Popup(QWidget):
+            def keyPressEvent(inner, event):
+                outer._on_key(event)
+
+            def closeEvent(inner, event):
+                outer._on_close(event)
+
+        width = 300
+        height = min(len(self._names) * 28 + 8, 240)
+        self.size = (width, height)
+        self._widget = _Popup(None, Qt.WindowType.FramelessWindowHint
+                              | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        self._widget.setFixedSize(width, height)
+        self._list = QListWidget(self._widget)
+        self._list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._list.setGeometry(0, 0, width, height)
+        for name in self._names:
+            QListWidgetItem(name, self._list)
+
+        colors = _colors()
+        bg = colors.get("bg_dark") or colors.get("bg") or "#1e1e2e"
+        fg = colors.get("fg") or "#cdd6f4"
+        accent = colors.get("accent") or "#89b4fa"
+        self._widget.setStyleSheet(
+            "QWidget{background:%s;border:1px solid %s;}"
+            "QListWidget{background:%s;color:%s;border:0;outline:0;padding:4px;}"
+            "QListWidget::item{padding:4px 8px;}"
+            "QListWidget::item:selected{background:%s;color:%s;}"
+            % (bg, accent, bg, fg, accent, bg))
+        self._list.setCurrentRow(0)
+        self._list.itemClicked.connect(self._accept_current)
+        self._list.itemActivated.connect(self._accept_current)
+
+    def show_at(self, anchor, viewport):
+        self._widget.move(*place_popup(anchor, viewport, self.size))
+        self._widget.show()
+        self._widget.raise_()
+        self._widget.activateWindow()
+        self._list.setFocus()
+
+    def _on_key(self, event):
+        action = key_action(_key_name(event))
+        if action is None:
+            return
+        if action == "down":
+            self._move(1)
+        elif action == "up":
+            self._move(-1)
+        elif action == "accept":
+            self._accept_current()
+        else:
+            self._dismiss()
+
+    def _move(self, delta):
+        self._index = step_index(self._index, len(self._names), delta)
+        self._list.setCurrentRow(self._index)
+
+    def _accept_current(self, *_args):
+        row = self._list.currentRow()
+        name = self._names[row] if 0 <= row < len(self._names) else None
+        self._finish(name)
+
+    def _dismiss(self):
+        self._finish(None)
+
+    def _on_close(self, event):
+        # A popup closed without a choice (focus loss, Escape, the window going away) is a cancel.
+        self._finish(None)
+
+    def _finish(self, name):
+        if self._done:
+            return
+        self._done = True
+        try:
+            self._widget.close()
+        except Exception:
+            pass
+        self._callback(name)
+
+
+def _key_name(event):
+    """Qt key event -> the name KEY_ACTIONS speaks ('Down', 'Return', 'j', ...)."""
+    from PyQt6.QtCore import Qt
+    names = {Qt.Key.Key_Down: "Down", Qt.Key.Key_Up: "Up", Qt.Key.Key_Return: "Return",
+             Qt.Key.Key_Enter: "Enter", Qt.Key.Key_Escape: "Escape"}
+    if event.key() in names:
+        return names[event.key()]
+    return event.text()
+
+
+def _choose_account(page, names, callback):
+    """Show the passkey chooser: a single key is taken as-is, several go through the popup.
+
+    `callback` receives the chosen name, or None if the user declined. The popup is non-modal, so
+    the browser stays usable while it is open — the point of an autofill suggestion.
+    """
+    names = list(names or [])
+    if not names:
+        callback(None)
+        return
+    if len(names) == 1:
+        callback(names[0])
+        return
+    try:
+        popup = _AccountPopup(names, callback)
+    except Exception:
+        log.webview.exception("could not show the account chooser")
+        callback(None)
+        return
+    view = _view_for(page)
+    if view is None:
+        popup.show_at((0, 0, 0, 0), (0, 0, 0, 0))
+        return
+    try:
+        origin = view.mapToGlobal(view.rect().topLeft())
+        anchor = (origin.x(), origin.y(), 0, 0)
+        viewport = (origin.x(), origin.y(), view.width(), view.height())
+        popup.show_at(anchor, viewport)
+    except Exception:
+        log.webview.exception("could not place the account chooser")
+        popup.show_at((0, 0, 0, 0), (0, 0, 0, 0))
+
+
+def handle(page, request, choose=None):
     """Drive one WebAuthn UX request to completion, cancellation, or failure."""
+    chooser = choose or _choose_account
     log.webview.debug("WebAuthn UX request for rp=%r" % (_val(request, "relyingPartyId", ""),))
 
     def on_state(state):
@@ -208,11 +411,15 @@ def handle(request):
                 else:
                     request.setPin(pin)
             elif name == "SelectAccount":
-                account = _ask_account(_val(request, "userNames"))
-                if account:
-                    request.setSelectedAccount(account)
-                else:
-                    request.cancel()
+                names = list(_val(request, "userNames") or [])
+
+                def picked(account):
+                    if account:
+                        request.setSelectedAccount(account)
+                    else:
+                        request.cancel()
+
+                chooser(page, names, picked)
             elif name == "FinishTokenCollection":
                 _notice("Touch your security key to sign in to %s"
                         % (_val(request, "relyingPartyId", "") or "this site"))
@@ -245,7 +452,7 @@ def attach(page):
         if getattr(page, "_omarchy_webauthn", False):
             return
         page._omarchy_webauthn = True
-        page.webAuthUxRequested.connect(handle)
+        page.webAuthUxRequested.connect(lambda request: handle(page, request))
     except Exception:
         log.webview.exception("could not attach the WebAuthn UX handler")
 

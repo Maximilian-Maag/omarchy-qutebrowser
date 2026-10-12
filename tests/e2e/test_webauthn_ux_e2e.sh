@@ -34,6 +34,12 @@ if has TOUCH ok; then ok "the touch-your-key notice is shown"; else no "no touch
 if has DONE ok; then ok "a completed ceremony is announced"; else no "completion was not announced"; fi
 if has PINMSG ok; then ok "the PIN dialog reflects the last error and attempts left"; else no "the PIN message ignored the error/attempts"; fi
 
+if has POPUP_MODAL ok; then ok "the passkey chooser is non-modal (it does not block the page)"; else no "the chooser is modal"; fi
+if has POPUP_ITEMS ok; then ok "the chooser lists every passkey"; else no "the chooser is missing items"; fi
+if has POPUP_STEP ok; then ok "j/k and the arrow keys move the selection"; else no "the selection does not move"; fi
+if has POPUP_CLAMP ok; then ok "the selection clamps at the end of the list"; else no "the selection does not clamp"; fi
+if has POPUP_PICK ok; then ok "Enter accepts the selected passkey"; else no "accepting the selected passkey failed"; fi
+
 uvpa="$(printf '%s\n' "$out" | sed -n 's/^E2E UVPA=//p')"
 case "$uvpa" in
   true)  ok "the engine reports a platform authenticator (patched qt6-webengine)";;

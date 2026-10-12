@@ -27,6 +27,11 @@
           "line": 149,
           "kind": "number±1",
           "reason": "_pin_message's `getattr(pin_request, \"remainingAttempts\", -1)` default: the mutation changes -1 to -2, and BOTH are outside the 0..2 range that triggers the warning, so no input can tell them apart. The attribute is always present on a real Qt pinRequest and the None path is also out of range either way — proven by applying the mutant and diffing the full test output (identical rc and output)."
+        },
+        {
+          "line": 90,
+          "kind": "number±1",
+          "reason": "step_index's `if count <= 0:` guard: the mutation makes it `<= 1`, and for count == 1 the guard already returns 0 - which is exactly what the clamped `min(max(current+delta,0), count-1)` returns for a one-element list. No input can tell them apart; proven by applying the mutant and diffing the full test output (identical rc and output)."
         }
       ]
     },

@@ -133,11 +133,11 @@ class Req:
 notices = []
 wa._notice = notices.append
 wa._ask_pin = lambda pin_request: "123456"
-wa._ask_account = lambda names: names[1]
 wa._ask_retry = lambda text: True
+choose = lambda page, names, callback: callback(names[1])    # stands in for the real popup
 
 req = Req()
-wa.handle(req)                       # NotStarted -> silent
+wa.handle(None, req, choose=choose)  # NotStarted -> silent
 req.fire("CollectPin")
 req.fire("SelectAccount")
 req.fire("FinishTokenCollection")
@@ -151,6 +151,19 @@ results["DONE"] = "ok" if any("Signed in" in n for n in notices) else "FAIL"
 pin_msg = wa._pin_message(req.pinRequest())
 results["PINMSG"] = "ok" if ("wrong" in pin_msg.lower() and "1 attempt" in pin_msg
                              and "at least" not in pin_msg) else "FAIL"
+
+# ── 2b. the REAL suggestion popup: non-modal and keyboard-driven ──────────────
+picked = []
+popup = wa._AccountPopup(["a@example.test", "b@example.test", "c@example.test"], picked.append)
+results["POPUP_MODAL"] = "ok" if not popup._widget.isModal() else "FAIL"
+results["POPUP_ITEMS"] = "ok" if popup._list.count() == 3 else "FAIL"
+popup._move(1)
+results["POPUP_STEP"] = "ok" if popup._list.currentRow() == 1 else "FAIL"
+popup._move(10)                      # clamps at the bottom
+results["POPUP_CLAMP"] = "ok" if popup._list.currentRow() == 2 else "FAIL"
+popup._move(-1)
+popup._accept_current()
+results["POPUP_PICK"] = "ok" if picked == ["b@example.test"] else "FAIL"
 
 # ── 3. the engine's capability answer, from the real page ─────────────────────
 state = {"loaded": False, "uvpa": "pending"}
@@ -187,6 +200,7 @@ while deadline["ms"] < 8000:
 results["UVPA"] = str(state["uvpa"])
 
 # ── report ────────────────────────────────────────────────────────────────────
-for key in ("ATTACH", "DRIVE", "TOUCH", "DONE", "PINMSG", "UVPA"):
+for key in ("ATTACH", "DRIVE", "TOUCH", "DONE", "PINMSG", "POPUP_MODAL", "POPUP_ITEMS",
+            "POPUP_STEP", "POPUP_CLAMP", "POPUP_PICK", "UVPA"):
     print("E2E %s=%s" % (key, results[key]))
 sys.exit(0)

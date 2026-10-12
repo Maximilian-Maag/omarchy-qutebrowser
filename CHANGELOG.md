@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.17.43
+
+### Changed
+- **The passkey chooser is now a non-modal suggestion list, not a blocking dialog.** When the token
+  holds several passkeys, `config/omarchy_webauthn.py` shows a keyboard-driven list (`_AccountPopup`)
+  anchored to the page — j/k or the arrow keys move, Enter accepts, Escape dismisses — instead of a
+  modal `QInputDialog`. A conditional ("sign in with a passkey") request fires as soon as a page
+  loads, so a modal that jams the whole UI at that moment is exactly the wrong shape; the list never
+  blocks the page. It is styled from the applied Omarchy theme (`themes.live_theme`), never a frozen
+  palette.
+- Implemented **entirely in the plugin — no engine rebuild**. Engine patch 2 already delivers the
+  request to the plugin, and the plugin owns the page/view, so the suggestion UX needed no engine
+  change; the engine-only route is recorded in `docs/engine-patch/conditional-autofill-plan.md`.
+
+### Added
+- The e2e now exercises the **real** popup widget offscreen: non-modal, lists every passkey, j/k
+  movement, clamping at the end, Enter accepts. Unit tests cover the key map, cursor stepping, popup
+  placement and the chooser (the widget driven against a fake Qt, in `tests/test_unit_webauthn.py`).
+
 ## 1.17.42
 
 ### Added

@@ -6,7 +6,8 @@ fakes - no Qt, no browser, no security key - and assert exactly what the handler
 state, because that is the difference between a prompt appearing and the ceremony hanging.
 
 The full state machine is covered, not just the happy path: the PIN error/min-length/attempts
-surfacing, the failure-reason mapping, and the retry offered on a recoverable failure.
+surfacing, the failure-reason mapping, the retry offered on a recoverable failure, and the
+non-modal passkey chooser (its key map, its cursor stepping and where it is placed).
 """
 import importlib.util
 import pathlib
@@ -126,6 +127,75 @@ class Name(unittest.TestCase):
         self.assertEqual(self.m._name(None, "Challenge"), "Challenge")
 
 
+class Keys(unittest.TestCase):
+    """The suggestion list's key map."""
+
+    def setUp(self):
+        self.m = load()
+
+    def test_vim_and_arrow_keys_move(self):
+        self.assertEqual(self.m.key_action("Down"), "down")
+        self.assertEqual(self.m.key_action("j"), "down")
+        self.assertEqual(self.m.key_action("J"), "down")
+        self.assertEqual(self.m.key_action("Up"), "up")
+        self.assertEqual(self.m.key_action("k"), "up")
+        self.assertEqual(self.m.key_action("K"), "up")
+
+    def test_enter_accepts_and_escape_dismisses(self):
+        self.assertEqual(self.m.key_action("Return"), "accept")
+        self.assertEqual(self.m.key_action("Enter"), "accept")
+        self.assertEqual(self.m.key_action("Escape"), "dismiss")
+
+    def test_an_unrelated_key_does_nothing(self):
+        self.assertIsNone(self.m.key_action("q"))
+        self.assertIsNone(self.m.key_action(""))
+
+
+class Step(unittest.TestCase):
+    """The cursor steps by one and clamps at both ends."""
+
+    def setUp(self):
+        self.m = load()
+
+    def test_down(self):
+        self.assertEqual(self.m.step_index(0, 3, 1), 1)
+
+    def test_up_at_the_top_stays(self):
+        self.assertEqual(self.m.step_index(0, 3, -1), 0)
+
+    def test_down_at_the_bottom_stays(self):
+        self.assertEqual(self.m.step_index(2, 3, 1), 2)
+
+    def test_a_bigger_jump(self):
+        self.assertEqual(self.m.step_index(1, 5, 2), 3)
+
+    def test_an_empty_list_is_zero(self):
+        self.assertEqual(self.m.step_index(0, 0, 1), 0)
+
+
+class Place(unittest.TestCase):
+    """The popup sits just below its anchor and never leaves the viewport."""
+
+    def setUp(self):
+        self.m = load()
+
+    def test_below_the_anchor(self):
+        self.assertEqual(self.m.place_popup((10, 20, 0, 5), (0, 0, 800, 600), (200, 100)),
+                         (10, 27))
+
+    def test_clamped_to_the_left_edge(self):
+        self.assertEqual(self.m.place_popup((-50, 20, 0, 5), (0, 0, 800, 600), (200, 100)),
+                         (0, 27))
+
+    def test_clamped_to_the_right_edge(self):
+        self.assertEqual(self.m.place_popup((700, 20, 0, 5), (0, 0, 800, 600), (200, 100)),
+                         (600, 27))
+
+    def test_clamped_to_the_bottom_edge(self):
+        self.assertEqual(self.m.place_popup((10, 590, 0, 5), (0, 0, 800, 600), (200, 100)),
+                         (10, 500))
+
+
 class Dispatch(unittest.TestCase):
     """Each state must drive the request - or the browser appears to freeze."""
 
@@ -134,77 +204,141 @@ class Dispatch(unittest.TestCase):
         self.notices = []
         self.m._notice = self.notices.append
         self.m._ask_retry = lambda text: False
+        # A chooser that answers immediately, standing in for the popup the real one shows.
+        self.choose = lambda page, names, callback: callback(names[0] if names else None)
+
+    def drive(self, req, choose=None):
+        self.m.handle(None, req, choose=choose or self.choose)
 
     def test_collect_pin_sets_the_pin(self):
         self.m._ask_pin = lambda pin_request: "123456"
         req = Request("CollectPin", pin="Challenge")
-        self.m.handle(req)
+        self.drive(req)
         self.assertEqual(req.calls, [("setPin", "123456")])
 
     def test_collect_pin_cancels_when_dismissed(self):
         self.m._ask_pin = lambda pin_request: None
         req = Request("CollectPin", pin="Challenge")
-        self.m.handle(req)
+        self.drive(req)
         self.assertEqual(req.calls, [("cancel",)])
 
     def test_select_account_chooses_one(self):
-        self.m._ask_account = lambda names: "b@example.test"
         req = Request("SelectAccount", accounts=["a@example.test", "b@example.test"])
-        self.m.handle(req)
+        self.drive(req, choose=lambda page, names, cb: cb("b@example.test"))
         self.assertEqual(req.calls, [("select", "b@example.test")])
 
     def test_select_account_cancels_when_none(self):
-        self.m._ask_account = lambda names: None
         req = Request("SelectAccount", accounts=["a@example.test"])
-        self.m.handle(req)
+        self.drive(req, choose=lambda page, names, cb: cb(None))
         self.assertEqual(req.calls, [("cancel",)])
+
+    def test_select_account_passes_the_names_through(self):
+        seen = {}
+        req = Request("SelectAccount", accounts=["a@example.test", "b@example.test"])
+        self.drive(req, choose=lambda page, names, cb: seen.setdefault("names", names))
+        self.assertEqual(seen["names"], ["a@example.test", "b@example.test"])
 
     def test_touch_state_only_notifies(self):
         req = Request("FinishTokenCollection", rp="accounts.example.test")
-        self.m.handle(req)
+        self.drive(req)
         self.assertEqual(req.calls, [])
         self.assertIn("accounts.example.test", self.notices[0])
 
     def test_touch_state_falls_back_to_a_generic_name(self):
         req = Request("FinishTokenCollection", rp="")
-        self.m.handle(req)
+        self.drive(req)
         self.assertIn("this site", self.notices[0])
 
     def test_failure_state_reports_the_human_reason(self):
         req = Request("RequestFailed", failure="Timeout")
-        self.m.handle(req)
+        self.drive(req)
         self.assertIn("timed out", self.notices[0])
         self.assertEqual(req.calls, [])                       # retry declined -> no call
 
     def test_a_recoverable_failure_retries_when_confirmed(self):
         self.m._ask_retry = lambda text: True
         req = Request("RequestFailed", failure="Timeout")
-        self.m.handle(req)
+        self.drive(req)
         self.assertEqual(req.calls, [("retry",)])
 
     def test_a_non_recoverable_failure_never_retries(self):
         self.m._ask_retry = lambda text: True                  # even if the user says yes
         req = Request("RequestFailed", failure="HardPinBlock")
-        self.m.handle(req)
+        self.drive(req)
         self.assertEqual(req.calls, [])
 
     def test_completed_is_announced(self):
-        self.m.handle(Request("Completed"))
+        self.drive(Request("Completed"))
         self.assertIn("Signed in", self.notices[0])
 
     def test_cancelled_is_announced(self):
-        self.m.handle(Request("Cancelled"))
+        self.drive(Request("Cancelled"))
         self.assertIn("cancelled", self.notices[0])
 
     def test_not_started_is_silent(self):
-        self.m.handle(Request("NotStarted"))
+        self.drive(Request("NotStarted"))
         self.assertEqual(self.notices, [])
 
     def test_a_raising_handler_does_not_escape(self):
         def boom(reason):
             raise RuntimeError("no dialog")
         self.m._ask_pin = boom
-        self.m.handle(Request("CollectPin", pin="Challenge"))   # must not raise
+        self.drive(Request("CollectPin", pin="Challenge"))     # must not raise
+
+
+class Chooser(unittest.TestCase):
+    """_choose_account: a single key is taken as-is, several go through the popup."""
+
+    def setUp(self):
+        self.m = load()
+        # Pin the anchor lookup: these tests must not touch real Qt.
+        self.m._view_for = lambda page: None
+
+    def test_no_names_gives_none(self):
+        got = []
+        self.m._choose_account(None, [], got.append)
+        self.assertEqual(got, [None])
+
+    def test_none_gives_none(self):
+        got = []
+        self.m._choose_account(None, None, got.append)
+        self.assertEqual(got, [None])
+
+    def test_a_single_name_is_taken_as_is(self):
+        got = []
+        self.m._choose_account(None, ["only@example.test"], got.append)
+        self.assertEqual(got, ["only@example.test"])
+
+    def test_several_names_go_through_the_popup(self):
+        seen = {}
+
+        class FakePopup:
+            def __init__(self, names, callback):
+                seen["names"] = names
+                self.size = (300, 120)
+                self.callback = callback
+
+            def show_at(self, anchor, viewport):
+                seen["anchor"] = anchor
+                seen["viewport"] = viewport
+                self.callback("b@example.test")
+
+        self.m._AccountPopup = FakePopup
+        got = []
+        self.m._choose_account(None, ["a@example.test", "b@example.test"], got.append)
+        self.assertEqual(got, ["b@example.test"])
+        self.assertEqual(seen["names"], ["a@example.test", "b@example.test"])
+        self.assertEqual(seen["anchor"], (0, 0, 0, 0))        # no view -> origin fallback
+
+    def test_a_popup_that_raises_gives_none(self):
+        class Boom:
+            def __init__(self, *args):
+                raise RuntimeError("no widget")
+
+        self.m._AccountPopup = Boom
+        got = []
+        self.m._choose_account(None, ["a@example.test", "b@example.test"], got.append)
+        self.assertEqual(got, [None])
 
 
 class PinMessage(unittest.TestCase):
@@ -404,78 +538,6 @@ class Retry(unittest.TestCase):
         self.assertFalse(self.m._ask_retry("timed out"))
 
 
-class Accounts(unittest.TestCase):
-    """The account chooser: one name needs no dialog, several do."""
-
-    def setUp(self):
-        self.m = load()
-        self.seen = []
-        # _ask_account imports QInputDialog up front, so the fake must exist even for the
-        # paths that never show a dialog.
-        self.with_dialog(("", True))
-
-    def tearDown(self):
-        import sys
-        sys.modules.pop("PyQt6", None)
-        sys.modules.pop("PyQt6.QtWidgets", None)
-
-    def with_dialog(self, result):
-        import sys
-        import types
-        self.seen = []
-        seen = self.seen
-
-        class FakeDialog:
-            @staticmethod
-            def getItem(parent, title, label, names, current, editable):
-                seen.append((title, label, list(names), current, editable))
-                return result
-
-        widgets = types.ModuleType("PyQt6.QtWidgets")
-        widgets.QInputDialog = FakeDialog
-        pkg = types.ModuleType("PyQt6")
-        pkg.QtWidgets = widgets
-        sys.modules["PyQt6"] = pkg
-        sys.modules["PyQt6.QtWidgets"] = widgets
-
-    def test_no_names_means_no_choice(self):
-        self.assertIsNone(self.m._ask_account([]))
-        self.assertIsNone(self.m._ask_account(None))
-
-    def test_a_single_name_is_taken_as_is(self):
-        self.assertEqual(self.m._ask_account(["only@example.test"]), "only@example.test")
-
-    def test_several_names_go_through_the_chooser(self):
-        self.with_dialog(("b@example.test", True))
-        self.assertEqual(self.m._ask_account(["a@example.test", "b@example.test"]),
-                         "b@example.test")
-        _, _, names, current, editable = self.seen[0]
-        self.assertEqual(names, ["a@example.test", "b@example.test"])
-        self.assertEqual(current, 0)                     # preselect the first
-        self.assertFalse(editable)                       # never hand-edit an account
-
-    def test_dismissing_the_chooser_returns_none(self):
-        self.with_dialog(("a@example.test", False))
-        self.assertIsNone(self.m._ask_account(["a@example.test", "b@example.test"]))
-
-    def test_a_chooser_that_raises_returns_none(self):
-        import sys
-        import types
-
-        class Boom:
-            @staticmethod
-            def getItem(*args, **kwargs):
-                raise RuntimeError("no dialog")
-
-        widgets = types.ModuleType("PyQt6.QtWidgets")
-        widgets.QInputDialog = Boom
-        pkg = types.ModuleType("PyQt6")
-        pkg.QtWidgets = widgets
-        sys.modules["PyQt6"] = pkg
-        sys.modules["PyQt6.QtWidgets"] = widgets
-        self.assertIsNone(self.m._ask_account(["a@example.test", "b@example.test"]))
-
-
 class Install(unittest.TestCase):
     """install() must patch the classes, sweep what exists, and keep watching."""
 
@@ -608,6 +670,265 @@ class Install(unittest.TestCase):
 
     def test_attach_swallows_a_page_without_the_signal(self):
         self.m.attach(object())                          # must not raise
+
+
+def _fake_qt():
+    """Install the smallest PyQt6 surface the popup and _view_for touch, and return it."""
+    import sys
+    import types
+
+    class Widget:
+        def __init__(self, *args, **kwargs):
+            self.pos = None
+            self.shown = False
+            self.closed = False
+            self.ss = None
+
+        def setFixedSize(self, w, h):
+            self.fixed = (w, h)
+
+        def setGeometry(self, *args):
+            pass
+
+        def move(self, x, y):
+            self.pos = (x, y)
+
+        def show(self):
+            self.shown = True
+
+        def raise_(self):
+            pass
+
+        def activateWindow(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+        def setStyleSheet(self, sheet):
+            self.ss = sheet
+
+        def isModal(self):
+            return False
+
+    class ListWidget:
+        def __init__(self, parent):
+            self.items = []
+            self.row = 0
+            self.itemClicked = Signal()
+            self.itemActivated = Signal()
+
+        def setFocusPolicy(self, *args):
+            pass
+
+        def setGeometry(self, *args):
+            pass
+
+        def count(self):
+            return len(self.items)
+
+        def setCurrentRow(self, row):
+            self.row = row
+
+        def currentRow(self):
+            return self.row
+
+        def setFocus(self):
+            pass
+
+    class ListWidgetItem:
+        def __init__(self, text, parent):
+            parent.items.append(text)
+
+    class QApplication:
+        widgets = []
+
+        @staticmethod
+        def allWidgets():
+            return list(QApplication.widgets)
+
+    qt_core = types.ModuleType("PyQt6.QtCore")
+    qt_core.Qt = types.SimpleNamespace(
+        WindowType=types.SimpleNamespace(FramelessWindowHint=1, Tool=2, WindowStaysOnTopHint=4),
+        FocusPolicy=types.SimpleNamespace(StrongFocus=1),
+        Key=types.SimpleNamespace(Key_Down=1, Key_Up=2, Key_Return=3, Key_Enter=4, Key_Escape=5))
+    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
+    qt_widgets.QWidget = Widget
+    qt_widgets.QListWidget = ListWidget
+    qt_widgets.QListWidgetItem = ListWidgetItem
+    qt_widgets.QApplication = QApplication
+    pkg = types.ModuleType("PyQt6")
+    pkg.QtCore = qt_core
+    pkg.QtWidgets = qt_widgets
+    return {"PyQt6": pkg, "PyQt6.QtCore": qt_core, "PyQt6.QtWidgets": qt_widgets}
+
+
+class QtStubCase(unittest.TestCase):
+    """Base: install the fake PyQt6 for the duration of one test and restore it after."""
+
+    KEYS = ("PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets")
+
+    def setUp(self):
+        import sys
+        self.m = load()
+        self._saved = {k: sys.modules.get(k) for k in self.KEYS}
+        for name, mod in _fake_qt().items():
+            sys.modules[name] = mod
+
+    def tearDown(self):
+        import sys
+        for name, mod in self._saved.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+
+
+class KeyEvent:
+    def __init__(self, text="", key=0):
+        self._text = text
+        self._key = key
+
+    def text(self):
+        return self._text
+
+    def key(self):
+        return self._key
+
+
+class Popup(QtStubCase):
+    """The real suggestion-list widget, driven against a fake Qt."""
+
+    def setUp(self):
+        super().setUp()
+        self.m._colors = lambda: {}
+
+    def popup(self, names):
+        self.got = []
+        return self.m._AccountPopup(list(names), self.got.append)
+
+    def test_it_lists_every_name_and_is_not_modal(self):
+        popup = self.popup(["a", "b", "c"])
+        self.assertEqual(popup._list.count(), 3)
+        self.assertFalse(popup._widget.isModal())
+        self.assertEqual(popup.size, (300, 3 * 28 + 8))
+
+    def test_the_height_is_capped(self):
+        popup = self.popup(["n%d" % i for i in range(20)])
+        self.assertEqual(popup.size[1], 240)
+
+    def test_the_selection_starts_on_the_first(self):
+        popup = self.popup(["a", "b"])
+        self.assertEqual(popup._list.currentRow(), 0)
+
+    def test_down_and_up_move_the_selection(self):
+        popup = self.popup(["a", "b", "c"])
+        popup._move(1)
+        self.assertEqual(popup._list.currentRow(), 1)
+        popup._move(-1)
+        self.assertEqual(popup._list.currentRow(), 0)
+
+    def test_vim_keys_move_the_selection(self):
+        popup = self.popup(["a", "b", "c"])
+        popup._on_key(KeyEvent("j"))
+        self.assertEqual(popup._list.currentRow(), 1)
+        popup._on_key(KeyEvent("k"))
+        self.assertEqual(popup._list.currentRow(), 0)
+
+    def test_enter_accepts_the_selection(self):
+        popup = self.popup(["a", "b", "c"])
+        popup._on_key(KeyEvent("j"))
+        popup._on_key(KeyEvent(text="", key=3))          # Return
+        self.assertEqual(self.got, ["b"])
+
+    def test_escape_dismisses_with_none(self):
+        popup = self.popup(["a", "b"])
+        popup._on_key(KeyEvent(text="", key=5))          # Escape
+        self.assertEqual(self.got, [None])
+
+    def test_an_unrelated_key_is_ignored(self):
+        popup = self.popup(["a", "b"])
+        popup._on_key(KeyEvent("q"))
+        self.assertEqual(self.got, [])
+        self.assertFalse(popup._widget.closed)
+
+    def test_accepting_the_first_row_picks_the_first_name(self):
+        popup = self.popup(["only", "second"])
+        popup._accept_current()
+        self.assertEqual(self.got, ["only"])
+
+    def test_an_out_of_range_row_picks_nothing(self):
+        popup = self.popup(["a", "b"])
+        popup._list.row = 2                              # == len(names)
+        popup._accept_current()
+        self.assertEqual(self.got, [None])
+
+    def test_a_choice_is_delivered_once(self):
+        popup = self.popup(["a", "b"])
+        popup._accept_current()
+        popup._dismiss()
+        self.assertEqual(len(self.got), 1)
+
+    def test_clicking_a_row_accepts_it(self):
+        popup = self.popup(["a", "b"])
+        popup._list.setCurrentRow(1)
+        popup._accept_current("clicked")                 # the signal passes the item
+        self.assertEqual(self.got, ["b"])
+
+    def test_show_places_it_at_the_computed_spot(self):
+        popup = self.popup(["a", "b"])
+        popup.show_at((10, 20, 0, 5), (0, 0, 800, 600))
+        self.assertEqual(popup._widget.pos, self.m.place_popup((10, 20, 0, 5), (0, 0, 800, 600),
+                                                               popup.size))
+        self.assertTrue(popup._widget.shown)
+
+    def test_the_popup_is_styled_from_the_live_theme(self):
+        self.m._colors = lambda: {"bg_dark": "#101010", "fg": "#eeeeee", "accent": "#ff00ff"}
+        popup = self.m._AccountPopup(["a", "b"], [].append)
+        self.assertIn("#101010", popup._widget.ss)
+        self.assertIn("#eeeeee", popup._widget.ss)
+        self.assertIn("#ff00ff", popup._widget.ss)
+
+    def test_a_theme_without_colours_falls_back_to_defaults(self):
+        popup = self.popup(["a", "b"])
+        self.assertIn("#1e1e2e", popup._widget.ss)
+
+    def test_losing_the_window_cancels(self):
+        popup = self.popup(["a", "b"])
+        popup._on_close(None)
+        self.assertEqual(self.got, [None])
+
+
+class ViewFor(QtStubCase):
+    """_view_for finds the widget showing a page, and nothing when there is none."""
+
+    def setUp(self):
+        super().setUp()
+        import sys
+        self.QApplication = sys.modules["PyQt6.QtWidgets"].QApplication
+
+    def widget(self, page):
+        test = self
+
+        class W:
+            def __init__(self):
+                self._page = page
+
+            def page(inner):
+                return inner._page
+
+        _ = test
+        return W()
+
+    def test_finds_the_view_showing_the_page(self):
+        page = object()
+        good = self.widget(page)
+        self.QApplication.widgets = [self.widget(object()), good]
+        self.assertIs(self.m._view_for(page), good)
+
+    def test_none_when_no_view_shows_it(self):
+        self.QApplication.widgets = [self.widget(object()), object()]
+        self.assertIsNone(self.m._view_for(object()))
 
 
 if __name__ == "__main__":

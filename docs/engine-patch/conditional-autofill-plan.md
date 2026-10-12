@@ -1,8 +1,15 @@
 # Scoping: a real inline passkey autofill dropdown
 
-Status: **not built — scoped**. The modal chooser (engine patch 2) already lets a conditional
-sign-in complete, so this is a presentation improvement, not a fix for a broken flow. This document
-exists so the decision to spend the time (or not) can be made from facts rather than a guess.
+Status: **built — plugin-side (1.17.43)**. Route B below assumed the engine had to expose the
+autofill presentation; it turned out not to be necessary. Patch 2 already delivers the request to
+the plugin, and the plugin owns the page/view, so the whole suggestion UX is implementable in
+`config/omarchy_webauthn.py` with **no engine change and no rebuild**. That is what shipped: a
+non-modal, keyboard-driven list (`_AccountPopup`) replacing the blocking modal chooser. The engine
+routes below are kept as the record of why an engine-only route was not taken.
+
+Still open (a nicety, not a gap): the popup anchors to the page's view, not the focused field. Field
+anchoring would query `document.activeElement.getBoundingClientRect()` via `page.runJavaScript` and
+map it to view coordinates; it is cosmetic.
 
 ## What "the gap" actually is
 
