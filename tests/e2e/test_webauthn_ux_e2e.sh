@@ -39,6 +39,7 @@ if has POPUP_ITEMS ok; then ok "the chooser lists every passkey"; else no "the c
 if has POPUP_STEP ok; then ok "j/k and the arrow keys move the selection"; else no "the selection does not move"; fi
 if has POPUP_CLAMP ok; then ok "the selection clamps at the end of the list"; else no "the selection does not clamp"; fi
 if has POPUP_PICK ok; then ok "Enter accepts the selected passkey"; else no "accepting the selected passkey failed"; fi
+if has POPUP_ANCHOR ok; then ok "the chooser snaps onto the focused field"; else no "the chooser did not anchor to the field"; fi
 
 uvpa="$(printf '%s\n' "$out" | sed -n 's/^E2E UVPA=//p')"
 case "$uvpa" in

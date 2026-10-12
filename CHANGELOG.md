@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.17.44
+
+### Changed
+- **The passkey chooser now snaps onto the focused field.** `_choose_account` asks the page for
+  `document.activeElement.getBoundingClientRect()` (`FIELD_JS`), scales the rect from CSS pixels
+  into the view's own pixel space (`scaled_anchor`) and repositions the non-modal list just below the
+  field — so it reads as an inline suggestion, not a floating dialog. It is shown at the view corner
+  first and only moves once the page answers, so a page that never replies, or a field that has gone
+  away, leaves it exactly where it was: no hang, no flicker. Still entirely plugin-side.
+
 ## 1.17.43
 
 ### Changed

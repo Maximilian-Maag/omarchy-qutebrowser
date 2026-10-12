@@ -7,9 +7,11 @@ the plugin, and the plugin owns the page/view, so the whole suggestion UX is imp
 non-modal, keyboard-driven list (`_AccountPopup`) replacing the blocking modal chooser. The engine
 routes below are kept as the record of why an engine-only route was not taken.
 
-Still open (a nicety, not a gap): the popup anchors to the page's view, not the focused field. Field
-anchoring would query `document.activeElement.getBoundingClientRect()` via `page.runJavaScript` and
-map it to view coordinates; it is cosmetic.
+Still open: nothing. The list now anchors to the focused field — `_choose_account` asks the page for
+`document.activeElement.getBoundingClientRect()` (`FIELD_JS`) and scales it into view pixels
+(`scaled_anchor`), repositioning the popup just below the field. It is shown at the view corner first
+and only moves once the page answers, so a page that never replies, or a field that has gone away,
+leaves it exactly where it was.
 
 ## What "the gap" actually is
 

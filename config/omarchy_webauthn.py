@@ -110,6 +110,36 @@ def place_popup(anchor, viewport, size):
     return px, py
 
 
+# What the page reports about the focused field: its rect in CSS pixels and the viewport size,
+# so the popup can be scaled from CSS pixels into the view's own pixel space.
+FIELD_JS = (
+    "(function(){var e=document.activeElement;"
+    "if(!e||e===document.body||e===document.documentElement)return null;"
+    "var r=e.getBoundingClientRect();"
+    "return [r.left,r.top,r.width,r.height,window.innerWidth,window.innerHeight];})()"
+)
+
+
+def scaled_anchor(field, view_size):
+    """Map the page's report of the focused field into the view's pixel space.
+
+    `field` is (left, top, width, height, inner_width, inner_height) in CSS pixels - the shape
+    FIELD_JS returns; `view_size` is (width, height) of the view widget. Returns (x, y, w, h) in
+    view pixels, or None when there is nothing usable to anchor to (no field, or a zero viewport,
+    which would divide by zero).
+    """
+    if not field:
+        return None
+    left, top, width, height, inner_w, inner_h = field
+    if not inner_w or not inner_h:
+        return None
+    view_w, view_h = view_size
+    scale_x = view_w / inner_w
+    scale_y = view_h / inner_h
+    return (round(left * scale_x), round(top * scale_y),
+            round(width * scale_x), round(height * scale_y))
+
+
 def _notice(text):
     """A non-blocking message: a tap happens outside the browser's control."""
     try:
@@ -312,6 +342,14 @@ class _AccountPopup:
         self._widget.activateWindow()
         self._list.setFocus()
 
+    def reposition(self, anchor, viewport):
+        """Move an already-shown popup - used to snap it onto the focused field once the page
+        reports where that field is. Never raises."""
+        try:
+            self._widget.move(*place_popup(anchor, viewport, self.size))
+        except Exception:
+            log.webview.exception("could not reposition the account chooser")
+
     def _on_key(self, event):
         action = key_action(_key_name(event))
         if action is None:
@@ -362,11 +400,33 @@ def _key_name(event):
     return event.text()
 
 
+def _anchor_to_field(page, popup, origin, view_size, viewport):
+    """Nudge the popup onto the focused field once the page reports its geometry.
+
+    The popup is already on screen (shown at the view's corner), so this only ever moves it - a page
+    that never answers, or a field that has gone away, leaves the popup exactly where it was.
+    """
+    if page is None:
+        return
+
+    def place(field):
+        anchor = scaled_anchor(field, view_size)
+        if anchor is None:
+            return
+        popup.reposition((origin.x() + anchor[0], origin.y() + anchor[1], anchor[2], anchor[3]),
+                         viewport)
+
+    try:
+        page.runJavaScript(FIELD_JS, place)
+    except Exception:
+        log.webview.exception("could not ask the page for the focused field")
+
+
 def _choose_account(page, names, callback):
     """Show the passkey chooser: a single key is taken as-is, several go through the popup.
 
     `callback` receives the chosen name, or None if the user declined. The popup is non-modal, so
-    the browser stays usable while it is open — the point of an autofill suggestion.
+    the browser stays usable while it is open - the point of an autofill suggestion.
     """
     names = list(names or [])
     if not names:
@@ -387,12 +447,14 @@ def _choose_account(page, names, callback):
         return
     try:
         origin = view.mapToGlobal(view.rect().topLeft())
-        anchor = (origin.x(), origin.y(), 0, 0)
-        viewport = (origin.x(), origin.y(), view.width(), view.height())
-        popup.show_at(anchor, viewport)
+        view_size = (view.width(), view.height())
     except Exception:
         log.webview.exception("could not place the account chooser")
         popup.show_at((0, 0, 0, 0), (0, 0, 0, 0))
+        return
+    viewport = (origin.x(), origin.y(), view_size[0], view_size[1])
+    popup.show_at((origin.x(), origin.y(), 0, 0), viewport)
+    _anchor_to_field(page, popup, origin, view_size, viewport)
 
 
 def handle(page, request, choose=None):

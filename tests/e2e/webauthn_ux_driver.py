@@ -165,6 +165,15 @@ popup._move(-1)
 popup._accept_current()
 results["POPUP_PICK"] = "ok" if picked == ["b@example.test"] else "FAIL"
 
+# the popup snaps onto the focused field when told where it is
+popup.show_at((100, 100, 0, 5), (0, 0, 800, 600))
+before = popup._widget.pos()
+popup.reposition((300, 400, 0, 5), (0, 0, 800, 600))
+after = popup._widget.pos()
+want = wa.place_popup((300, 400, 0, 5), (0, 0, 800, 600), popup.size)
+results["POPUP_ANCHOR"] = "ok" if (before != after
+                                   and (after.x(), after.y()) == want) else "FAIL"
+
 # ── 3. the engine's capability answer, from the real page ─────────────────────
 state = {"loaded": False, "uvpa": "pending"}
 
@@ -201,6 +210,6 @@ results["UVPA"] = str(state["uvpa"])
 
 # ── report ────────────────────────────────────────────────────────────────────
 for key in ("ATTACH", "DRIVE", "TOUCH", "DONE", "PINMSG", "POPUP_MODAL", "POPUP_ITEMS",
-            "POPUP_STEP", "POPUP_CLAMP", "POPUP_PICK", "UVPA"):
+            "POPUP_STEP", "POPUP_CLAMP", "POPUP_PICK", "POPUP_ANCHOR", "UVPA"):
     print("E2E %s=%s" % (key, results[key]))
 sys.exit(0)

@@ -196,6 +196,32 @@ class Place(unittest.TestCase):
                          (10, 500))
 
 
+class ScaledAnchor(unittest.TestCase):
+    """scaled_anchor maps the page's CSS-pixel field rect into the view's own pixel space."""
+
+    def setUp(self):
+        self.m = load()
+
+    def test_identity_when_the_scales_are_one(self):
+        self.assertEqual(self.m.scaled_anchor((3, 4, 5, 6, 800, 600), (800, 600)), (3, 4, 5, 6))
+
+    def test_halved(self):
+        self.assertEqual(self.m.scaled_anchor((10, 20, 100, 6, 1000, 500), (500, 250)),
+                         (5, 10, 50, 3))
+
+    def test_no_field_is_unusable(self):
+        self.assertIsNone(self.m.scaled_anchor(None, (800, 600)))
+
+    def test_an_empty_field_is_unusable(self):
+        self.assertIsNone(self.m.scaled_anchor([], (800, 600)))
+
+    def test_a_zero_viewport_width_is_unusable(self):
+        self.assertIsNone(self.m.scaled_anchor((1, 2, 3, 4, 0, 600), (800, 600)))
+
+    def test_a_zero_viewport_height_is_unusable(self):
+        self.assertIsNone(self.m.scaled_anchor((1, 2, 3, 4, 800, 0), (800, 600)))
+
+
 class Dispatch(unittest.TestCase):
     """Each state must drive the request - or the browser appears to freeze."""
 
@@ -339,6 +365,73 @@ class Chooser(unittest.TestCase):
         got = []
         self.m._choose_account(None, ["a@example.test", "b@example.test"], got.append)
         self.assertEqual(got, [None])
+
+    def _view(self):
+        class Pt:
+            def x(self):
+                return 100
+
+            def y(self):
+                return 200
+
+        class Rect:
+            def topLeft(self):
+                return None
+
+        class View:
+            def mapToGlobal(self, _point):
+                return Pt()
+
+            def rect(self):
+                return Rect()
+
+            def width(self):
+                return 500
+
+            def height(self):
+                return 250
+
+        return View()
+
+    def _capturing_popup(self, seen):
+        class FakePopup:
+            def __init__(self, names, callback):
+                self.size = (300, 120)
+                self.callback = callback
+
+            def show_at(self, anchor, viewport):
+                seen["show"] = anchor
+
+            def reposition(self, anchor, viewport):
+                seen["reposition"] = anchor
+
+        return FakePopup
+
+    def test_the_popup_is_anchored_to_the_focused_field(self):
+        seen = {}
+        self.m._AccountPopup = self._capturing_popup(seen)
+        self.m._view_for = lambda page: self._view()
+
+        class Page:
+            def runJavaScript(self, js, callback):
+                callback([10, 20, 100, 6, 1000, 500])
+
+        self.m._choose_account(Page(), ["a@example.test", "b@example.test"], [].append)
+        self.assertEqual(seen["show"], (100, 200, 0, 0))          # shown at the corner first
+        self.assertEqual(seen["reposition"], (105, 210, 50, 3))   # then snapped onto the field
+
+    def test_a_page_without_a_field_leaves_the_popup_at_the_corner(self):
+        seen = {}
+        self.m._AccountPopup = self._capturing_popup(seen)
+        self.m._view_for = lambda page: self._view()
+
+        class Page:
+            def runJavaScript(self, js, callback):
+                callback(None)
+
+        self.m._choose_account(Page(), ["a@example.test", "b@example.test"], [].append)
+        self.assertEqual(seen["show"], (100, 200, 0, 0))
+        self.assertNotIn("reposition", seen)
 
 
 class PinMessage(unittest.TestCase):
