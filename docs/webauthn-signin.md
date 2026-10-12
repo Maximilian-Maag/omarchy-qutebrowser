@@ -157,9 +157,10 @@ See `docs/engine-patch/README.md` for the build.
 
 ## Implementation gap analysis
 
-Beyond the two fixes above, the natural question is "what else did Qt not wire up?" — and the answer
-is best measured against Chromium's interfaces rather than guessed. These commands re-derive the
-picture from the engine source, so it can be re-checked after a Qt upgrade:
+Beyond the two fixes above, the natural question is "what else did Qt not wire up?" — the complete,
+triaged answer (every WebAuthn interface and every `NOTIMPLEMENTED` in Qt's own sources, each marked
+closed / accepted / not-feasible) lives in [`implementation-gaps.md`](implementation-gaps.md). These
+commands re-derive the picture from the engine source, so it can be re-checked after a Qt upgrade:
 
 ```bash
 SRC=~/Work/qt6-webengine-build/qt6-webengine/src/qtwebengine/src

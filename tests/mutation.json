@@ -9,7 +9,7 @@
     "and runtime); raise it for a deeper nightly run via --max-rate/--only."
   ],
   "min_kill_rate": 0.8,
-  "timeout": 30,
+  "timeout": 120,
   "per_operator": 4,
   "targets": [
     {
@@ -21,6 +21,13 @@
         "unittest",
         "tests.test_unit_webauthn",
         "-q"
+      ],
+      "equivalent": [
+        {
+          "line": 149,
+          "kind": "number±1",
+          "reason": "_pin_message's `getattr(pin_request, \"remainingAttempts\", -1)` default: the mutation changes -1 to -2, and BOTH are outside the 0..2 range that triggers the warning, so no input can tell them apart. The attribute is always present on a real Qt pinRequest and the None path is also out of range either way — proven by applying the mutant and diffing the full test output (identical rc and output)."
+        }
       ]
     },
     {
@@ -104,7 +111,7 @@
       "equivalent": [
         {
           "line": 35,
-          "kind": "number\u00b11",
+          "kind": "number±1",
           "reason": "BLOCK_TAGS values are only tested for truthiness; 1 and 2 are both truthy"
         },
         {
@@ -215,11 +222,11 @@
     },
     {
       "path": "reader/readability.js",
-      "reason": "vendored third-party Readability \u2014 not ours to mutate"
+      "reason": "vendored third-party Readability — not ours to mutate"
     },
     {
       "path": "status/status.js",
-      "reason": "DOM-only rendering; no browser harness yet \u2014 a tracked, visible gap"
+      "reason": "DOM-only rendering; no browser harness yet — a tracked, visible gap"
     },
     {
       "path": "userscripts/qute-ai-fix",

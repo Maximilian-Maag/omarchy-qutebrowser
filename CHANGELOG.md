@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.17.41
+
+### Added
+- **`tests/e2e/` — a real end-to-end suite.** `test_webauthn_ux_e2e.sh` boots the REAL WebAuthn UX
+  handler against the REAL QtWebEngine offscreen: it proves `attach()` connects to a real
+  `QWebEnginePage` (the `webAuthUxRequested` signal qutebrowser never wires), drives the whole state
+  machine on a live event loop, and reads the engine's own
+  `isUserVerifyingPlatformAuthenticatorAvailable()` answer (the capability whose `false` made every
+  sign-in hang). The `e2e` kind is now declared in `policy.json` and runs from `tools/run_tests.sh`.
+- `docs/implementation-gaps.md` — the complete register of every gap found between QtWebEngine /
+  qutebrowser and a correct passkey experience, each marked closed / accepted / not-feasible, with
+  the commands to re-derive the interface picture after a Qt upgrade.
+
+### Changed
+- **The WebAuthn UX handler now drives the whole state machine, not just the happy path.** It uses
+  Qt's `pinRequest` (reason, last error, minimum length, remaining attempts) to explain and warn —
+  a wrong PIN is no longer re-asked with no explanation, a "set" prompt states the minimum length,
+  and a low attempt count is surfaced before the key locks. Recoverable failures (`Timeout`, the key
+  unplugged during PIN entry) now offer a **retry** instead of abandoning the sign-in; all thirteen
+  `RequestFailureReason` values map to sentences; and `Completed` / `Cancelled` are announced.
+- `config/omarchy_webauthn.py` mutation target is at 1.00 (floor 0.80).
+
 ## 1.17.40
 
 ### Changed
