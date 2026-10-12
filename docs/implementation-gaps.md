@@ -50,6 +50,22 @@ grep -rn 'NOTIMPLEMENTED()' "$SRC" --include=*.cpp | grep -v /3rdparty/
 | Microsoft platform-probe userscript | **closed / retired** | the engine patch replaced it; the userscript is disabled (kept as a fallback only). |
 | KeePassXC auto-fill clobbering a passkey frame | **closed** | `qute-keepassxc-fill` declines on `bridge/fido`, `/webauthn` and `/signin/challenge/pk`. |
 
+## Engine-patch durability (a guard, not a gap)
+
+The two engine fixes are a **text-matched patch** of Qt's source
+(`docs/engine-patch/apply-webauthn-patch.py`). A Qt upgrade can move the code, at which point the
+patch silently becomes a no-op and the browser stops offering passkeys — with nothing else failing.
+
+- **`--check` mode** (added): verifies the anchors and reports `patched` / `appliable` / `drift`
+  without writing anything, exiting non-zero on drift. `build-patched-engine.sh` already refuses to
+  build an unpatched tree; `--check` is the pre-flight and the test-suite guard.
+- **`tests/shell/test_engine_patch.sh`** runs `--check` against the real checkout (SKIPs cleanly when
+  the 9 GB source is absent, e.g. CI) and drives apply → revert → check → drift on a throwaway copy.
+- Two latent bugs it exposed and that are now fixed: `revert` deleted the patched block instead of
+  restoring the original body (leaving a headless function), and `apply` wrote the impl twice —
+  once for the presentation fix and once from the pre-fix text — so a *fresh* apply silently lost
+  the presentation fix (it had only ever worked because the source was patched twice).
+
 ## How each "closed" item is tested
 
 - engine capability + the handler against real Qt: `tests/e2e/test_webauthn_ux_e2e.sh`

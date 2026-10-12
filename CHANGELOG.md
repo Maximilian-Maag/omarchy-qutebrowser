@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.17.42
+
+### Added
+- **`docs/engine-patch/apply-webauthn-patch.py --check` — a drift guard for the engine patch.** The
+  passkey fix is a text-matched patch of Qt's source; a Qt upgrade can move the code and silently
+  stop it applying, regressing sign-in with nothing else failing. `--check` (and `--src DIR`) verify
+  the anchors and report `patched` / `appliable` / `drift` without writing, exiting non-zero on drift.
+- `tests/shell/test_engine_patch.sh` — runs `--check` against the real checkout (SKIPs when the
+  source is absent) and drives apply → revert → check → drift on a throwaway copy, so the anchors
+  are exercised without touching the real source.
+
+### Fixed
+- **`apply-webauthn-patch.py` lost the presentation fix on a fresh apply.** The impl was written once
+  for the `kAutofill -> kModal` fix and again from the pre-fix text for the override definition,
+  clobbering it; it had only ever worked because the source had been patched twice. Both fixes now
+  go into one in-memory copy and each file is written once.
+- **`--revert` deleted the patched block instead of restoring the original body**, leaving the
+  `SetUIPresentation` function headless and uncompilable. It now puts the original text back.
+
 ## 1.17.41
 
 ### Added
