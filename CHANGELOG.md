@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.17.39
+
+### Changed
+- **Verified on the machine, with the patched engine installed (`qt6-webengine` 6.11.2-2).** The
+  engine now answers the platform-authenticator capability question natively: the same probe returns
+  `false` against the unpatched library and `true` against the installed patched one (no userscript,
+  no page involved). End to end, with the Microsoft platform-probe userscript *disabled*, a
+  Microsoft passkey sign-in prompts for the key and completes.
+- **Google's passkey sign-in now works** — it prompts for the PIN and logs in. This reverses the old
+  "Google refuses account sign-in" limit: the engine-level fix is not page-visible, which is exactly
+  what the page-visible userscript correction could not achieve. Whether Google still *needs* the
+  chrome-identity userscript alongside the engine patch is untested, and is recorded as such rather
+  than assumed.
+- `docs/webauthn-signin.md` gains a "Verified on this machine" section, and its "What works today",
+  Cause 1 and "Known limits" now state the measured outcome. A caveat is recorded that a qutebrowser
+  launched via `uwsm-app` writes its output to `/dev/null`, so the journal carries no engine lines
+  from it.
+
 ## 1.17.38
 
 ### Added

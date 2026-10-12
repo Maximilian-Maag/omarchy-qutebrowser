@@ -10,11 +10,13 @@ passkeys" and never starts a ceremony. The page sits on "Signing in with your pa
 
 ## What works today
 
+Verified 2026-10-12 with the patched engine (`qt6-webengine` 6.11.2-2) installed:
+
 | provider | state | mechanism |
 |---|---|---|
-| Microsoft | works, but required the platform-probe userscript | `userscripts/omarchy-ms-passkey-platform-probe.js` |
-| Google | account sign-in is refused on browser identity grounds | `userscripts/omarchy-google-signin-chrome-identity.js` gets past the identifier step only |
-| engine | a patched build removes the need for the Microsoft userscript | `docs/engine-patch/` |
+| Microsoft | **works natively** | engine patch 1 — the platform-probe userscript is no longer needed and is now *disabled*, and sign-in still prompts for the key |
+| Google | **signs in** (PIN prompt → logged in) | engine patch 1 + `userscripts/omarchy-google-signin-chrome-identity.js` (still enabled; whether Google still *needs* it now that the engine answers natively is untested — see "Known limits") |
+| engine | patched build installed; supersedes the Microsoft userscript | `docs/engine-patch/` |
 
 The engine *does* drive a FIDO2 key correctly — this is measured, not assumed. Given a page that
 actually calls WebAuthn, a complete ceremony runs:
@@ -47,10 +49,12 @@ Correcting that single answer is enough for Microsoft. The correction wraps the 
 method in a `Proxy` — nothing is removed or replaced, only the return value changes — and is scoped
 to Microsoft's hosts.
 
-**It is deliberately not applied to Google's account hosts.** Measured: Google refuses the sign-in
-outright ("Couldn't sign you in — This browser or app may not be secure") for even that narrow a
-deviation. Google therefore needs browser *identity* correction as well, which is a different and
-much larger problem; see "Known limits".
+**The userscript is deliberately not applied to Google's account hosts.** Measured earlier: Google
+refused the sign-in outright ("Couldn't sign you in — This browser or app may not be secure") for
+even that narrow a page-visible deviation, so a userscript is the wrong tool for Google. **The
+engine patch changes that**: an engine-level `true` is not detectable by the page (measured below —
+the same probe answers `true` natively, with no script), and Google then signs in. See "What works
+today" and "Known limits".
 
 ## Cause 2 — the correction is a race, not a one-shot
 
@@ -193,6 +197,29 @@ So of the apparent gaps, exactly one was real and user-visible (the conditional-
 of the rest are interfaces where Qt's default is the *correct* answer, and "closing" them would mean
 introducing bugs by un-correcting a correct default.
 
+## Verified on this machine (2026-10-12)
+
+`qt6-webengine` 6.11.2-2 (both patches) was installed and tested.
+
+**Patch 1, mechanically** — ask the installed engine the capability question directly, with no
+userscript and no page involved: load a secure origin and evaluate
+`isUserVerifyingPlatformAuthenticatorAvailable()`. The same probe against two libraries:
+
+| library | answer |
+|---|---|
+| the backed-up unpatched 6.11.2-1 (`LD_LIBRARY_PATH=…/rollback`) | `false` |
+| the installed patched library | `true` |
+
+(`ldd` confirmed the control actually loaded the unpatched `.so`, and the installed library's sha256
+was checked against the one built into the package — they match.)
+
+**End to end, by hand** — with the Microsoft platform-probe userscript *disabled*, and nothing else
+injecting the API: Microsoft's passkey sign-in prompts for the key and completes, and Google's
+passkey sign-in prompts for the PIN and logs in. The Microsoft result is the engine doing the work
+with no page-visible correction. The Google result is the engine-level fix getting further than the
+page-visible correction ever did — but see "Known limits": the chrome-identity userscript was still
+enabled for it.
+
 ## Verifying
 
 Watch the engine's own view while attempting a sign-in:
@@ -200,6 +227,10 @@ Watch the engine's own view while attempting a sign-in:
 ```
 journalctl --user -u <qutebrowser-unit> -f | grep -iE "WebAuthn UX|FIDO:|CTAP"
 ```
+
+**Caveat:** a qutebrowser launched through `uwsm-app` (the Omarchy/Hyprland launcher) has its
+stdout/stderr pointed at `/dev/null`, so the journal carries *no* engine lines from it. Launch from
+a terminal, or enable the WebAuthn logging category, when you actually need the log.
 
 A working ceremony shows `WebAuthn UX request for rp='...'` followed by `CollectPin`,
 `FinishTokenCollection`, `Completed`. **No `WebAuthn UX request` line at all** means the page never
@@ -230,12 +261,13 @@ To see the capability answer the page gets, on the page itself:
 
 ## Known limits
 
-- **Google still refuses account sign-in.** It rejects the browser's identity — the engine reports
-  Chromium-only `userAgentData.brands`, an empty `window.chrome`, and `pdfViewerEnabled: false`.
-  Correcting those does get past the identifier step, but it is a large page-visible deviation and
-  Google is entitled to refuse it. The honest position: Google cannot be signed in from this engine
-  without impersonating Chrome, which is not something to ship.
-- **The Microsoft fix above the engine is a userscript**, so it is page-visible and could stop
-  working if Microsoft's checks change. The engine patch removes that dependency.
+- **Google now signs in, but the cause is not fully isolated.** With the patched engine and the
+  chrome-identity userscript *still enabled*, Google prompts for the PIN and logs in. Whether the
+  engine patch alone suffices — i.e. whether `userscripts/omarchy-google-signin-chrome-identity.js`
+  can now be removed — has **not** been tested. If it can, a large page-visible
+  Chrome-impersonation shim goes away; that is the next experiment, and until it is run this
+  userscript should be regarded as possibly-still-needed.
+- **The Microsoft fix is no longer a userscript.** The engine patch replaced it, and it was verified
+  sign-in with the userscript disabled. The userscript is retained only as a fallback.
 - **Microsoft's flow is intermittent even so.** Its passkey page does not always call WebAuthn; the
   log distinguishes "the page never asked" from "the browser failed".
