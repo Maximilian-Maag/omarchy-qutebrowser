@@ -26,17 +26,49 @@ function havePyQt6() {
   } catch { return false; }
 }
 
+const SCENARIOS = ['main', 'ai_error', 'badjson', 'restore_empty', 'capture', 'restore',
+                   'media', 'visiblekey', 'empty'];
+
+function runHarnessOnce() {
+  const out = execFileSync('/usr/bin/python3', [harness], { encoding: 'utf8', timeout: 180000 });
+  const line = out.split('\n').find((l) => l.startsWith('OBSERVATIONS:'));
+  if (!line) throw new Error('harness printed no OBSERVATIONS line');
+  return JSON.parse(line.slice('OBSERVATIONS:'.length));
+}
+
+// How many scenarios failed to reach completion in this run.
+function incomplete(obs) {
+  if (!obs) return SCENARIOS.length;
+  return SCENARIOS.filter((s) => !(obs[s] && obs[s].__done)).length;
+}
+
 let OBS = null;
 let reason = '';
 if (!havePyQt6()) {
   reason = 'PyQt6/QtWebEngine not installed (CI installs python3-pyqt6)';
 } else {
-  try {
-    const out = execFileSync('/usr/bin/python3', [harness], { encoding: 'utf8', timeout: 180000 });
-    const line = out.split('\n').find((l) => l.startsWith('OBSERVATIONS:'));
-    OBS = JSON.parse(line.slice('OBSERVATIONS:'.length));
-  } catch (e) {
-    reason = 'harness failed to run: ' + (e.message || e);
+  // The harness drives a real QtWebEngine through nine sequential scenarios, and a scenario
+  // can occasionally fail to reach its deadline under transient load, failing the whole run
+  // (observed: 36.9s against a normal 13.6s, with two scenarios never completing). A scenario
+  // that produced no observations is never a legitimate reader result - it is a harness timing
+  // failure - so retry and take the first COMPLETE run. A partial run is still used, and still
+  // fails its assertions, when no attempt completes, so a real regression can never be retired
+  // away into a pass.
+  let best = null;
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const obs = runHarnessOnce();
+      if (best === null || incomplete(obs) < incomplete(best)) best = obs;
+      if (incomplete(best) === 0) break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (best !== null) {
+    OBS = best;
+  } else {
+    reason = 'harness failed to run: ' + ((lastErr && lastErr.message) || lastErr);
   }
 }
 

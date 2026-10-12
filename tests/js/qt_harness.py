@@ -160,6 +160,7 @@ window.__READER_ARTICLE__ = %(article)s;</script>
 <script>%(stubs)s</script>
 <script>%(readability)s</script>
 <script>%(reader)s</script>
+<script>window.__scenario = %(scenario)s; window.__ready = true;</script>
 </body></html>"""
 
 DRIVER = r"""
@@ -382,6 +383,7 @@ DRIVER = r"""
 
 AI_ERROR_DRIVER = r"""
 (async function () {
+  try {
   var obs = window.__obs;
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function q(s) { return document.querySelector(s); }
@@ -390,11 +392,13 @@ AI_ERROR_DRIVER = r"""
   obs.errorStatus = q('#status').textContent;
   obs.errorClass = q('#status').classList.contains('error');
   obs.__done = true;
+  } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
 })();
 """
 
 RESTORE_DRIVER = r"""
 (async function () {
+  try {
   var obs = window.__obs;
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function q(s) { return document.querySelector(s); }
@@ -418,6 +422,7 @@ RESTORE_DRIVER = r"""
     return a ? all.indexOf(a) : -1;
   }());
   obs.__done = true;
+  } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
 })();
 """
 
@@ -449,6 +454,7 @@ CAPTURE_DRIVER = r"""
 
 BADJSON_DRIVER = r"""
 (async function () {
+  try {
   var obs = window.__obs;
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function q(s) { return document.querySelector(s); }
@@ -456,11 +462,13 @@ BADJSON_DRIVER = r"""
   await wait(650);
   obs.badJsonStatus = q('#status').textContent;
   obs.__done = true;
+  } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
 })();
 """
 
 RESTORE_EMPTY_DRIVER = r"""
 (async function () {
+  try {
   var obs = window.__obs;
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   await wait(200);
@@ -471,6 +479,7 @@ RESTORE_EMPTY_DRIVER = r"""
   await wait(2200);                          // tap 460ms + applyVerdict -> saveState (900ms debounce)
   obs.savedAfterEmptyRestore = window.__calls.beacon.length - before;
   obs.__done = true;
+  } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
 })();
 """
 
@@ -611,7 +620,8 @@ def build_html(scenario, captured=None):
     if scenario == "restore_empty":
         stubs += "\nwindow.__STATE__ = {};\n"
     return PAGE % {"colors": colors, "article": article, "stubs": stubs,
-                   "readability": READABILITY, "reader": READER_JS}
+                   "readability": READABILITY, "reader": READER_JS,
+                   "scenario": json.dumps(scenario)}
 
 
 def main():
@@ -623,21 +633,32 @@ def main():
     view.show()                      # a shown view keeps the page "visible"
     page = view.page()
     page.settings().setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
-    st = {"i": 0, "deadline": 0, "loaded": False}
+    st = {"i": 0, "deadline": 0, "loaded": False, "started": False}
+
+    def start_driver(sc):
+        if st["started"]:
+            return                        # the ready-probe can resolve more than once per scenario
+        st["started"] = True
+        st["loaded"] = True
+        page.runJavaScript(DRIVERS[sc])
 
     def start_next():
         sc = scenarios[st["i"]]
         st["deadline"] = 0
         st["loaded"] = False
+        st["started"] = False
         captured = (out.get("capture") or {}).get("savedState")
         page.setHtml(build_html(sc, captured))
 
-    def on_load(ok):
-        sc = scenarios[st["i"]]
-        st["loaded"] = True
-        page.runJavaScript(DRIVERS[sc])
-
-    page.loadFinished.connect(on_load)
+    def probe_ready(sc):
+        # Gate on the document itself, not on loadFinished: QtWebEngine can DROP the signal when
+        # setHtml() follows a previous setHtml(), and it can also deliver it for the PREVIOUS
+        # document - which started the driver against stale DOM and left the scenario with the
+        # old observations. __ready is set only by the new document, after reader.js has run.
+        def cb(val):
+            if val == sc:
+                start_driver(sc)
+        return cb
 
     def poll():
         st["deadline"] += 1
@@ -669,11 +690,14 @@ def main():
     def tick():
         if st["i"] >= len(scenarios):
             return
+        sc = scenarios[st["i"]]
         if st["deadline"] > 150:               # ~15s safety per scenario
-            page.runJavaScript("JSON.stringify(window.__obs)", got_obs(scenarios[st["i"]]))
+            page.runJavaScript("JSON.stringify(window.__obs)", got_obs(sc))
             return
         if st["loaded"]:
             poll()
+        else:
+            page.runJavaScript("window.__ready ? (window.__scenario || '') : ''", probe_ready(sc))
 
     timer = QTimer()
     timer.timeout.connect(tick)

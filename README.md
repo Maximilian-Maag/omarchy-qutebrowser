@@ -366,6 +366,31 @@ omarchy-qutebrowser/
 └── manifest.json            — Omarchy plugin manifest
 ```
 
+## Testing
+
+`tools/run_tests.sh` runs every kind in escalating cost order — policy as code, unit, regression,
+integration, e2e, js, shell, and mutation — and CI runs the same script.
+
+The js tests include `tests/js/reader.harness.test.js`, which drives the **real** reader page
+(`reader.js` + `readability.js`) in an offscreen QtWebEngine via `tests/js/qt_harness.py` and asserts
+on the observations it prints, so `reader.js` is exercised as it actually runs rather than through a
+DOM stub.
+
+Two things about that harness are load-bearing:
+
+- **Readiness is gated on the document, not on `loadFinished`.** QtWebEngine can *drop*
+  `loadFinished` when `setHtml()` follows a previous `setHtml()`, and it can deliver it for the
+  *previous* document. Either way a scenario was stranded — no driver, no observations — about one run
+  in five, taking 30–47 s instead of ~15 s. The page now sets `window.__ready` and `window.__scenario`
+  as its last script, and the harness starts a driver only when the document reports the expected
+  scenario.
+- **A scenario that produced no observations is a harness failure, never a reader result**, so the
+  test retries the harness and takes the first complete run. It still fails (rather than passing) when
+  no attempt completes, so a real regression cannot be retried away into a pass.
+
+`reader/reader.js` is a mutation target whose test command runs this harness, so its timeout in
+`tests/mutation.json` is set with headroom over a harness run.
+
 ## License
 
 MIT

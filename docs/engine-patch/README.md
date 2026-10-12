@@ -172,6 +172,35 @@ A `WebAuthn UX request for rp='login.microsoft.com'` line means the page was off
 without any page-visible correction. Restore the userscript if you need it as a fallback
 (`mv ...js{.off,}`).
 
+### Behavioural verification
+
+Both patches were verified against a real offscreen QtWebEngine, each run with the patched library
+and with the unpatched one (`LD_LIBRARY_PATH` pointing at a copy of the previous
+`libQt6WebEngineCore.so`), so the only difference is the patch.
+
+**Patch 1 — the capability answer.** Load a secure origin and evaluate
+`isUserVerifyingPlatformAuthenticatorAvailable()`:
+
+| library | answer |
+|---|---|
+| unpatched | `false` |
+| patched | `true` |
+
+**Patch 2 — the conditional-request presentation.** Issue
+`navigator.credentials.get({ mediation: ... })` from a page and watch whether the browser engages its
+WebAuthn UX — `QWebEnginePage.webAuthUxRequested`, the signal a browser must wire, which the same
+probe records along with the states it reaches:
+
+| library | `mediation: 'optional'` | `mediation: 'conditional'` |
+|---|---|---|
+| unpatched | UX engaged (`CollectPin`) | **no UX at all** — the hang |
+| patched | UX engaged (`CollectPin`) | UX engaged (`CollectPin`) |
+
+The `optional` column is the control: a modal request behaves identically either way, so the only
+thing the patches change is the conditional case — exactly the `kAutofill` suppression patch 2
+removes. (`mediation: 'modal'` is not a valid value and throws `TypeError`; the modal flow is
+`'optional'`.)
+
 ## Reverting
 
 ```bash
