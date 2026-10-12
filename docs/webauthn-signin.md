@@ -87,9 +87,36 @@ afterwards and overwrite the correction, and a flag that stops the script lookin
 Any further work here should verify the correction is *still in place* (a marker on our own wrapper),
 not that it once succeeded.
 
+## Cause 4 — a conditional request hangs forever
+
+A relying party may call `navigator.credentials.get({mediation: "conditional"})` to have the passkey
+*suggested* inline as the user types, rather than shown as a modal prompt. Chromium marks that
+presentation `kAutofill`, and QtWebEngine shows nothing for `kAutofill` — the autofill UI is supposed
+to belong to an autofill component Qt does not have:
+
+```cpp
+// authenticator_request_dialog_controller.cpp, before the patch
+if (m_uiPresentation == UIPresentation::kAutofill)
+    return;                       // no dialog, ever
+```
+
+A conditional request **never times out** by design, so the page waits forever with nothing
+clickable. This is a *different* cause from the capability answer, but the symptom on screen is the
+same spinner — which is why the two were conflated for a while. There is a second suppression of the
+same kind in the account-selection path, which is why the fix is applied at the entry point
+(`SetUIPresentation`) so the presentation never becomes `kAutofill` at all. See
+`docs/engine-patch/README.md`, "Patch 2".
+
 ## The proper fix — patch the engine
 
-Chromium already routes this answer through the embedder, so no Chromium file needs changing:
+Two patches, both confined to Qt's own delegate files, no Chromium file touched:
+
+1. **The capability answer** — `WebAuthenticationDelegateQt` reports a platform authenticator as
+   available.
+2. **The conditional-request hang** — `AuthenticatorRequestClientDelegateQt::SetUIPresentation`
+   presents a `kAutofill` request as `kModal` (Cause 4, above).
+
+For (1), Chromium already routes this answer through the embedder:
 
 ```
 content/public/browser/web_authentication_delegate.h:
@@ -122,6 +149,49 @@ which is why it is the right fix and the userscript is only a stopgap — a user
 page-visible deviation, and that is exactly what Google punishes.
 
 See `docs/engine-patch/README.md` for the build.
+
+## Implementation gap analysis
+
+Beyond the two fixes above, the natural question is "what else did Qt not wire up?" — and the answer
+is best measured against Chromium's interfaces rather than guessed. These commands re-derive the
+picture from the engine source, so it can be re-checked after a Qt upgrade:
+
+```bash
+SRC=~/Work/qt6-webengine-build/qt6-webengine/src/qtwebengine/src
+CH=$SRC/3rdparty/chromium
+
+# WebAuthn request delegate: Chromium's virtuals vs what Qt overrides
+grep -oE '[A-Za-z]+\(' "$CH/content/public/browser/authenticator_request_client_delegate.h" \
+  | tr -d '(' | sort -u > /tmp/ch.txt
+grep -oE '[A-Za-z]+' "$SRC/core/authenticator_request_client_delegate_qt.h" | sort -u > /tmp/qt.txt
+comm -23 /tmp/ch.txt /tmp/qt.txt
+
+# The WebAuthenticationDelegate (patch 1's class)
+grep -oE 'virtual [^;(]*[A-Za-z]+\(' "$CH/content/public/browser/web_authentication_delegate.h" \
+  | grep -oE '[A-Za-z]+\($' | tr -d '(' | sort -u > /tmp/ch2.txt
+comm -23 /tmp/ch2.txt /tmp/qt.txt
+
+# Explicit not-implemented markers anywhere in Qt's core
+grep -rn 'NOTIMPLEMENTED' "$SRC/core/"*.cpp
+```
+
+The result, and the honest triage:
+
+| candidate | verdict |
+|---|---|
+| capability answer (`IsUserVerifyingPlatformAuthenticatorAvailableOverride`) | **fixed** — patch 1 |
+| conditional/autofill passkey UI (`kAutofill`) | **fixed (hang removed)** — patch 2; a real dropdown is still not implemented |
+| `SignalAllAcceptedCredentials`, `UpdateUserPasskeys`, `PasskeyUnrecognized` | **correct as-is** — they act on a passkey *store* Qt has none of; the no-op default is right, and implementing them would be faking a feature |
+| `MaybeGetRequestProxy`, `MaybeGetRelyingPartyIdOverride`, `ShouldPermitIndividualAttestation`, `BrowserProvidedPasskeysAvailable` | **correct as-is** — no proxy/cloud authenticator is configured; `BrowserProvidedPasskeysAvailable` returning false is truthful (Qt has no cloud keychain) |
+| `RenderWidgetHostViewQt::EnsureSurfaceSynchronizedForWebTest()` | **test-only** — not shipped behaviour |
+| Vulkan `NOTIMPLEMENTED()` (`chromium_overrides.cpp`) | **unreachable on Linux** — inside `#if BUILDFLAG(IS_APPLE)` (MoltenVK) |
+| `MessagePumpForUIQt::Run()` / `Quit()` | **not in normal use** — Qt's own comment: only when the pump runs outside the GUI thread |
+| `ClipboardQt::ReadBookmark()` | real but minor (X11 selection bookmark) |
+| `AutofillClientQt::GetAutofillSuggestions()` | **correct as-is** — Qt's comment: "Called by password_manager component only"; with KeePassXC the empty return is right |
+
+So of the apparent gaps, exactly one was real and user-visible (the conditional-request hang); most
+of the rest are interfaces where Qt's default is the *correct* answer, and "closing" them would mean
+introducing bugs by un-correcting a correct default.
 
 ## Verifying
 

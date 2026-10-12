@@ -1,8 +1,16 @@
-# Engine patch: make QtWebEngine report a platform authenticator
+# Engine patches: make QtWebEngine do passkeys properly
 
-Removes the need for the Microsoft platform-probe userscript by fixing the cause in the engine.
+Two confined patches to Qt's own files that remove the need for the page-visible userscript, and
+remove a hang:
 
-## Why this works, and why it is the right fix
+| # | what | where | why |
+|---|---|---|---|
+| 1 | report a platform authenticator as available | `WebAuthenticationDelegateQt` | pages otherwise conclude "this browser cannot do passkeys" and never start a ceremony |
+| 2 | present a conditional request as modal | `AuthenticatorRequestClientDelegateQt::SetUIPresentation` | a `mediation:"conditional"` request is marked `kAutofill`, which Qt shows nothing for, and such a request never times out — the page waits forever |
+
+Both are applied by `apply-webauthn-patch.py` (with `--revert`) and built by `build-patched-engine.sh`.
+
+## Patch 1 — the capability answer
 
 Chromium routes "is a user-verifying platform authenticator available?" through the embedder:
 
@@ -21,10 +29,67 @@ QtWebEngine subclasses it (`WebAuthenticationDelegateQt`) and overrides only `Su
 so the default answer stands: `false`, because Linux has no *platform* authenticator. Pages read that
 as "this browser cannot do passkeys" and never start a ceremony.
 
-`apply-webauthn-patch.py` adds one override that answers `true`. **No Chromium file is touched** —
-the change is confined to Qt's two files, which keeps it reviewable and the build reproducible.
+The patch adds one override that answers `true`:
 
-The result is native and therefore **not detectable by the page**, unlike the userscript it replaces.
+```cpp
+void WebAuthenticationDelegateQt::IsUserVerifyingPlatformAuthenticatorAvailableOverride(
+        content::RenderFrameHost *render_frame_host,
+        base::OnceCallback<void(std::optional<bool>)> callback)
+{
+    Q_UNUSED(render_frame_host);
+    std::move(callback).Run(true);
+}
+```
+
+Nothing is bypassed: the security key still performs the user verification (PIN and touch). The page
+is simply not told to give up. Because it is in the engine, it is **not detectable by the page**,
+which is why it is the right fix and the userscript is only a stopgap.
+
+## Patch 2 — the conditional-request hang
+
+A relying party can call `navigator.credentials.get({mediation: "conditional"})` to ask for the
+passkey to be *suggested* in its own form as the user types. Chromium marks that presentation
+`kAutofill`, and QtWebEngine deliberately shows nothing for it — because the autofill dropdown is
+supposed to belong to an autofill component, which Qt does not have:
+
+```cpp
+// authenticator_request_dialog_controller.cpp, before patch 2
+AuthenticatorRequestDialogControllerPrivate::showWebAuthDialog()
+{
+    if (m_uiPresentation == UIPresentation::kAutofill)
+        return;                       // <- no dialog, ever
+```
+
+A conditional request is designed **never to time out**, so the page sits on "Signing in with your
+passkey..." with nothing clickable — forever. Measured: this is the hang.
+
+There is a second suppression of the same kind in the account-selection path
+(`AuthenticatorRequestClientDelegateQt::SelectAccount`), which is why the fix is applied at the entry
+point: convert the presentation so it never becomes `kAutofill` in the first place.
+
+```cpp
+void AuthenticatorRequestClientDelegateQt::SetUIPresentation(UIPresentation ui_presentation)
+{
+    // Qt has no autofill component to hand a conditional request to, so the honest fallback is the
+    // ordinary modal prompt: the user gets the passkey chooser instead of a spinner.
+    if (ui_presentation == UIPresentation::kAutofill)
+        ui_presentation = UIPresentation::kModal;
+
+    m_isUiDisabled = (ui_presentation == UIPresentation::kDisabled);
+    m_dialogController->setUiPresentation(ui_presentation);
+}
+```
+
+This **removes the hang**; it is not a real autofill dropdown. Building one would be a UI project
+(the dropdown, plus the `SetCredentialIdFilter` / `SetHints` / `SetCredentialTypes` /
+`SetUserEntityForMakeCredentialRequest` plumbing) — see `../webauthn-signin.md`, "Implementation gap
+analysis".
+
+## Why no Chromium file is touched
+
+Both hooks already exist in Chromium and are routed to the embedder; Qt simply never filled them in.
+The changes are confined to Qt's two files (`src/core/authenticator_request_client_delegate_qt.{h,cpp}`),
+which keeps them reviewable and the build reproducible across Qt upgrades.
 
 ## Requirements
 
@@ -50,7 +115,7 @@ git clone --depth=1 https://gitlab.archlinux.org/archlinux/packaging/packages/qt
 cd qt6-webengine
 makepkg -o -d
 
-# 2. apply the patch to Qt's delegate
+# 2. apply the patches to Qt's delegate
 python3 ../apply-webauthn-patch.py
 
 # 3. build (no root: this compiles only, it does not install)
@@ -60,22 +125,40 @@ python3 ../apply-webauthn-patch.py
 sudo pacman -U qt6-webengine-*.pkg.tar.zst
 ```
 
-`build-patched-engine.sh` refuses to build if the patch is missing, and uses `--noprepare` — the
+`build-patched-engine.sh` refuses to build if patch 1 is missing, and uses `--noprepare` — the
 PKGBUILD's `prepare()` performs a submodule checkout that resets `src/3rdparty`, which would silently
-wipe the patch and produce a three-hour build of unpatched code.
+wipe the patches and produce a three-hour build of unpatched code.
 
 `-d` skips the dependency check (for the two absent, unneeded packages above), `-e` reuses the
-fetched sources, and `--nocheck` skips QtWebEngine's own test suite.
+fetched sources, `--nocheck` skips QtWebEngine's own test suite, and `-f` overwrites a package left
+by an earlier build (without it, `makepkg` aborts with "A package has already been built").
 
-Expect 1–3 hours on 12 cores, and around 50 GB of disk.
+Expect 1–3 hours on 12 cores for a cold build, and around 50 GB of disk. The **second** build is
+incremental — ninja recompiles only the touched translation unit and relinks — and took about ten
+minutes here.
 
-## Verifying the patch is applied
+## Verifying the patches are applied
 
 ```bash
 grep -c IsUserVerifyingPlatformAuthenticatorAvailableOverride \
     src/qtwebengine/src/core/authenticator_request_client_delegate_qt.{h,cpp}
 # expect 1 in each
+
+grep -n 'ui_presentation = UIPresentation::kModal' \
+    src/qtwebengine/src/core/authenticator_request_client_delegate_qt.cpp
+# expect one hit
 ```
+
+The packages strip non-exported symbols, so the shipped `.so` is not the place to look. The compiled
+object is the evidence:
+
+```bash
+OBJ=src/build/src/core/RelWithDebInfo/x86_64/obj/QtWebEngineCore/authenticator_request_client_delegate_qt.o
+nm -C "$OBJ" | grep IsUserVerifyingPlatformAuthenticatorAvailableOverride   # a 'T' definition
+objdump -d -C "$OBJ" | grep -A40 SetUIPresentation | grep cmp               # cmp $0x2 (kAutofill) before $0x4 (kDisabled)
+```
+
+The `cmp $0x2` is what patch 2 adds; without it the function only compares against `kDisabled`.
 
 After installing, attempt a passkey sign-in on `login.live.com` with the userscript disabled:
 
@@ -95,7 +178,28 @@ without any page-visible correction. Restore the userscript if you need it as a 
 python3 apply-webauthn-patch.py --revert
 ```
 
+Or, without rebuilding, restore the previous library if it was backed up:
+
+```bash
+sudo cp ~/Work/qt6-webengine-build/rollback/libQt6WebEngineCore.so.6.11.2 \
+        /usr/lib/libQt6WebEngineCore.so.6.11.2
+```
+
+## Pitfalls learned while building this
+
+- **Appending a definition to the end of a Qt `.cpp` puts it outside the namespace.** Qt wraps these
+  files in `namespace QtWebEngineCore { … }`, so a definition after the closing brace fails with
+  `'WebAuthenticationDelegateQt' has not been declared`. Anchor on the end of the existing override's
+  body instead. This is exactly how the first build failed, at `23175/23286`.
+- **`#pragma once` is not universal.** Qt headers use `#ifndef` include guards, so an edit that
+  anchors on `#pragma once` silently does nothing. Anchoring on real content is safer.
+- **`makepkg` will not overwrite a package from a previous run** — it aborts with "A package has
+  already been built". Pass `-f`.
+- **`prepare()` resets the source tree.** Hence `--noprepare`; without it the patches are wiped
+  immediately before a multi-hour build.
+
 ## Limits
 
-This fixes the *capability* answer. It does not make the engine identify as Chrome, so Google's
-account sign-in remains refused — see `../webauthn-signin.md`, "Known limits".
+These fix the *capability* answer and the conditional-request hang. They do not make the engine
+identify as Chrome, so Google's account sign-in remains refused — see `../webauthn-signin.md`,
+"Known limits".

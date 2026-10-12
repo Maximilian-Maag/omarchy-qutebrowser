@@ -27,7 +27,7 @@ done
 echo "==> patch verified in both files; starting the build"
 
 cd "$HOME/Work/qt6-webengine-build/qt6-webengine" || exit 8
-makepkg -e --noprepare --nocheck -d
+makepkg -e --noprepare --nocheck -d -f
 rc=$?
 echo "BUILD_EXIT=$rc"
 ls -la "$HOME/Work/qt6-webengine-build/qt6-webengine"/*.pkg.tar.* 2>/dev/null

@@ -50,9 +50,29 @@ void WebAuthenticationDelegateQt::IsUserVerifyingPlatformAuthenticatorAvailableO
 """
 
 
+FIX_OLD = """void AuthenticatorRequestClientDelegateQt::SetUIPresentation(UIPresentation ui_presentation)
+{
+    m_isUiDisabled = (ui_presentation == UIPresentation::kDisabled);"""
+
+FIX_NEW = """void AuthenticatorRequestClientDelegateQt::SetUIPresentation(UIPresentation ui_presentation)
+{
+    // QtWebEngine implements no passkey autofill UI. A conditional request (mediation =
+    // "conditional") is marked kAutofill, and the dialog controller deliberately shows nothing for
+    // that presentation - while such a request is designed never to time out, so the page waits
+    // forever ("Signing in with your passkey...", nothing clickable). Measured: that is the hang.
+    //
+    // Qt has no autofill component to hand this to, so the honest fallback is the ordinary modal
+    // prompt: the user gets the passkey chooser instead of a spinner. Closing this by building a
+    // real autofill dropdown would be a UI project; this removes the hang.
+    if (ui_presentation == UIPresentation::kAutofill)
+        ui_presentation = UIPresentation::kModal;
+
+    m_isUiDisabled = (ui_presentation == UIPresentation::kDisabled);"""
+
+
 def revert():
     done = False
-    for path, needle in ((HEADER, DECL), (IMPL, DEFN)):
+    for path, needle in ((HEADER, DECL), (IMPL, DEFN), (IMPL, FIX_NEW)):
         text = path.read_text()
         if needle in text:
             path.write_text(text.replace(needle, ""))
@@ -70,9 +90,22 @@ def main():
     header = HEADER.read_text()
     impl = IMPL.read_text()
 
+    impl_now = IMPL.read_text()
+    if "ui_presentation = UIPresentation::kModal" in impl_now:
+        print("  presentation fix already applied")
+    elif FIX_OLD in impl_now:
+        IMPL.write_text(impl_now.replace(FIX_OLD, FIX_NEW, 1))
+        print("  presentation fix applied (kAutofill -> kModal)")
+    else:
+        print("  ANCHOR NOT FOUND for the presentation fix", file=sys.stderr)
+        return 1
+
     if "IsUserVerifyingPlatformAuthenticatorAvailableOverride" in header:
         print("  already patched")
         return 0
+
+    if "IsUserVerifyingPlatformAuthenticatorAvailableOverride" in header:
+        print("  header already carries the override")
 
     # 1. the declaration, next to the one override Qt already has.
     anchor = "    bool SupportsResidentKeys(content::RenderFrameHost *render_frame_host) override;"
@@ -85,11 +118,18 @@ def main():
     HEADER.write_text(header)
 
     # 2. the definition, after the existing override's body.
-    tail_anchor = "SupportsResidentKeys(content::RenderFrameHost *render_frame_host)"
+    # The definition must land INSIDE `namespace QtWebEngineCore`, so anchor on the end of the
+    # existing override's body rather than appending to the file - appending puts it after the
+    # closing brace, where the class is not visible ("'WebAuthenticationDelegateQt' has not been
+    # declared"). Measured: that is exactly how the first build failed at 23175/23286.
+    tail_anchor = """bool WebAuthenticationDelegateQt::SupportsResidentKeys(content::RenderFrameHost *render_frame_host)
+{
+    return true;
+}"""
     if tail_anchor not in impl:
         print("  ANCHOR NOT FOUND in the implementation", file=sys.stderr)
         return 1
-    IMPL.write_text(impl.rstrip("\n") + "\n" + DEFN)
+    IMPL.write_text(impl.replace(tail_anchor, tail_anchor + "\n" + DEFN, 1))
 
     print("  patched:", HEADER.name, "and", IMPL.name)
     print()

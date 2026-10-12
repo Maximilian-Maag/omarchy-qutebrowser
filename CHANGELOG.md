@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.17.38
+
+### Added
+- **A second engine patch: the conditional-request hang.** A relying party calling
+  `navigator.credentials.get({mediation: "conditional"})` was marked `UIPresentation::kAutofill`,
+  which QtWebEngine shows nothing for — the autofill UI is meant to belong to an autofill component
+  Qt has no equivalent of. Such a request never times out by design, so the page waited forever with
+  nothing clickable. `SetUIPresentation` now presents a `kAutofill` request as `kModal`, which also
+  neutralises a second suppression of the same kind in the account-selection path. This removes the
+  hang, not merely papers over it; a real autofill dropdown remains unimplemented.
+- **`docs/webauthn-signin.md` "Implementation gap analysis"** — the full list of Chromium WebAuthn
+  hooks Qt does not override, each triaged as a real gap or a *correct* default, with the grep
+  commands to re-derive it after a Qt upgrade. Of the apparent gaps, exactly one was real and
+  user-visible.
+
+### Changed
+- **`docs/engine-patch/`** now documents both patches, and the build/patch scripts are the versions
+  actually used: the patch script anchors the definition *inside* `namespace QtWebEngineCore` (an
+  append lands outside the namespace and fails with `'WebAuthenticationDelegateQt' has not been
+  declared`), and the build script passes `-f` (without it `makepkg` aborts on the previous package).
+
 ## 1.17.37
 
 ### Added
