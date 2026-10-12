@@ -201,6 +201,34 @@ thing the patches change is the conditional case — exactly the `kAutofill` sup
 removes. (`mediation: 'modal'` is not a valid value and throws `TypeError`; the modal flow is
 `'optional'`.)
 
+## Durability — a system upgrade reverts the INSTALL, not just the source
+
+The patch lives in a package you built; Arch does not know it exists. **Any `qt6-webengine` upgrade —
+`pacman -Syu`, or reinstalling the stock package — replaces `libQt6WebEngineCore.so` and reverts both
+patches silently.** The symptom returns exactly as before: passkey pages spin with nothing clickable,
+and the engine emits no `WebAuthn UX request` at all.
+
+There are two distinct failure modes and they are detected differently:
+
+| what changed | detector |
+|---|---|
+| a Qt upgrade moved the code the patch anchors on (**source drift**) | `apply-webauthn-patch.py --check` — and `tests/shell/test_engine_patch.sh` — fails loudly, because the patch would silently become a no-op |
+| a system upgrade replaced the **installed** library while the source stays patched | `--check` still passes (the source is fine). The detector is behavioural: `tests/e2e/test_webauthn_ux_e2e.sh` reports `E2E UVPA=true` on a patched engine and SKIPs with a message when the running engine is stock |
+
+So after any `qt6-webengine` upgrade, check the **running** engine, not just the source:
+
+```bash
+bash tests/e2e/test_webauthn_ux_e2e.sh        # want: E2E UVPA=true
+```
+
+If it reports `false`, rebuild and reinstall:
+
+```bash
+python3 docs/engine-patch/apply-webauthn-patch.py     # idempotent; also re-applies after source drift
+python3 docs/engine-patch/build-patched-engine.sh     # incremental; ~10 min when only this file changed
+sudo pacman -U ~/Work/qt6-webengine-build/qt6-webengine/qt6-webengine-*.pkg.tar.zst
+```
+
 ## Reverting
 
 ```bash
