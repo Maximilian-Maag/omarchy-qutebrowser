@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.17.40
+
+### Changed
+- **Google's passkey sign-in needs the chrome-identity userscript — tested, not assumed.** Disabling
+  `userscripts/omarchy-google-signin-chrome-identity.js` and attempting a Google sign-in with the
+  patched engine (so the patch is the only correction active) gives "This browser or app may not be
+  secure"; re-enabling it restores sign-in. So for Google the engine patch is *necessary but not
+  sufficient*. This corrects the previous entry, which said Google signs in without isolating which
+  correction was doing the work.
+- `docs/webauthn-signin.md` — "What works today", Cause 1, "Verified on this machine" and "Known
+  limits" now state the isolated result; `docs/engine-patch/README.md` "Limits" likewise.
+
 ## 1.17.39
 
 ### Changed

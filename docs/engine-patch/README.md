@@ -201,7 +201,7 @@ sudo cp ~/Work/qt6-webengine-build/rollback/libQt6WebEngineCore.so.6.11.2 \
 ## Limits
 
 These fix the *capability* answer and the conditional-request hang. They do not make the engine
-identify as Chrome — yet, measured, Google's account sign-in **now succeeds** with the patched engine
-(it prompts for the PIN and logs in), which the page-visible userscript correction never achieved.
-Whether Google still needs the chrome-identity userscript alongside the engine patch is untested; see
-`../webauthn-signin.md`, "Known limits".
+identify as Chrome, and that matters: measured, the engine patch is **necessary but not sufficient**
+for Google. With the patch *plus* `userscripts/omarchy-google-signin-chrome-identity.js`, Google signs
+in; with the patch alone (userscript disabled) Google refuses, "This browser or app may not be
+secure". For Microsoft the patch alone is enough. See `../webauthn-signin.md`, "Known limits".

@@ -15,7 +15,7 @@ Verified 2026-10-12 with the patched engine (`qt6-webengine` 6.11.2-2) installed
 | provider | state | mechanism |
 |---|---|---|
 | Microsoft | **works natively** | engine patch 1 — the platform-probe userscript is no longer needed and is now *disabled*, and sign-in still prompts for the key |
-| Google | **signs in** (PIN prompt → logged in) | engine patch 1 + `userscripts/omarchy-google-signin-chrome-identity.js` (still enabled; whether Google still *needs* it now that the engine answers natively is untested — see "Known limits") |
+| Google | **signs in**, but **only** with the identity userscript | engine patch 1 **and** `userscripts/omarchy-google-signin-chrome-identity.js`. Tested: disabling that userscript (engine patch alone) → Google refuses, "This browser or app may not be secure" |
 | engine | patched build installed; supersedes the Microsoft userscript | `docs/engine-patch/` |
 
 The engine *does* drive a FIDO2 key correctly — this is measured, not assumed. Given a page that
@@ -49,12 +49,13 @@ Correcting that single answer is enough for Microsoft. The correction wraps the 
 method in a `Proxy` — nothing is removed or replaced, only the return value changes — and is scoped
 to Microsoft's hosts.
 
-**The userscript is deliberately not applied to Google's account hosts.** Measured earlier: Google
-refused the sign-in outright ("Couldn't sign you in — This browser or app may not be secure") for
-even that narrow a page-visible deviation, so a userscript is the wrong tool for Google. **The
-engine patch changes that**: an engine-level `true` is not detectable by the page (measured below —
-the same probe answers `true` natively, with no script), and Google then signs in. See "What works
-today" and "Known limits".
+**For Google the engine patch is necessary but not sufficient.** An engine-level `true` is not
+detectable by the page (measured: the same probe answers `true` natively, with no script), and that
+is enough for Microsoft. Google additionally requires the browser's *identity* to be corrected — the
+page-visible `userscripts/omarchy-google-signin-chrome-identity.js`. Tested both ways: with the
+engine patch *and* that userscript, Google signs in; with the engine patch alone (userscript
+disabled), Google refuses with "This browser or app may not be secure". See "What works today" and
+"Known limits".
 
 ## Cause 2 — the correction is a race, not a one-shot
 
@@ -214,11 +215,14 @@ userscript and no page involved: load a secure origin and evaluate
 was checked against the one built into the package — they match.)
 
 **End to end, by hand** — with the Microsoft platform-probe userscript *disabled*, and nothing else
-injecting the API: Microsoft's passkey sign-in prompts for the key and completes, and Google's
-passkey sign-in prompts for the PIN and logs in. The Microsoft result is the engine doing the work
-with no page-visible correction. The Google result is the engine-level fix getting further than the
-page-visible correction ever did — but see "Known limits": the chrome-identity userscript was still
-enabled for it.
+injecting the WebAuthn API: Microsoft's passkey sign-in prompts for the key and completes. That is
+the engine doing the work, with no page-visible correction.
+
+**Google, isolated** — the open question was whether Google still needs the chrome-identity
+userscript. Tested by disabling it, leaving the engine patch as the only active correction: Google
+refuses, "This browser or app may not be secure". Re-enabling it restores sign-in. So for Google the
+engine patch is *necessary but not sufficient*; the identity userscript is still required, and is
+kept enabled.
 
 ## Verifying
 
@@ -261,12 +265,12 @@ To see the capability answer the page gets, on the page itself:
 
 ## Known limits
 
-- **Google now signs in, but the cause is not fully isolated.** With the patched engine and the
-  chrome-identity userscript *still enabled*, Google prompts for the PIN and logs in. Whether the
-  engine patch alone suffices — i.e. whether `userscripts/omarchy-google-signin-chrome-identity.js`
-  can now be removed — has **not** been tested. If it can, a large page-visible
-  Chrome-impersonation shim goes away; that is the next experiment, and until it is run this
-  userscript should be regarded as possibly-still-needed.
+- **Google requires the chrome-identity userscript — measured, not assumed.** With the engine patch
+  *and* `userscripts/omarchy-google-signin-chrome-identity.js`, Google signs in. With that userscript
+  disabled (engine patch alone), Google refuses: "This browser or app may not be secure". So the
+  userscript is still required and is kept enabled. It is a large page-visible deviation, which is a
+  real cost worth removing if Google's checks ever allow it — but not at the price of breaking
+  sign-in.
 - **The Microsoft fix is no longer a userscript.** The engine patch replaced it, and it was verified
   sign-in with the userscript disabled. The userscript is retained only as a fallback.
 - **Microsoft's flow is intermittent even so.** Its passkey page does not always call WebAuthn; the
