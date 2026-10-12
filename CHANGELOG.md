@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.17.37
+
+### Added
+- **`docs/webauthn-signin.md`** - why passkey sign-in needed work, with the measured evidence. Three
+  distinct causes, all of which present as the same symptom: QtWebEngine reports no platform
+  authenticator, so pages never start a ceremony; the correction is a race with the engine
+  installing `PublicKeyCredential` after `document-start`; and a `patched` flag is a lie, because the
+  engine can replace the corrected method afterwards.
+
+### Added
+- **`docs/engine-patch/`** - the proper fix. Chromium routes the capability answer through the
+  embedder (`WebAuthenticationDelegate::IsUserVerifyingPlatformAuthenticatorAvailableOverride`), so
+  Qt's own delegate can answer `true`: no Chromium file changes, nothing page-visible, and no need
+  for the Microsoft userscript. Includes the patch, the build script, and a probe.
+
 ## 1.17.36
 
 ### Fixed
