@@ -265,7 +265,7 @@ key to it if you want one.
 | `,o` | normal | Reader: open the focused supporting-article preview (also `Enter`) |
 | `,O` | normal | Reader: fact-check the whole article |
 | `,z+` / `,z-` | normal | Zoom in / out (remembered per domain) |
-| `,zl` / `gd` | normal | Apply the saved zoom for this domain |
+| `,zl` | normal | Apply the saved zoom for this domain (no `gd` alias: `gd` is qutebrowser's `download`) |
 | `,zr` | normal | Forget this domain's zoom (back to 100%) |
 | `,p` | normal | Open current URL in a private window |
 | `,kp` | normal | Check KeePassXC setup status |

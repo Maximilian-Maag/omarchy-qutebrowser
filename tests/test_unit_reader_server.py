@@ -131,6 +131,33 @@ class ExtractJsonCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.srv.extract_json("nothing here")
 
+    def test_bracketed_aside_before_the_json_is_ignored(self):
+        # the old parser took the EARLIEST bracket, so a bracketed aside made it fail
+        text = '[1] The model said [{"index": 1, "verdict": "supported"}]'
+        self.assertEqual(self.srv.extract_json(text),
+                         [{"index": 1, "verdict": "supported"}])
+
+    def test_braces_inside_strings_do_not_confuse_the_scan(self):
+        text = '{"reason": "he said {not json} and [not json]"}'
+        self.assertEqual(self.srv.extract_json(text),
+                         {"reason": "he said {not json} and [not json]"})
+
+    def test_enclosing_array_wins_over_the_objects_inside_it(self):
+        self.assertEqual(self.srv.extract_json('here: [{"a": 1}, {"b": 2}] done'),
+                         [{"a": 1}, {"b": 2}])
+
+    def test_unbalanced_leading_bracket_still_finds_the_object(self):
+        self.assertEqual(self.srv.extract_json('note [unclosed then {"ok": true}'),
+                         {"ok": True})
+
+    def test_trailing_prose_after_the_json_is_ignored(self):
+        self.assertEqual(self.srv.extract_json('{"ok": true}\n\nLet me know if you need more.'),
+                         {"ok": True})
+
+    def test_empty_reply_raises(self):
+        with self.assertRaises(ValueError):
+            self.srv.extract_json("")
+
 
 class RunAiCase(unittest.TestCase):
     @classmethod
@@ -148,17 +175,24 @@ class RunAiCase(unittest.TestCase):
             out = '{"ok": true}'
             err = ""
             last = None
+            queue = []          # scripted replies, one per call (else `out`)
+            args_log = []       # every argv the server built
 
             def __init__(self, args, **kw):
                 FakePopen.last = self
+                FakePopen.args_log.append(args)
                 self.args, self.kw = args, kw
                 self.returncode = FakePopen.rc
                 self.timeout = None
 
             def communicate(self, timeout=None):
                 self.timeout = timeout
+                if FakePopen.queue:
+                    return FakePopen.queue.pop(0), FakePopen.err
                 return FakePopen.out, FakePopen.err
 
+        FakePopen.queue = []
+        FakePopen.args_log = []
         self.fake = FakePopen
         self.srv.subprocess.Popen = FakePopen
         self.addCleanup(lambda: setattr(self.srv.subprocess, "Popen", self.saved_popen))
@@ -194,6 +228,28 @@ class RunAiCase(unittest.TestCase):
         with self.assertRaises(RuntimeError) as ctx:
             self.srv.run_ai("PROMPT")
         self.assertIn("boom", str(ctx.exception))
+
+    def test_a_prose_reply_is_retried_with_a_json_only_instruction(self):
+        self.fake.queue = ["I think the passage is supported by the headlines.",
+                           '{"verdict": "supported"}']
+        self.assertEqual(self.srv.run_ai("PROMPT"), {"verdict": "supported"})
+        self.assertEqual(len(self.fake.args_log), 2, "the model must be asked again")
+        self.assertEqual(self.fake.args_log[0][2], "PROMPT")
+        self.assertIn("Return ONLY the JSON", self.fake.args_log[1][2],
+                      "the retry must say explicitly that only JSON is wanted")
+
+    def test_retries_zero_surfaces_the_error_without_asking_again(self):
+        self.fake.queue = ["no brackets anywhere here"]
+        with self.assertRaises(ValueError) as ctx:
+            self.srv.run_ai("PROMPT", retries=0)
+        self.assertIn("no JSON found", str(ctx.exception))
+        self.assertEqual(len(self.fake.args_log), 1, "retries=0 must not ask again")
+
+    def test_the_retry_is_bounded(self):
+        self.fake.queue = ["prose one", "prose two", "prose three"]
+        with self.assertRaises(ValueError):
+            self.srv.run_ai("PROMPT")
+        self.assertEqual(len(self.fake.args_log), 2, "one retry, not an endless loop")
 
 
 class NewsQueryCase(unittest.TestCase):

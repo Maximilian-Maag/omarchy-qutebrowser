@@ -436,12 +436,13 @@ config.bind("<Enter>", "reader-open-article", mode="normal")  # noqa
 # remembered by stepping with ,z+ / ,z- (which apply AND save the new level).
 # ,z+ = zoom in one step (remembered)   ,z- = zoom out one step (remembered)
 # ,zl = apply the saved level           ,zr = forget domain, back to 100%
-# gd  = convenience alias for ,zl
+# NB: there is deliberately NO `gd` alias for ,zl — qutebrowser binds `gd` to
+# `download`, and an alias here silently took that away (the plugin's binding wins).
+# Plugin shortcuts must not squat on a stock qutebrowser binding; use ,zl.
 config.bind(",z+", "zoom-in", mode="normal")  # noqa
 config.bind(",z-", "zoom-out", mode="normal")  # noqa
 config.bind(",zl", "zoom-load", mode="normal")  # noqa
 config.bind(",zr", "zoom-reset", mode="normal")  # noqa
-config.bind("gd", "zoom-load", mode="normal")  # noqa
 
 # ---------------------------------------------------------------------------
 # Per-domain tweaks

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.17.47
+
+### Fixed
+- **Fact-checking failed with "no JSON found in model output".** `extract_json` took the
+  *earliest* bracket in the model's reply and tried exactly one slice per bracket type, so a
+  reply that mentioned a bracketed aside before the JSON (or any prose after it) failed to
+  parse even though the JSON was right there. It now scans for **balanced** blocks (ignoring
+  brackets inside strings) and tries them longest-first, so an enclosing array wins over the
+  objects inside it. `run_ai` also re-asks once — with "Return ONLY the JSON" appended —
+  when a model answers in prose, instead of handing the reader a bare parser error.
+- **`gd` silently replaced qutebrowser's `download`.** The plugin bound `gd` as a
+  convenience alias for `,zl`; because a `config.bind` in `config.py` wins over a stock
+  binding, `gd` stopped being `download` and became a zoom command. The alias is gone —
+  `,zl` does the job, and the plugin no longer squats on any stock qutebrowser binding.
+  Guarded by a new integration test that executes `config.py` with a recording stub and
+  compares every binding against qutebrowser's own defaults (it names the offending key,
+  e.g. `('gd', 'zoom-load', 'download')`).
+
 ## 1.17.46
 
 ### Fixed

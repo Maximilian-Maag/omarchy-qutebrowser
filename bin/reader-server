@@ -188,33 +188,69 @@ Passage:
 %s"""
 
 
+def _json_candidates(text):
+    """Yield balanced {...} / [...] blocks found anywhere in `text`.
+
+    Scans with a bracket counter that ignores brackets inside strings, so prose around,
+    before, or between the blocks cannot hide the JSON — e.g. "[1] The model said
+    [ {...}, {...} ]" yields the object(s) and the enclosing array. Sorted longest first
+    by the caller, so an enclosing array wins over the objects inside it.
+    """
+    stack, in_string, escaped = [], False, False
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "{[":
+            stack.append((index, char))
+        elif char in "}]" and stack:
+            start, opener = stack.pop()
+            if (opener, char) in (("{", "}"), ("[", "]")):
+                yield text[start:index + 1]
+
+
 def extract_json(text):
     """Pull the JSON object/array out of an LLM response.
 
-    Tries the whole string first, then parses from the EARLIEST opening bracket
-    (so `{"summary": [...]}` yields the object, not the inner array)."""
-    text = text.strip()
-    text = re.sub(r"^```[a-zA-Z]*\s*|```$", "", text, flags=re.M).strip()
-    try:
-        return json.loads(text)
-    except ValueError:
-        pass
-    starts = [(text.find(c), c) for c in "[{" if text.find(c) != -1]
-    for pos, opener in sorted(starts):
-        closer = "]" if opener == "[" else "}"
-        end = text.rfind(closer)
-        if end > pos:
-            try:
-                return json.loads(text[pos:end + 1])
-            except ValueError:
-                continue
+    Tries the whole string first, then every balanced block it can find, longest first —
+    a reply that wraps the JSON in prose, or puts a bracketed aside before it, still
+    parses instead of failing with 'no JSON found'.
+    """
+    text = (text or "").strip()
+    unfenced = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text, flags=re.M).strip()
+    for whole in (text, unfenced):
+        if not whole:
+            continue
+        try:
+            return json.loads(whole)
+        except ValueError:
+            pass
+    for candidate in sorted(_json_candidates(unfenced), key=len, reverse=True):
+        try:
+            return json.loads(candidate)
+        except ValueError:
+            continue
     raise ValueError("no JSON found in model output")
 
 
-def run_ai(prompt, timeout=None):
-    # Each call spawns a local agent process; a handful can be started at once
-    # (per-paragraph score + whole-article mark + summary), so bound concurrency
-    # instead of letting them pile up.
+# Appended when a model answers in prose instead of JSON, so the retry is unambiguous.
+JSON_ONLY = "%s\n\nReturn ONLY the JSON, with no other text, no explanation and no code fences."
+
+
+def _spawn_agent(prompt, timeout=None):
+    """Run the local agent once and return its stdout.
+
+    Each call spawns a local agent process; a handful can be started at once
+    (per-paragraph score + whole-article mark + summary), so bound concurrency
+    instead of letting them pile up.
+    """
     with _AI_SLOTS:
         # start_new_session so a timeout can kill the whole process GROUP. subprocess.run's
         # timeout SIGKILLs only the direct child, and HERMES is usually a wrapper — its own
@@ -232,7 +268,24 @@ def run_ai(prompt, timeout=None):
             raise
     if proc.returncode != 0:
         raise RuntimeError((err or "hermes failed").strip()[:300])
-    return extract_json(out)
+    return out
+
+
+def run_ai(prompt, timeout=None, retries=1):
+    """Ask the local agent and return the JSON it answered with.
+
+    A model occasionally replies in prose; rather than hand the reader a bare 'no JSON
+    found', ask once more and say explicitly that only JSON is wanted.
+    """
+    out = _spawn_agent(prompt, timeout)
+    while True:
+        try:
+            return extract_json(out)
+        except ValueError:
+            if retries <= 0:
+                raise
+            retries -= 1
+            out = _spawn_agent(JSON_ONLY % prompt, timeout)
 
 
 # --------------------------------------------------------------------------- #
