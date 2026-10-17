@@ -9,7 +9,7 @@
 | **22 Omarchy themes** | Every stock theme (catppuccin, nord, tokyo-night, gruvbox, …) plus automatic live switching when you run `omarchy theme set` |
 | **KeePassXC** | Fill passwords with `Alt+Shift+U` (insert) or `pw` (normal) via the bundled `qute-keepassxc` userscript (`--insecure` mode, no GPG required) |
 | **YouTube ad-free** | Removes pre-roll/mid-roll video ads by stripping the ad payload out of the player response before YouTube reads it, plus ad-request blocking and skip/force-end fallbacks |
-| **Built-in ad blocker** | Brave + EasyList + EasyPrivacy + uBlock Origin filter lists, host-based blocking |
+| **Built-in ad + tracker blocking** | Brave's adblock engine over EasyList, EasyPrivacy, EasyList Germany, AdGuard, uBlock Origin and Fanboy lists, plus our own always-on tracker and YouTube-ad lists; hosts-level blocking (StevenBlack + haGeZi + Peter Lowe + Dan Pollock) |
 | **yt-dlp download** | `,dv` downloads a video (best mp4), `,dm` extracts MP3. On a video page it grabs that video; on any list (YouTube search results, a channel, …) it shows hints so you pick which video — works on YouTube, Vimeo, and 1000+ other sites |
 | **Default browser** | `install.sh` sets qutebrowser at all three levels: user `~/.config/mimeapps.list`, system `/etc/xdg/mimeapps.list`, and Omarchy `/usr/share/applications/mimeapps.list` |
 
@@ -185,12 +185,27 @@ Two layers, so an ad is normally never scheduled in the first place:
 - Still skips/force-ends any ad that does manage to play, and restores your own
   playback speed afterwards.
 
-**At the network layer** — `config/blocking/youtube-ads.txt` (15 rules for the
-YouTube ad endpoints plus DoubleClick/AdSense/GTM) is the first entry in
-`content.blocking.adblock.lists`, alongside EasyList and the uBO lists. It is
-versioned with the plugin, so YouTube ad blocking does not depend on an upstream
-list being current. `googlevideo.com` is deliberately left alone — that is the
-video CDN itself.
+**At the network layer** — two lists we ship come **first** in
+`content.blocking.adblock.lists`, ahead of the upstream ones:
+
+- `config/blocking/youtube-ads.txt` — the YouTube ad endpoints, DoubleClick/AdSense/GTM.
+  `googlevideo.com` is deliberately left alone: that is the video CDN itself.
+- `config/blocking/trackers.txt` — ~90 common tracker/telemetry domains (analytics,
+  session replay, fingerprinting/identity resolution, ad exchanges, social pixels, tag
+  managers). It is versioned with the plugin, so the well-known trackers are blocked
+  from the repo alone — even when an upstream list is unreachable or stale.
+
+Around those sit EasyList, EasyPrivacy, EasyList Germany, Fanboy (annoyance/social/
+cookie), the uBlock Origin lists (filters, privacy, badware, resource-abuse, quick-fixes,
+social, unbreak, annoyances) and AdGuard (base, tracking protection, annoyances), plus a
+crypto-miner list; hosts-level blocking adds StevenBlack, haGeZi's Pro list, Peter Lowe
+and Dan Pollock. See `docs/blocking.md`.
+
+`content.blocking.method = "both"` uses those lists, and qutebrowser blocks with Brave's
+adblock-rust engine. Note that the engine is asked only whether to **block** a request:
+`$removeparam` style URL rewriting is not wired by qutebrowser, so a rule that only
+strips query parameters never runs — blocking domains, not rewriting URLs, is the lever
+here.
 
 After a plugin update run `:config-source`, then `,ab` (`:adblock-update`) once:
 qutebrowser caches parsed filter lists, so a newly added list only takes effect

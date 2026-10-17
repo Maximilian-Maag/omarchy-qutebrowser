@@ -1,0 +1,111 @@
+! omarchy-qutebrowser — tracker & telemetry blocking (our own, always-on)
+!
+! Request-level companion to the upstream lists. Lives in the repo for the same reason
+! as youtube-ads.txt: the most common trackers are blocked from this list alone, so
+! blocking does not depend on an upstream list being current (or, offline, on it being
+! cached at all). Upstream lists still add breadth and site-specific rules.
+!
+! Syntax is ABP/adblock, parsed by Brave's adblock-rust via qutebrowser.
+!   ||domain^   block the domain and all its subdomains
+! Keep it to unambiguous trackers/telemetry: `unbreak.txt` (already in the list set)
+! and per-site whitelists handle the rare site that needs one of these to function.
+
+! ── Analytics / web telemetry ──
+||google-analytics.com^
+||analytics.google.com^
+||googletagmanager.com^
+||stats.g.doubleclick.net^
+||clarity.ms^
+||bat.bing.com^
+||mc.yandex.ru^
+||metrika.yandex.ru^
+||scorecardresearch.com^
+||quantserve.com^
+||quantcount.com^
+||matomo.cloud^
+||nr-data.net^
+||newrelic.com^
+||browser-intake-datadoghq.com^
+||datadoghq.com^
+||logrocket.com^
+||logrocket.io^
+||lr-ingest.io^
+||bugsnag.com^
+||raygun.io^
+
+! ── Product analytics / session replay ──
+||segment.io^
+||segment.com^
+||mixpanel.com^
+||mxpnl.com^
+||amplitude.com^
+||heapanalytics.com^
+||hotjar.com^
+||mouseflow.com^
+||smartlook.com^
+||luckyorange.com^
+||inspectlet.com^
+||crazyegg.com^
+||clicktale.net^
+||fullstory.com^
+||contentsquare.net^
+||quantummetric.com^
+
+! ── Device fingerprinting / identity resolution ──
+||fingerprintjs.com^
+||fpjs.io^
+||deviceatlas.com^
+||krxd.net^
+||bluekai.com^
+||demdex.net^
+||omtrdc.net^
+||2o7.net^
+||everesttech.net^
+||agkn.com^
+||exelator.com^
+||rlcdn.com^
+||liadm.com^
+||id5-sync.com^
+||tapad.com^
+
+! ── Ad exchanges / retargeting ──
+||adnxs.com^
+||adsrvr.org^
+||criteo.com^
+||criteo.net^
+||pubmatic.com^
+||rubiconproject.com^
+||openx.net^
+||casalemedia.com^
+||smartadserver.com^
+||adform.net^
+||mathtag.com^
+||turn.com^
+||teads.tv^
+||sharethrough.com^
+||triplelift.com^
+||taboola.com^
+||outbrain.com^
+||adsafeprotected.com^
+||moatads.com^
+||narrative.io^
+
+! ── Social trackers / pixels ──
+||connect.facebook.net^
+||ads.linkedin.com^
+||px.ads.linkedin.com^
+||snap.licdn.com^
+||sc-static.net^
+||tr.snapchat.com^
+||ct.pinterest.com^
+||ads.pinterest.com^
+||static.ads-twitter.com^
+||analytics.twitter.com^
+||analytics.tiktok.com^
+
+! ── Tag managers (can load anything) ──
+||tagcommander.com^
+||commandersact.com^
+||tealiumiq.com^
+||tiqcdn.com^
+||ensighten.com^

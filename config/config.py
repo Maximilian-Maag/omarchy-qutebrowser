@@ -132,40 +132,60 @@ c.content.headers.do_not_track = True
 # ---------------------------------------------------------------------------
 # Ad blocking — built-in host blocker + Brave/uBlock filter lists
 # ---------------------------------------------------------------------------
-# Our own video-ad list first: it targets the YouTube pre-roll/mid-roll ad
-# endpoints specifically, so blocking does not depend on an upstream list being
-# current. Resolved through the config.py symlink, so it works no matter where
-# the plugin is installed.
-_video_ads_list = None
-try:
-    _cfg_real = os.path.realpath(os.path.join(config_dir, "config.py"))
-    _candidate = os.path.join(os.path.dirname(os.path.dirname(_cfg_real)),
-                              "config", "blocking", "youtube-ads.txt")
-    if os.path.isfile(_candidate):
-        _video_ads_list = _candidate
-except Exception:
-    _video_ads_list = None
+# Our own lists come first: youtube-ads.txt targets the video-ad endpoints and
+# trackers.txt targets the common tracker/telemetry domains, so both block from the
+# repo alone — without depending on an upstream list being reachable or current.
+# Resolved through the config.py symlink, so it works no matter where the plugin is
+# installed.
+def _blocking_list(name):
+    """Absolute path to one of our own filter lists under config/blocking/, else None."""
+    try:
+        cfg_real = os.path.realpath(os.path.join(config_dir, "config.py"))
+        candidate = os.path.join(os.path.dirname(os.path.dirname(cfg_real)),
+                                 "config", "blocking", name)
+        return candidate if os.path.isfile(candidate) else None
+    except Exception:
+        return None
+
+
+_video_ads_list = _blocking_list("youtube-ads.txt")
+_tracker_list = _blocking_list("trackers.txt")
 
 c.content.blocking.enabled = True
 c.content.blocking.method = "both"      # hosts + adblock filter lists
 c.content.blocking.hosts.block_subdomains = True
 c.content.blocking.adblock.lists = [
     *([_video_ads_list] if _video_ads_list else []),
+    *([_tracker_list] if _tracker_list else []),
     "https://easylist.to/easylist/easylist.txt",
     "https://easylist.to/easylist/easyprivacy.txt",
+    "https://easylist.to/easylistgermany/easylistgermany.txt",
     "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
+    "https://secure.fanboy.co.nz/fanboy-social.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/badware.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/resource-abuse.txt",
+    "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/quick-fixes.txt",
+    "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/social.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/unbreak.txt",
     # Cookie consent banners
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt",
     "https://www.fanboy.co.nz/fanboy-cookiemonster.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances.txt",
+    # AdGuard: base (minus EasyList overlap), tracking protection, annoyances
+    "https://filters.adtidy.org/extension/ublock/filters/2_without_easylist.txt",
+    "https://filters.adtidy.org/extension/ublock/filters/3.txt",
+    "https://filters.adtidy.org/extension/ublock/filters/18.txt",
+    # Cryptojacking / crypto-miner scripts
+    "https://raw.githubusercontent.com/hoshsadiq/adblock-nocoin-list/master/nocoin.txt",
 ]
 c.content.blocking.hosts.lists = [
     "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+    # haGeZi's DNS blocklist (hosts format) — strong tracker/telemetry coverage
+    "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.txt",
+    "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=text/plain",
+    "https://someonewhocares.org/hosts/zero/hosts",
 ]
 
 # ---------------------------------------------------------------------------

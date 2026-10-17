@@ -151,5 +151,29 @@ class RegressionCase(unittest.TestCase):
         peer.dir.cleanup()
 
 
+    def test_blocking_carries_our_tracker_list_and_the_tracker_lists(self):
+        """The blocking set had no dedicated tracker list and did not ship our own, so
+        tracking coverage was whatever easylist/easyprivacy happened to include, and it
+        vanished entirely when the upstream lists could not be fetched."""
+        cfg = (REPO / "config/config.py").read_text()
+        self.assertIn('_blocking_list("trackers.txt")', cfg)
+        self.assertIn("*([_tracker_list] if _tracker_list else [])", cfg)
+        for needle in ("easyprivacy", "easylistgermany", "fanboy-social",
+                       "filters/social.txt", "filters/quick-fixes.txt",
+                       "filters/3.txt", "nocoin", "hagezi", "adservers"):
+            self.assertIn(needle, cfg, "%s must be in the blocking configuration" % needle)
+
+    def test_our_own_filter_lists_are_wellformed(self):
+        """Our own lists are parsed by the engine like any other: a malformed line is
+        silently dropped, so a typo'd rule would look shipped while blocking nothing."""
+        for name in ("youtube-ads.txt", "trackers.txt"):
+            text = (REPO / "config" / "blocking" / name).read_text()
+            rules = [ln.strip() for ln in text.splitlines()
+                     if ln.strip() and not ln.lstrip().startswith(("!", "["))]
+            self.assertTrue(rules, "%s must contain rules" % name)
+            for rule in rules:
+                self.assertTrue(rule.startswith("||"), "%s: unexpected rule %r" % (name, rule))
+
+
 if __name__ == "__main__":
     unittest.main()

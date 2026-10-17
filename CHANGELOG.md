@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.17.45
+
+### Changed
+- **Tracker blocking: our own always-on list, plus a much wider upstream set.**
+  `config/blocking/trackers.txt` (~90 unambiguous tracker/telemetry domains: analytics,
+  session replay, fingerprinting / identity resolution, ad exchanges, social pixels, tag
+  managers) is now the second entry in `content.blocking.adblock.lists`, after the YouTube
+  list and ahead of the upstream ones — so the well-known trackers are blocked from the
+  repo alone, even offline or against a stale upstream list.
+- The list set gains EasyList Germany, Fanboy Social, uBlock `quick-fixes` and `social`,
+  AdGuard Base / Tracking Protection / Annoyances, and the NoCoin miner list; hosts-level
+  blocking gains haGeZi's Pro list, Peter Lowe and Dan Pollock alongside StevenBlack.
+- Note: qutebrowser only asks the engine *block or not* — it does not wire `$removeparam`,
+  so URL query-parameter stripping is unavailable; tracker blocking is domain blocking.
+  Documented in `docs/blocking.md`.
+- Guarded by a new e2e that drives the **real** adblock engine over the shipped lists
+  (`tests/e2e/test_blocking_e2e.sh`): 17 tracker/ad endpoints blocked, 6 real-content URLs
+  left alone. It caught two rules that looked right and blocked nothing — Mixpanel's CDN is
+  `mxpnl.com`, not `mixpanel.com`, and Tealium's is `tiqcdn.com`, not `tealiumiq.com`.
+
 ## 1.17.44
 
 ### Changed
