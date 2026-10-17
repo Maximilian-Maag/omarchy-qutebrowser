@@ -5,11 +5,13 @@ killed, reports a green run over nothing — so its own behaviour is pinned here
 """
 import importlib.util
 import json
+import os
 import pathlib
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -21,6 +23,47 @@ def load_mutator():
     sys.modules["mutator"] = mod
     spec.loader.exec_module(mod)
     return mod
+
+
+class RunTestsCase(unittest.TestCase):
+    """run_tests() must run a target's tests in their OWN process group.
+
+    Mutating `tools/mutator.py` runs a nested mutator, so a target's tests can spawn
+    children. Killing only the direct child at the timeout left grandchildren spinning at
+    100% CPU for hours (five orphans, load 7.5) — long after the pass printed its verdict.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mut = load_mutator()
+
+    def test_returns_exit_code_and_output(self):
+        rc, out, _err = self.mut.run_tests(["bash", "-c", "printf hi; exit 3"], ".", 10)
+        self.assertEqual(rc, 3)
+        self.assertEqual(out, "hi")
+
+    def test_a_timeout_raises(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.mut.run_tests(["sleep", "30"], ".", 1)
+
+    def test_a_timeout_kills_the_whole_group_including_grandchildren(self):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="mut-group-"))
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        marker = tmp / "grandchild.pid"
+        # shell -> backgrounded `sleep` (the grandchild) -> foreground `sleep`
+        script = "sleep 300 & echo $! > %s; sleep 300" % marker
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.mut.run_tests(["bash", "-c", script], ".", 1)
+        self.assertTrue(marker.is_file(), "the grandchild never started")
+        pid = int(marker.read_text().strip())
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return                       # gone: the group kill worked
+            time.sleep(0.1)
+        self.fail("the spawned grandchild survived the timeout (pid %d)" % pid)
 
 
 class MutatorCase(unittest.TestCase):

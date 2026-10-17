@@ -103,3 +103,32 @@ patch silently becomes a no-op and the browser stops offering passkeys — with 
   patched build is installed).
 - the handler's state machine, PIN messages, failure mapping and retry: `tests/test_unit_webauthn.py`.
 - mutation: `config/omarchy_webauthn.py` is a mutation target (floor 0.80; currently 1.00).
+
+## Test harness — closed
+
+The reader JS harness reported a *different* set of failures every run, which is the worst
+kind of test result. Cause: it named its Qt platform with
+`os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")`, and the desktop session exports
+`QT_QPA_PLATFORM=wayland;xcb`, so the harness default never applied. The scenarios then ran
+against a real, timer-throttled page instead of the offscreen platform their fixed timings
+are written for.
+
+| revision | failures per run (`node tests/js/reader.harness.test.js`) |
+|---|---|
+| 1.17.47 | 3, 3, 2 — never clean |
+| 1.17.48 (platform forced) | 24/24, 24/24, 24/24 |
+
+The harness now assigns the platform outright and merges its required Chromium flags over
+whatever the environment already sets. The same latent dependency was removed from the three
+other Qt-driving test files (`tests/e2e/webauthn_ux_driver.py`; omarchy-pdf's
+`test_integration_viewer.py` and `test_viewer_e2e.sh`) — each of them had relied on a runner
+to export the variable rather than doing it itself. Two genuine races behind the same symptom
+are fixed too: debounced work is waited for by polling the effect (the beacon a save produces
+— `window.__waitFor`) instead of sleeping, and `#status` is followed with a MutationObserver,
+because on a throttled page a 40ms poll can be ~1s apart and a status line that is set and
+cleared again is never seen at poll time.
+
+The same investigation found the mutation pass leaking runaway processes: a timed-out nested
+mutator (mutating `tools/mutator.py` runs the mutator itself) left grandchildren spinning at
+100% CPU for hours — five orphans, up to 2.7h, load 7.5 — and that load was another source of
+harness flakiness. `run_tests()` now kills the whole process group on timeout (1.17.48).

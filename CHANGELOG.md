@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.17.48
+
+### Fixed
+- **The mutation pass leaked runaway processes.** A target's tests run as a subprocess, and
+  mutating `tools/mutator.py` runs a NESTED mutator, so those tests spawn grandchildren. On
+  timeout only the direct child was killed: five orphans were found still spinning at 100%
+  CPU up to 2.7 hours after the pass had printed its verdict (load average 7.5, and they
+  were what made the JS step fail in unrelated runs — `reader.harness.test.js`). `run_tests()`
+  now starts each test run in its own process group (`start_new_session=True`) and `killpg`s
+  the group on timeout. Guarded by `tests/test_unit_mutator.py::RunTestsCase`, which spawns a
+  grandchild and asserts it is gone; against the old code that test fails (verified).
+  After the fix a full pass leaves load at 0.3 and no orphans.
+- **The reader JS harness reported a different set of failures every run — it ran on
+  whatever display the caller's environment named.** It set `QT_QPA_PLATFORM` with
+  `setdefault`, and the desktop session exports `QT_QPA_PLATFORM=wayland;xcb`, which won: the
+  scenarios then ran against a real, timer-throttled page instead of the offscreen platform
+  their timings are written for. Measured 3 runs each of `node
+  tests/js/reader.harness.test.js`: inherited display 3/3/2 failures (never clean); platform
+  forced to offscreen 24/24, 24/24, 24/24. The harness now forces the platform (and merges
+  its required Chromium flags over any already in the environment), and the same
+  `setdefault`-shaped defence was applied to the three other Qt-driving test files.
+  Genuine races behind the same symptom are fixed too: waits poll for the effect (the beacon
+  a save produces) instead of sleeping, and `#status` is followed with a MutationObserver —
+  under a throttled page a 40ms poll can be ~1s apart, so a status line that is set and
+  cleared again was never seen at poll time.
+
 ## 1.17.47
 
 ### Fixed

@@ -22,13 +22,22 @@ for var, sub in (("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"),
     os.environ[var] = os.path.join(_TMP, sub)
 os.environ["XDG_RUNTIME_DIR"] = os.path.join(_TMP, "run")
 os.makedirs(os.environ["XDG_RUNTIME_DIR"], mode=0o700, exist_ok=True)
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS",
-                      "--no-sandbox --disable-gpu --disable-dev-shm-usage "
-                      "--disable-background-timer-throttling "
-                      "--disable-backgrounding-occluded-windows "
-                      "--disable-renderer-backgrounding "
-                      "--disable-features=CalculateNativeWinOcclusion,NetworkService")
+# FORCE the platform and the flags. These scenarios time themselves against the page's own
+# timers, so inheriting the desktop session's display changes their behaviour and makes them
+# flaky: `setdefault` was not enough here, because the session exports
+# QT_QPA_PLATFORM=wayland;xcb, which won — measured 3/3/2 failures that way, and 24/24 twice
+# with the platform forced to offscreen. Extra flags already in the environment are kept.
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+_REQUIRED_CHROMIUM_FLAGS = (
+    "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+    "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-features=CalculateNativeWinOcclusion,NetworkService")
+_flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "").split()
+for _flag in _REQUIRED_CHROMIUM_FLAGS:
+    if _flag not in _flags:
+        _flags.append(_flag)
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(_flags)
 
 from PyQt6.QtCore import QTimer  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
@@ -139,6 +148,36 @@ window.fetch = function (url, opts) {
 Object.defineProperty(navigator, 'sendBeacon', { configurable: true,
   value: function (url, blob) { window.__calls.beacon.push({ url: String(url), blob: blob }); return true; } });
 window.open = function (u) { window.__calls.open.push(String(u)); return null; };
+// Every value #status has ever held. Polling the live element is not enough: a background
+// page has its timers throttled (a 40ms poll can end up ~1s apart), so a status line that
+// is set and cleared again is simply never seen at poll time.
+window.__statusLog = [];
+(function () {
+  function hook() {
+    var el = document.getElementById('status');
+    if (!el) { setTimeout(hook, 25); return; }
+    function note() {
+      var t = el.textContent;
+      var log = window.__statusLog;
+      if (log[log.length - 1] !== t) log.push(t);
+    }
+    note();
+    new MutationObserver(note).observe(el, { childList: true, characterData: true, subtree: true });
+  }
+  hook();
+})();
+// Wait for a debounced/async effect rather than sleeping a fixed time: a fixed sleep is a
+// race under CPU load (seen as flaky beacon assertions), and polling returns as soon as
+// the effect lands. Keep the cap near the sleep it replaces — the harness gives each
+// scenario ~15s, and the node wrapper kills the whole run at 180s.
+window.__waitFor = async function (pred, ms) {
+  var deadline = Date.now() + (ms || 2500);
+  while (Date.now() < deadline) {
+    if (pred()) return true;
+    await new Promise(function (r) { setTimeout(r, 40); });
+  }
+  return !!pred();
+};
 window.scrollTo = function (x, y) { window.__calls.scroll = [x, y]; };
 """
 
@@ -291,11 +330,16 @@ DRIVER = r"""
   //    separately by the node slice tests) ──────────────────────────────
   var wheelsBefore = qa('#article .fact-wheel').length;
   window.omarchyReader.factcheckall();
-  await wait(400);
+  // Wait for the pass to report itself finished — checking the recorded timeline, because
+  // the live status line is cleared again before a throttled poll can see it.
+  await window.__waitFor(function () {
+    return window.__statusLog.some(function (t) { return /Fact-checked \d+ paragraph/.test(t); });
+  });
+  var saidAll = window.__statusLog.filter(function (t) { return /Fact-checked/.test(t); });
   obs.wheelsBefore = wheelsBefore;
   obs.wheelsAfterAll = qa('#article .fact-wheel').length;
   obs.cardsAfterAll = qa('#article .fact-card').length;
-  obs.statusAfterAll = q('#status').textContent;
+  obs.statusAfterAll = saidAll[saidAll.length - 1] || q('#status').textContent;
 
   // ── summary (s) ──────────────────────────────────────────────────────
   window.omarchyReader.summarize();
@@ -347,6 +391,8 @@ DRIVER = r"""
     return c.body && c.body.indexOf('"summary"') !== -1; }).length - summaryReqsBefore;
 
   // ── the persisted state (sendBeacon payload) ─────────────────────────
+  // the save is debounced, so wait for it to land instead of racing a fixed sleep
+  await window.__waitFor(function () { return window.__calls.beacon.length > 0; });
   var last = window.__calls.beacon[window.__calls.beacon.length - 1];
   if (last && last.blob && last.blob.text) {
     try { obs.savedState = JSON.parse(await last.blob.text()).state; }
@@ -442,6 +488,7 @@ CAPTURE_DRIVER = r"""
   await wait(150);
   window.omarchyReader.removeai();
   await wait(150);
+  await window.__waitFor(function () { return window.__calls.beacon.length > 0; });
   var last = window.__calls.beacon[window.__calls.beacon.length - 1];
   if (last && last.blob && last.blob.text) {
     try { obs.savedState = JSON.parse(await last.blob.text()).state; }
@@ -458,9 +505,15 @@ BADJSON_DRIVER = r"""
   var obs = window.__obs;
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function q(s) { return document.querySelector(s); }
+  var initial = window.__statusLog[window.__statusLog.length - 1] || '';
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
-  await wait(650);
-  obs.badJsonStatus = q('#status').textContent;
+  // Wait for the app to say something NEW, reading the recorded timeline for the same
+  // throttling reason as above.
+  await window.__waitFor(function () {
+    return window.__statusLog.some(function (t) { return t && t !== initial; });
+  });
+  var said = window.__statusLog.filter(function (t) { return t && t !== initial; });
+  obs.badJsonStatus = said[said.length - 1] || q('#status').textContent;
   obs.__done = true;
   } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
 })();
@@ -476,7 +529,7 @@ RESTORE_EMPTY_DRIVER = r"""
   window.omarchyReader.removeai();          // no AI paragraphs -> sets an error, no save
   var before = window.__calls.beacon.length;
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
-  await wait(2200);                          // tap 460ms + applyVerdict -> saveState (900ms debounce)
+  await window.__waitFor(function () { return window.__calls.beacon.length > before; });
   obs.savedAfterEmptyRestore = window.__calls.beacon.length - before;
   obs.__done = true;
   } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
@@ -550,8 +603,9 @@ VISIBLEKEY_DRIVER = r"""
   var activeBlk = q('#article .blk.active');
   obs.activeText = activeBlk ? blockText(activeBlk) : null;
   // force a save so the payload's `pos` (visibleKey) is observable
+  var beforeSave = window.__calls.beacon.length;
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
-  await wait(2400);
+  await window.__waitFor(function () { return window.__calls.beacon.length > beforeSave; });
   var last = window.__calls.beacon[window.__calls.beacon.length - 1];
   if (last && last.blob && last.blob.text) {
     try { var st = JSON.parse(await last.blob.text()).state; obs.savedPos = st.pos; }

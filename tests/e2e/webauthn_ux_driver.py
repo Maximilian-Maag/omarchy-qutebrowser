@@ -27,7 +27,9 @@ for _var, _sub in (("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"),
     os.environ[_var] = os.path.join(_TMP, _sub)
 os.environ["XDG_RUNTIME_DIR"] = os.path.join(_TMP, "run")
 os.makedirs(os.environ["XDG_RUNTIME_DIR"], mode=0o700, exist_ok=True)
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Force offscreen: this drives real Qt, and inheriting the session's QT_QPA_PLATFORM makes
+# the run depend on the desktop session (that is exactly what made the JS harness flaky).
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS",
                       "--no-sandbox --disable-gpu --disable-dev-shm-usage "
                       "--disable-background-timer-throttling "
