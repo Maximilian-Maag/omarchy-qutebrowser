@@ -135,17 +135,34 @@ c.content.headers.do_not_track = True
 # Our own lists come first: youtube-ads.txt targets the video-ad endpoints and
 # trackers.txt targets the common tracker/telemetry domains, so both block from the
 # repo alone — without depending on an upstream list being reachable or current.
-# Resolved through the config.py symlink, so it works no matter where the plugin is
-# installed.
+# Resolved relative to this file, so it works from the repo, from an install, and
+# through the ~/.config/qutebrowser symlink.
 def _blocking_list(name):
-    """Absolute path to one of our own filter lists under config/blocking/, else None."""
+    """Absolute path to one of our own filter lists under config/blocking/, else None.
+
+    Tried relative to THIS file first: config.py lives in <plugin>/config/ next to
+    blocking/, which holds from a repo checkout, from the installed copy and through the
+    ~/.config/qutebrowser symlink alike. The symlink-only resolution this replaces silently
+    returned None whenever config.py was executed without that symlink — which is exactly
+    how CI runs it — so our lists dropped behind the upstream ones and
+    `test_our_own_lists_come_first` failed with 'easylist.txt' != 'youtube-ads.txt'.
+    """
+    candidates = []
+    try:
+        candidates.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                       "blocking", name))
+    except NameError:
+        pass
     try:
         cfg_real = os.path.realpath(os.path.join(config_dir, "config.py"))
-        candidate = os.path.join(os.path.dirname(os.path.dirname(cfg_real)),
-                                 "config", "blocking", name)
-        return candidate if os.path.isfile(candidate) else None
+        candidates.append(os.path.join(os.path.dirname(os.path.dirname(cfg_real)),
+                                       "config", "blocking", name))
     except Exception:
-        return None
+        pass
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 
 
 _video_ads_list = _blocking_list("youtube-ads.txt")

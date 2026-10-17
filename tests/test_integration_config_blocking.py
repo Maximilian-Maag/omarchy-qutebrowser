@@ -7,6 +7,7 @@ into the wrong place — a broken config.py means the browser starts with an err
 """
 import pathlib
 import sys
+import tempfile
 import types
 import unittest
 
@@ -26,7 +27,8 @@ class _Auto:
 
 
 class _ConfigStub:
-    configdir = pathlib.Path.home() / ".config" / "qutebrowser"
+    def __init__(self, configdir=None):
+        self.configdir = configdir or (pathlib.Path.home() / ".config" / "qutebrowser")
 
     def bind(self, *a, **k):
         return None
@@ -41,10 +43,10 @@ class _ConfigStub:
         return None
 
 
-def load_config():
+def load_config(configdir=None):
     """Exec config.py with stubs and return the stub `c`."""
     c = _Auto()
-    config = _ConfigStub()
+    config = _ConfigStub(configdir)
     if str(CFG) not in sys.path:
         sys.path.insert(0, str(CFG))
     # omarchy_webauthn.install() pulls in Qt; config.py guards the import, so stub it to
@@ -84,6 +86,20 @@ class BlockingConfigCase(unittest.TestCase):
             self.assertEqual(path.name, name, "list %d must be our %s" % (idx, name))
             self.assertEqual(path.parent, CFG / "blocking")
             self.assertTrue(path.is_file(), "%s must exist" % path)
+
+    def test_our_lists_are_found_without_the_installed_symlink(self):
+        """CI has no ~/.config/qutebrowser/config.py to resolve through.
+
+        Resolving our lists via that symlink returned None there, so the two lists dropped
+        out of `adblock.lists` and easylist silently became first: the exact CI failure
+        (`AssertionError: 'easylist.txt' != 'youtube-ads.txt'`). Locally the symlink exists,
+        which is why this only ever failed on the runner.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            c = load_config(configdir=pathlib.Path(tmp) / "qutebrowser")
+            lists = list(c.content.blocking.adblock.lists)      # type: ignore[arg-type]
+            self.assertEqual(pathlib.Path(lists[0]).name, "youtube-ads.txt")
+            self.assertEqual(pathlib.Path(lists[1]).name, "trackers.txt")
 
     def test_tracker_and_ad_lists_present(self):
         joined = "\n".join(str(x) for x in self.blk.adblock.lists)

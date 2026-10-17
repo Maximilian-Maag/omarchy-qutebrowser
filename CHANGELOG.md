@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.17.49
+
+### Fixed
+- **Our own blocking lists were silently dropped on CI.** `_blocking_list` resolved
+  `config/blocking/*.txt` only through the installed `~/.config/qutebrowser/config.py`
+  symlink. That symlink exists on a workstation, so both lists resolved and came first in
+  `adblock.lists`; a CI runner has no such symlink, so both resolved to `None`, easylist
+  became the first list, and `test_our_own_lists_come_first` failed with
+  `AssertionError: 'easylist.txt' != 'youtube-ads.txt'` — which is why the `tests` workflow
+  had been red for two pushes. Resolution now tries this file's own directory first
+  (config.py sits next to `blocking/`, in a checkout or an install alike) and keeps the
+  symlink path as a fallback. New regression test executes config.py with a `configdir`
+  containing no config.py; against the old code it reproduces the CI assertion exactly.
+
 ## 1.17.48
 
 ### Fixed
