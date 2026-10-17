@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.17.46
+
+### Fixed
+- **Two list URLs were dead (404), so `:adblock-update` reported two failures and fetched
+  neither list.** `uAssets/filters/social.txt` does not exist (uBlock ships no social list;
+  Fanboy Social already covers that), and haGeZi stopped shipping a `hosts/` directory.
+  Replaced with `uAssets/filters/filters-general.txt` and haGeZi Pro's
+  `wildcard/pro-onlydomains.txt` — which qutebrowser's hosts parser accepts directly
+  (one domain per line), verified against the live URL.
+- Added Frogeye's first-party-tracker hosts list (first-party trackers are what host lists
+  usually miss).
+- **Guard:** `tests/e2e/test_blocking_urls_e2e.sh` fetches every list URL config.py
+  configures and fails on a 404/410. A dead list URL is invisible everywhere else —
+  qutebrowser only surfaces it in the status bar during `:adblock-update`, which is exactly
+  how these two shipped. It SKIPs when the network is unreachable.
+
 ## 1.17.45
 
 ### Changed

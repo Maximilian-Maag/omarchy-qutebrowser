@@ -159,8 +159,8 @@ class RegressionCase(unittest.TestCase):
         self.assertIn('_blocking_list("trackers.txt")', cfg)
         self.assertIn("*([_tracker_list] if _tracker_list else [])", cfg)
         for needle in ("easyprivacy", "easylistgermany", "fanboy-social",
-                       "filters/social.txt", "filters/quick-fixes.txt",
-                       "filters/3.txt", "nocoin", "hagezi", "adservers"):
+                       "filters-general.txt", "filters/quick-fixes.txt",
+                       "filters/3.txt", "nocoin", "hagezi", "adservers", "frogeye"):
             self.assertIn(needle, cfg, "%s must be in the blocking configuration" % needle)
 
     def test_our_own_filter_lists_are_wellformed(self):

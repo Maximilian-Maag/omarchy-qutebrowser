@@ -30,16 +30,19 @@ Our own lists come **first**, so they apply even when nothing upstream is reacha
 Then the upstream lists add breadth:
 
 - **Ads / general** — EasyList, AdGuard Base (without the EasyList overlap), uBlock
-  Origin `filters`, `quick-fixes`, `badware`, `resource-abuse`.
+  Origin `filters`, `quick-fixes`, `general`, `badware`, `resource-abuse`.
 - **Tracking / privacy** — EasyPrivacy, AdGuard Tracking Protection, uBlock `privacy`,
-  uBlock `social`, Fanboy Social.
+  Fanboy Social.
 - **Regional** — EasyList Germany.
 - **Annoyances** — Fanboy Annoyance, uBlock `annoyances` and `annoyances-cookies`,
   Fanboy Cookie Monster, AdGuard Annoyances.
 - **Crypto-mining** — NoCoin.
 - **Safety net** — uBlock `unbreak` (re-allows what a site needs to work).
 
-Hosts-level blocking adds StevenBlack, haGeZi's **Pro** list, Peter Lowe and Dan Pollock.
+Hosts-level blocking adds StevenBlack, **haGeZi Pro** (its `wildcard/*-onlydomains.txt`
+list — haGeZi no longer ships a `hosts/` directory, and qutebrowser's hosts parser accepts
+the one-domain-per-line form directly), **Frogeye's first-party-tracker** list, Peter Lowe
+and Dan Pollock.
 
 ## Why ship our own lists
 
@@ -82,6 +85,12 @@ That is what caught two real gaps while this list was written — Mixpanel's CDN
 `mxpnl.com`, not `mixpanel.com`, and Tealium's is `tiqcdn.com`, not `tealiumiq.com`; the
 rules looked right and blocked nothing. A malformed rule in one of our lists is dropped
 silently by the engine, so this check runs against the engine, not against a regex.
+
+`tests/e2e/test_blocking_urls_e2e.sh` fetches **every list URL config.py configures** and
+fails on a 404/410 — a dead list URL is invisible everywhere else, and qutebrowser reports
+it only as a 404 in the status bar during `:adblock-update`. Two bad URLs (`uAssets/filters/
+social.txt`, which does not exist, and haGeZi's removed `hosts/pro.txt`) shipped exactly
+that way and this check is the guard. It SKIPs when the network itself is unreachable.
 
 `tests/test_regression_qutebrowser.py` pins the wiring (the shipped lists are in the list
 set) and that every rule in our files is a `||domain^` rule.

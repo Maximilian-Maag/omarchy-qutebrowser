@@ -167,7 +167,7 @@ c.content.blocking.adblock.lists = [
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/badware.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/resource-abuse.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/quick-fixes.txt",
-    "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/social.txt",
+    "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters-general.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/unbreak.txt",
     # Cookie consent banners
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt",
@@ -182,8 +182,11 @@ c.content.blocking.adblock.lists = [
 ]
 c.content.blocking.hosts.lists = [
     "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
-    # haGeZi's DNS blocklist (hosts format) — strong tracker/telemetry coverage
-    "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.txt",
+    # haGeZi Pro. haGeZi no longer ships a hosts/ directory; this is its
+    # 'one host per line' list, which qutebrowser's hosts parser accepts directly.
+    "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/pro-onlydomains.txt",
+    # first-party trackers, which host lists usually miss
+    "https://hostfiles.frogeye.fr/firstparty-trackers-hosts.txt",
     "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=text/plain",
     "https://someonewhocares.org/hosts/zero/hosts",
 ]

@@ -197,9 +197,9 @@ Two layers, so an ad is normally never scheduled in the first place:
 
 Around those sit EasyList, EasyPrivacy, EasyList Germany, Fanboy (annoyance/social/
 cookie), the uBlock Origin lists (filters, privacy, badware, resource-abuse, quick-fixes,
-social, unbreak, annoyances) and AdGuard (base, tracking protection, annoyances), plus a
-crypto-miner list; hosts-level blocking adds StevenBlack, haGeZi's Pro list, Peter Lowe
-and Dan Pollock. See `docs/blocking.md`.
+general, unbreak, annoyances) and AdGuard (base, tracking protection, annoyances), plus a
+crypto-miner list; hosts-level blocking adds StevenBlack, haGeZi Pro, Frogeye's
+first-party-tracker list, Peter Lowe and Dan Pollock. See `docs/blocking.md`.
 
 `content.blocking.method = "both"` uses those lists, and qutebrowser blocks with Brave's
 adblock-rust engine. Note that the engine is asked only whether to **block** a request:

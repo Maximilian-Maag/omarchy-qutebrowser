@@ -88,13 +88,13 @@ class BlockingConfigCase(unittest.TestCase):
     def test_tracker_and_ad_lists_present(self):
         joined = "\n".join(str(x) for x in self.blk.adblock.lists)
         for needle in ("easyprivacy", "easylistgermany", "fanboy-social",
-                       "filters/social.txt", "filters/quick-fixes.txt",
+                       "filters-general.txt", "filters/quick-fixes.txt",
                        "filters/3.txt", "nocoin"):
             self.assertIn(needle, joined)
 
     def test_hosts_lists_cover_trackers(self):
         hosts = "\n".join(str(x) for x in self.blk.hosts.lists)
-        for needle in ("StevenBlack", "hagezi", "adservers", "someonewhocares"):
+        for needle in ("StevenBlack", "hagezi", "frogeye", "adservers", "someonewhocares"):
             self.assertIn(needle, hosts)
 
 
