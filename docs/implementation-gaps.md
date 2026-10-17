@@ -57,17 +57,18 @@ ones and triage the rest rather than leaving them as an unexamined "maybe":
 | `BrowserAccessibilityInterface::setCurrentValue` | **unreachable** — Qt's own comment: "not yet implemented anywhere in blink"; there is nothing to call |
 | `RenderWidgetHostViewQt::ImeCompositionRangeChanged` | **not needed** — Qt drives IME itself through `QInputMethod`; the engine-side composition range is not consumed by Qt's IME path |
 | `WebContentsViewQt::GetDropData` | **unreachable in QtWebEngine** — only Chrome's `developer_private` extensions API calls it; there are no Chrome extensions here |
-| `WebContentsViewQt::OnCapturerCountChanged` | **queued** — feeds a "screen is being captured" indicator; cosmetic |
-| `PlatformNotificationServiceQt::ScheduleTrigger` / `ReadNextTriggerTimestamp` | **queued** — the Notification-Triggers API (`showTrigger`); a real gap, but it needs a trigger scheduler (`ReadNextTriggerTimestamp` currently always returns `Time::Max()`, so a trigger can never fire) |
-| `WebUsbDetectorQt::OnDeviceAdded` / `OnDeviceRemoved` | **queued** — WebUSB device add/remove notifications; the detector *is* constructed in `browser_main_parts_qt.cpp`, so this is reachable, but the upstream implementation needs notification plumbing |
+| `WebContentsViewQt::OnCapturerCountChanged` | **accepted — correct no-op** | Aura uses it to hold a *video-capture lock* (keeps the display awake while captured); QtWebEngine has no such lock and no consumer for the signal — the sibling `FullscreenStateChanged(bool)` in the same file is likewise an empty no-op |
+| `PlatformNotificationServiceQt::ScheduleTrigger` / `ReadNextTriggerTimestamp` | **not reachable — the feature is absent** | reached only by `showTrigger`, an experimental Blink feature (`NotificationTriggers`: status `experimental`, origin-trial only, off by default). Nothing in this Chromium tree calls `TriggerNotifications()` and there is no trigger-scheduler component — there is no firing path to implement against, so numbering a scheduler here would be dead code |
+| `WebUsbDetectorQt::OnDeviceAdded` / `OnDeviceRemoved` | **not feasible in QtWebEngine** | the upstream body builds a Chrome notification from `TabStripModel` (active-tab URL), `message_center::Notification` and Chrome l10n strings — none of which exist here. WebUSB device-detection notifications are a Chrome browser affordance, not a web-standard exposure |
 | `RenderWidgetHostViewQt::NotifyHostAndDelegateOnWasShown` | **accepted** — presentation-time metric; its siblings are already empty no-ops |
 | `LoadablePluginPlaceholderQt::CreatePlugin` | **unreachable** — returns `nullptr`; Chromium's plugin (PPAPI) system is gone |
 | the `#if BUILDFLAG(IS_MAC)` block in `render_widget_host_view_qt.h` (`ShowSharePicker`, `SetActive`, `SpeakSelection`, `ShowDefinitionForSelection`, `SetWindowFrameInScreen`, `GetNSViewId`) and `CloseTabAfterEventTrackingIfNeeded` | **unreachable on Linux** — inside `#if BUILDFLAG(IS_MAC)` |
 
 The `closed` rows are applied by [`engine-patch/apply-engine-stubs-patch.py`](engine-patch/) (same
 apply / `--revert` / `--check` contract as the WebAuthn patch, guarded by `build-patched-engine.sh`
-and exercised by `tests/shell/test_engine_patch.sh`). The `queued` rows are real and reachable but
-need more than a small, self-contained edit; they are candidates for a bounded follow-up batch.
+and exercised by `tests/shell/test_engine_patch.sh`). The rows that were once marked `queued` are now
+resolved — each as *not reachable*, *not feasible* or *correct no-op*, with the evidence in the row —
+so nothing is left as an unexamined "maybe".
 
 ## qutebrowser / this plugin
 
