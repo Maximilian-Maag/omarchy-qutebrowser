@@ -77,5 +77,57 @@ else
   ok "anchor drift is detected (--check fails loudly)"
 fi
 
+# ── 4. the engine STUBS patch (a11y + clipboard implementations) ──────────────
+# Same contract, different script: docs/engine-patch/apply-engine-stubs-patch.py fills in Qt's
+# QT_NOT_YET_IMPLEMENTED stubs that are real and reachable (see docs/implementation-gaps.md).
+STUB="$REPO/docs/engine-patch/apply-engine-stubs-patch.py"
+ACC="browser_accessibility_qt.cpp"
+CLIP="clipboard_qt.cpp"
+
+if [ -f "$SRC/$ACC" ] && [ -f "$SRC/$CLIP" ]; then
+  python3 "$STUB" --check --src "$SRC" >/tmp/engstub.out 2>&1
+  src_rc=$?
+  if (( src_rc == 0 )) && grep -q "OK: patched" /tmp/engstub.out; then
+    ok "the engine source carries the stub implementations (a11y + clipboard)"
+  else
+    no "the engine stub implementations are not healthy on the real source (rc=$src_rc)"
+    sed 's/^/    /' /tmp/engstub.out
+  fi
+
+  tmp2="$(mktemp -d)"
+  cp "$SRC/$ACC" "$SRC/$CLIP" "$tmp2/"
+  python3 "$STUB" --src "$tmp2" --revert >/dev/null 2>&1
+  if python3 "$STUB" --check --src "$tmp2" 2>&1 | grep -q "OK: appliable"; then
+    ok "a reverted stub copy is appliable - revert restores the original stub text"
+  else
+    no "a reverted stub copy is not appliable: revert left the source broken"
+    python3 "$STUB" --check --src "$tmp2" 2>&1 | sed 's/^/    /'
+  fi
+
+  python3 "$STUB" --src "$tmp2" >/dev/null 2>&1
+  if python3 "$STUB" --check --src "$tmp2" 2>&1 | grep -q "OK: patched"; then
+    ok "applying the stubs patch puts the copy back in the patched state"
+  else
+    no "applying the stubs patch did not reach the patched state"
+  fi
+
+  # drift detection on an UNPATCHED copy (where the anchor is still needed)
+  python3 "$STUB" --src "$tmp2" --revert >/dev/null 2>&1
+  python3 - "$tmp2/$CLIP" <<'PY'
+import pathlib
+import sys
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().replace("ClipboardQt::ReadBookmark", "ClipboardQt::ReadBookmarkRenamed"))
+PY
+  if python3 "$STUB" --check --src "$tmp2" >/dev/null 2>&1; then
+    no "stub anchor drift was NOT detected - a Qt upgrade could silently drop the implementations"
+  else
+    ok "stub anchor drift is detected (--check fails loudly)"
+  fi
+  rm -rf "$tmp2"
+else
+  skip "engine stub sources not present at $SRC"
+fi
+
 echo "shell: $pass passed, $fail failed"
 (( fail == 0 ))

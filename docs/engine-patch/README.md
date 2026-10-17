@@ -85,6 +85,24 @@ This **removes the hang**; it is not a real autofill dropdown. Building one woul
 `SetUserEntityForMakeCredentialRequest` plumbing) — see `../webauthn-signin.md`, "Implementation gap
 analysis".
 
+## Patch 3 — the stubs Qt left unimplemented
+
+Separate from the passkey work. QtWebEngine's own sources carry a `QT_NOT_YET_IMPLEMENTED` marker
+(defined in `core/api/qtwebenginecoreglobal_p.h`) on ~20 methods that the Chromium-only
+`NOTIMPLEMENTED()` scan never showed. `apply-engine-stubs-patch.py` fills in the four that are real,
+reachable on this build, and implementable with the interfaces already at hand:
+
+- `BrowserAccessibilityInterface::characterRect` / `offsetAtPoint` / `keyBindingsForAction` —
+  assistive-technology support (per-character bounds, hit-testing, and the element's keyboard
+  shortcut); and
+- `ClipboardQt::ReadBookmark` — decode `text/x-moz-url`, the exact inverse of the `WriteBookmark()`
+  Qt already implements (Chromium's own Linux clipboard also leaves this `NOTIMPLEMENTED()`).
+
+The remaining stubs are triaged in [`../implementation-gaps.md`](../implementation-gaps.md) — most
+are platform-guarded (`#if BUILDFLAG(IS_MAC)`) or need a subsystem Qt does not ship. Same contract as
+patches 1–2: apply / `--revert` / `--check`, and `build-patched-engine.sh` refuses to build if it is
+not healthy.
+
 ## Why no Chromium file is touched
 
 Both hooks already exist in Chromium and are routed to the embedder; Qt simply never filled them in.

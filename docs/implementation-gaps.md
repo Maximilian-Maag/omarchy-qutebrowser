@@ -18,6 +18,8 @@ grep -oE '[A-Za-z]+' "$SRC/core/authenticator_request_client_delegate_qt.h" | so
 comm -23 /tmp/ch.txt /tmp/qt.txt
 # every NOTIMPLEMENTED in Qt's own sources
 grep -rn 'NOTIMPLEMENTED()' "$SRC" --include=*.cpp | grep -v /3rdparty/
+# ...and Qt's OWN stub macro, which the Chromium-only scan above misses
+grep -rn 'QT_NOT_YET_IMPLEMENTED' "$SRC" --include=*.cpp --include=*.h | grep -v qtwebenginecoreglobal_p.h
 ```
 
 ## Engine (QtWebEngine)
@@ -34,11 +36,38 @@ grep -rn 'NOTIMPLEMENTED()' "$SRC" --include=*.cpp | grep -v /3rdparty/
 | two `MessagePumpForUIQt::Run/Quit` NOTIMPLEMENTED | **accepted** | Qt's own comment: only used outside the GUI thread; not in normal use. |
 | `RenderWidgetHostViewQt::EnsureSurfaceSynchronizedForWebTest` NOTIMPLEMENTED | **accepted** | test-only, not shipped behaviour. |
 | `AutofillClientQt::GetAutofillSuggestions` NOTIMPLEMENTED | **accepted — correct** | Qt's comment: password-manager only; with KeePassXC the empty return is right. |
-| `ClipboardQt::ReadBookmark` NOTIMPLEMENTED | **accepted — minor** | X11 selection bookmark; a real but tiny gap, unrelated to sign-in. |
+| `ClipboardQt::ReadBookmark` NOTIMPLEMENTED | **closed** — stubs patch | decodes `text/x-moz-url` (the exact inverse of the `WriteBookmark()` Qt already implements). Chromium's own Linux clipboard also leaves this `NOTIMPLEMENTED()`, so closing it improves on the platform default. |
 | `CreateVulkanImplementation` NOTIMPLEMENTED | **accepted — unreachable** | inside `#if BUILDFLAG(IS_APPLE)` (MoltenVK); Linux does not take that path. |
 | `vulkan_implementation_qt` NOTIMPLEMENTED | **accepted** | only with the Vulkan compositor build; not used here. |
 | `extensions_browser_client_qt` NOTIMPLEMENTED | **accepted** | Chrome-extension surface Qt only partly implements; qutebrowser does not use extensions. |
 | `PageAlmostIdle` not implemented | **accepted — cosmetic** | a performance metric. |
+
+### Qt's own stub macro — the scan the register originally missed
+
+The first pass above greps only Chromium's `NOTIMPLEMENTED()`. QtWebEngine's own sources mark the
+rest with `QT_NOT_YET_IMPLEMENTED` (defined in `core/api/qtwebenginecoreglobal_p.h`), used ~20 times
+across `core/`. Re-deriving with that macro changes the inventory — implement the real, reachable
+ones and triage the rest rather than leaving them as an unexamined "maybe":
+
+| stub | verdict |
+|---|---|
+| `BrowserAccessibilityInterface::characterRect` | **closed** — stubs patch: the bounds of one character, in `rect()`'s coordinate convention (screen bounds / device scale factor) |
+| `BrowserAccessibilityInterface::offsetAtPoint` | **closed** — stubs patch: the inverse of `characterRect`, the same character-rect scan Chromium's own ATK path uses (`AXPlatformNodeAuraLinux::GetTextOffsetAtPoint`) |
+| `BrowserAccessibilityInterface::keyBindingsForAction` | **closed** — stubs patch: the element's `kKeyShortcuts` for the one action this interface exposes (`setFocus`) |
+| `BrowserAccessibilityInterface::setCurrentValue` | **unreachable** — Qt's own comment: "not yet implemented anywhere in blink"; there is nothing to call |
+| `RenderWidgetHostViewQt::ImeCompositionRangeChanged` | **not needed** — Qt drives IME itself through `QInputMethod`; the engine-side composition range is not consumed by Qt's IME path |
+| `WebContentsViewQt::GetDropData` | **unreachable in QtWebEngine** — only Chrome's `developer_private` extensions API calls it; there are no Chrome extensions here |
+| `WebContentsViewQt::OnCapturerCountChanged` | **queued** — feeds a "screen is being captured" indicator; cosmetic |
+| `PlatformNotificationServiceQt::ScheduleTrigger` / `ReadNextTriggerTimestamp` | **queued** — the Notification-Triggers API (`showTrigger`); a real gap, but it needs a trigger scheduler (`ReadNextTriggerTimestamp` currently always returns `Time::Max()`, so a trigger can never fire) |
+| `WebUsbDetectorQt::OnDeviceAdded` / `OnDeviceRemoved` | **queued** — WebUSB device add/remove notifications; the detector *is* constructed in `browser_main_parts_qt.cpp`, so this is reachable, but the upstream implementation needs notification plumbing |
+| `RenderWidgetHostViewQt::NotifyHostAndDelegateOnWasShown` | **accepted** — presentation-time metric; its siblings are already empty no-ops |
+| `LoadablePluginPlaceholderQt::CreatePlugin` | **unreachable** — returns `nullptr`; Chromium's plugin (PPAPI) system is gone |
+| the `#if BUILDFLAG(IS_MAC)` block in `render_widget_host_view_qt.h` (`ShowSharePicker`, `SetActive`, `SpeakSelection`, `ShowDefinitionForSelection`, `SetWindowFrameInScreen`, `GetNSViewId`) and `CloseTabAfterEventTrackingIfNeeded` | **unreachable on Linux** — inside `#if BUILDFLAG(IS_MAC)` |
+
+The `closed` rows are applied by [`engine-patch/apply-engine-stubs-patch.py`](engine-patch/) (same
+apply / `--revert` / `--check` contract as the WebAuthn patch, guarded by `build-patched-engine.sh`
+and exercised by `tests/shell/test_engine_patch.sh`). The `queued` rows are real and reachable but
+need more than a small, self-contained edit; they are candidates for a bounded follow-up batch.
 
 ## qutebrowser / this plugin
 

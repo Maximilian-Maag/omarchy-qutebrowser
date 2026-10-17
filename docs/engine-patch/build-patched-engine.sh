@@ -24,7 +24,14 @@ for f in authenticator_request_client_delegate_qt.h authenticator_request_client
         exit 9
     fi
 done
-echo "==> patch verified in both files; starting the build"
+# The stub implementations (a11y characterRect/offsetAtPoint/keyBindingsForAction, clipboard
+# ReadBookmark) are guarded the same way: refuse to build if the anchors have drifted or the edits
+# are absent, so a Qt upgrade cannot silently ship without them.
+if ! python3 "$(dirname "$0")/apply-engine-stubs-patch.py" --check --src "$SRC"; then
+    echo "!!! ENGINE STUBS PATCH not healthy - refusing to build" >&2
+    exit 9
+fi
+echo "==> patches verified in both files; starting the build"
 
 cd "$HOME/Work/qt6-webengine-build/qt6-webengine" || exit 8
 makepkg -e --noprepare --nocheck -d -f
