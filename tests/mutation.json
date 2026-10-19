@@ -61,6 +61,26 @@
       ]
     },
     {
+      "path": "bin/ai-fix-overblocking",
+      "lang": "python",
+      "tests": [
+        "python3",
+        "-m",
+        "unittest",
+        "tests.test_unit_ai_fix_overblocking",
+        "tests.test_integration_ai_fix_overblocking",
+        "-q"
+      ],
+      "note": "the self-reexec body is one execv a unit test cannot call without replacing the test process, so the decision (the interpreter to use, and the argv tail) is extracted into pure helpers that ARE tested",
+      "equivalent": [
+        {
+          "line": 67,
+          "kind": "number±1",
+          "reason": "os.environ['PYTHONUNBUFFERED'] = '1' -> '2': CPython treats any non-empty value as 'on', so both disable buffering identically and no observation can tell them apart."
+        }
+      ]
+    },
+    {
       "path": "tools/policy_check.py",
       "lang": "python",
       "tests": [
@@ -200,6 +220,15 @@
         "node",
         "--test",
         "tests/js/google-signin-identity.test.js"
+      ]
+    },
+    {
+      "path": "userscripts/omarchy-chrome-identity.js",
+      "lang": "javascript",
+      "tests": [
+        "node",
+        "--test",
+        "tests/js/chrome-identity.test.js"
       ]
     }
   ],

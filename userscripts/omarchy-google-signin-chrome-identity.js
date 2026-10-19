@@ -35,13 +35,33 @@
                 get: function () {
                     var real = nativeGet.call(this);
                     if (!real || !real.brands) { return real; }
-                    var brands = Array.prototype.map.call(real.brands, function (b) {
+                    var source = Array.prototype.map.call(real.brands, function (b) {
                         return { brand: b.brand, version: b.version };
                     });
-                    var hasChrome = brands.some(function (b) { return b.brand === 'Google Chrome'; });
-                    if (!hasChrome && brands.length) {
-                        brands.unshift({ brand: 'Google Chrome', version: brands[0].version });
+                    // Rebuild the list the way Chrome orders it, and give "Google Chrome" the
+                    // engine's real major version. Two things QtWebEngine gets wrong here, both
+                    // measured on the live engine (brands = ["Not=A?Brand 24", "Chromium 140"]):
+                    //  - the GREASE brand is listed FIRST; Chrome keeps it last, and the
+                    //    sec-ch-ua header this config sends already puts it last, so the JS should
+                    //    agree with the header;
+                    //  - taking the version from brands[0] stamps "Google Chrome" with the grease
+                    //    version ("24") instead of the engine's major ("140") — a self-inflicted
+                    //    mismatch. Use the "Chromium" brand's version.
+                    var chromium = null;
+                    var grease = [];
+                    var rest = [];
+                    source.forEach(function (b) {
+                        if (b.brand === 'Google Chrome') { return; }               // drop duplicates
+                        if (/^Not.?A.?Brand$/i.test(b.brand)) { grease.push(b); return; }
+                        if (b.brand === 'Chromium') { chromium = b; }
+                        rest.push(b);
+                    });
+                    if (source.length) {
+                        var major = (chromium && chromium.version) ||
+                                    (source[0] && source[0].version) || '';
+                        source = [{ brand: 'Google Chrome', version: major }].concat(rest, grease);
                     }
+                    var brands = source;
                     return Object.create(Object.getPrototypeOf(real), {
                         brands: { value: brands, enumerable: true, configurable: true },
                         mobile: { value: real.mobile, enumerable: true, configurable: true },

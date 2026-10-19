@@ -209,14 +209,29 @@ c.content.blocking.hosts.lists = [
 ]
 
 # ---------------------------------------------------------------------------
-# Sign-in pages reject QtWebEngine
+# A coherent stock-Chrome identity for sites that refuse a non-Chrome client
 # ---------------------------------------------------------------------------
-# Google answers the sign-in flow with "This browser or app may not be secure"
-# because the auto-generated UA advertises QtWebEngine, which Google classifies as
-# an embedded browser. Keep the real Chromium version — so the JS Google serves
-# still matches the engine — and drop only the QtWebEngine token, for the sign-in
-# hosts only. Microsoft's login gets the same treatment; it does the same checks.
-def _signin_user_agent():
+# Two families of sites refuse QtWebEngine, and both refusals are the same problem: the
+# engine's fingerprint differs from Chrome's and our privacy defaults add to the difference,
+# so a managed bot-detection suite reads the browser as automated or tampered.
+#
+#   * Google's and Microsoft's sign-in answer "This browser or app may not be secure": the UA
+#     advertised QtWebEngine (which Google classifies as an embedded browser), the client
+#     hints contradicted that UA, the handshake needed a third-party cookie, and a canvas that
+#     cannot be read plus a Do-Not-Track header are the classic automation tells.
+#   * Sites behind managed bot-detection answer with an interstitial or a block page —
+#     "We detected unusual activity from your device or network" / "Performing security
+#     verification". Measured here: LinkedIn (Cloudflare interstitial, Ray ID in the page),
+#     immowelt (DataDome: geo.captcha-delivery.com + a `dd` config script), Kleinanzeigen.
+#
+# On THESE hosts only we present a normal Chrome client: our UA without the QtWebEngine token
+# (Chromium version kept, so the JS the site serves still matches the engine), client hints
+# that agree with it, a readable canvas, no Do-Not-Track, and third-party cookies where a
+# sign-in handshake needs them. Every other site keeps the stricter Privacy-section defaults
+# above. The JavaScript half of the identity — window.chrome, navigator.userAgentData brands,
+# pdfViewerEnabled — is a Greasemonkey script scoped to the same hosts:
+# userscripts/omarchy-chrome-identity.js, installed by install.sh. Keep the two in step.
+def _stock_chrome_user_agent():
     chromium = ""
     try:
         from qutebrowser.utils import version as _qb_version
@@ -227,14 +242,14 @@ def _signin_user_agent():
             "Chrome/%s Safari/537.36" % (chromium or "124.0.0.0"))
 
 
-_sso_ua = _signin_user_agent()
+_stock_ua = _stock_chrome_user_agent()
 
 # qutebrowser ships a "site-specific quirk" that sends a *Firefox* UA to
-# accounts.google.com (qutebrowser#5182). On a Chromium engine that is an
-# inconsistent fingerprint — the UA says Firefox while the JS/fonts/settings say
-# Chrome — and Google answers it with "This browser or app may not be secure".
-# Skip the quirk and send a real Chrome UA instead (the paths with /* are the same
-# patterns the quirk uses, so ours replaces it either way).
+# accounts.google.com (qutebrowser#5182). On a Chromium engine that is an inconsistent
+# fingerprint — the UA says Firefox while the JS/fonts/settings say Chrome — and Google
+# answers it with "This browser or app may not be secure". Skip the quirk and send a real
+# Chrome UA instead (the paths with /* are the same patterns the quirk uses, so ours replaces
+# it either way).
 try:
     _skips = list(c.content.site_specific_quirks.skip) or []            # noqa: F821
     if "ua-google" not in _skips:
@@ -242,58 +257,61 @@ try:
 except Exception:
     pass
 
-for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
-             "https://accounts.youtube.com", "https://accounts.youtube.com/*",
-             "https://login.microsoftonline.com", "https://login.live.com",
-             "https://login.microsoft.com"):
-    config.set("content.headers.user_agent", _sso_ua, _sso)        # noqa: F821
+# The hosts that get the stock-Chrome identity, as one list so the request overrides and the
+# Greasemonkey script stay in step and adding a site is a single edit. `/*` covers every path
+# on the host; the bare host covers the top-level document.
+_STOCK_CHROME_HOSTS = (
+    # Google / Microsoft sign-in
+    "https://accounts.google.com", "https://accounts.google.com/*",
+    "https://accounts.youtube.com", "https://accounts.youtube.com/*",
+    "https://login.microsoftonline.com", "https://login.live.com",
+    "https://login.microsoft.com", "https://account.microsoft.com",
+    # Managed bot-detection (Cloudflare / DataDome)
+    "https://www.linkedin.com", "https://www.linkedin.com/*",
+    "https://*.linkedin.com/*",
+    "https://www.kleinanzeigen.de", "https://www.kleinanzeigen.de/*",
+    "https://*.kleinanzeigen.de/*",
+    "https://www.immowelt.de", "https://www.immowelt.de/*",
+    "https://*.immowelt.de/*",
+)
 
-# ...and the client hints have to agree with that User-Agent. QtWebEngine derives sec-ch-ua from
-# its own build info, so it keeps saying "Chromium" (no "Google Chrome") while the UA claims
-# Chrome — a contradiction a bot-detection suite reads as a spoofed browser, and the same
-# "this browser or app may not be secure" answer. A custom header REPLACES the engine's (verified:
-# exactly one sec-ch-ua is sent), so the hints can be made to match the UA. The grease brand and
-# version mirror what the engine itself sends, and the major tracks the UA's Chromium version.
+# User-Agent: drop the QtWebEngine token, keep the real Chromium version so the JS the site
+# serves still matches the engine.
+for _host in _STOCK_CHROME_HOSTS:
+    config.set("content.headers.user_agent", _stock_ua, _host)          # noqa: F821
+
+# ...and the client hints have to agree with that User-Agent. QtWebEngine derives sec-ch-ua
+# from its own build info, so it keeps saying "Chromium" (no "Google Chrome") while the UA
+# claims Chrome — a contradiction a bot-detection suite reads as a spoofed browser. A custom
+# header REPLACES the engine's (verified: exactly one sec-ch-ua is sent), so the hints can be
+# made to match the UA. The grease brand and version mirror what the engine itself sends, and
+# the major tracks the UA's Chromium version.
 try:
-    _sso_major = _sso_ua.split("Chrome/")[-1].split(".")[0]          # noqa: F821
-    _sso_hints = {
+    _stock_major = _stock_ua.split("Chrome/")[-1].split(".")[0]         # noqa: F821
+    _stock_hints = {
         "sec-ch-ua": ('"Google Chrome";v="%s", "Chromium";v="%s", "Not=A?Brand";v="24"'
-                      % (_sso_major, _sso_major)),
+                      % (_stock_major, _stock_major)),
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": '"Linux"',
     }
-    for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
-                 "https://accounts.youtube.com", "https://accounts.youtube.com/*",
-                 "https://login.microsoftonline.com", "https://login.live.com",
-                 "https://login.microsoft.com"):
-        config.set("content.headers.custom", _sso_hints, _sso)      # noqa: F821
+    for _host in _STOCK_CHROME_HOSTS:
+        config.set("content.headers.custom", _stock_hints, _host)       # noqa: F821
 except Exception:
     pass
 
 # Google's sign-in handshake reads and writes cookies in a THIRD-PARTY context, so the
-# "no-3rdparty" policy set above makes it fail — the classic "This browser or app may not
-# be secure" / failed Gmail login. Allow third-party cookies for the sign-in hosts only:
-# the same list as the UA override, so the exception is as narrow as the fingerprint fix
-# it sits beside. Everything else keeps the stricter policy.
-for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
-             "https://accounts.youtube.com", "https://accounts.youtube.com/*",
-             "https://login.microsoftonline.com", "https://login.live.com",
-             "https://login.microsoft.com"):
-    config.set("content.cookies.accept", "all", _sso)              # noqa: F821
+# "no-3rdparty" policy set above makes it fail. Allow third-party cookies for these hosts
+# only; everything else keeps the stricter policy.
+for _host in _STOCK_CHROME_HOSTS:
+    config.set("content.cookies.accept", "all", _host)                  # noqa: F821
 
-# Google and Microsoft ALSO read detection signals, and our privacy defaults were themselves the
-# tell: a canvas that cannot be read at all is the classic automation signal (bot-detection suites
-# probe canvas/WebGL and treat a blocked read as a fake or tampered browser), and
-# send-Do-Not-Track is a further outlier. Both sites answer such a browser with the same
-# "This browser or app may not be secure" they use for automation, even with a correct Chrome
-# user agent and working cookies. On the SIGN-IN HOSTS ONLY, look like a stock browser; every
-# other site keeps the stricter privacy defaults.
-for _sso in ("https://accounts.google.com", "https://accounts.google.com/*",
-             "https://accounts.youtube.com", "https://accounts.youtube.com/*",
-             "https://login.microsoftonline.com", "https://login.live.com",
-             "https://login.microsoft.com", "https://account.microsoft.com"):
-    config.set("content.canvas_reading", True, _sso)               # noqa: F821
-    config.set("content.headers.do_not_track", False, _sso)        # noqa: F821
+# Bot-detection ALSO probes canvas and reads detection headers: a canvas that cannot be read
+# at all is the classic automation signal (a suite treats a blocked read as a fake or tampered
+# browser, exactly as Google and Microsoft do), and send-Do-Not-Track is a further outlier. On
+# these hosts only, look like a stock browser.
+for _host in _STOCK_CHROME_HOSTS:
+    config.set("content.canvas_reading", True, _host)                   # noqa: F821
+    config.set("content.headers.do_not_track", False, _host)            # noqa: F821
 
 # ---------------------------------------------------------------------------
 # Search engines

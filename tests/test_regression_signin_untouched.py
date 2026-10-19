@@ -50,6 +50,15 @@ EXCEPTIONS = {
         "must_not_match": ("live.com", "microsoft.com", "microsoftonline.com", "apple.com"),
         "must_match_only": ("google.com",),
     },
+    # Same shape, different class of site: the JavaScript half of the stock-Chrome identity for
+    # sites behind managed bot-detection. Kept to the bot-managed hosts so it can never drift onto
+    # an auth flow, and to the same two tells so it cannot grow into the shim that broke sign-in.
+    "omarchy-chrome-identity.js": {
+        "allowed": ("userAgentData", "pdfViewerEnabled"),
+        "must_not_match": ("google.com", "gstatic.com", "youtube.com", "googleusercontent.com",
+                           "live.com", "microsoft.com", "microsoftonline.com", "apple.com"),
+        "must_match_only": ("linkedin.com", "kleinanzeigen.de", "immowelt.de"),
+    },
 }
 
 
@@ -92,12 +101,17 @@ class SigninUntouched(unittest.TestCase):
             # to the conditions - not prose in a comment explaining the exclusion.
             patterns = re.findall(r"^//\s*@match\s+(\S+)", text, re.M)
             self.assertTrue(patterns, "%s declares no @match, so its scope is not asserted" % name)
+            match_only = rules.get("must_match_only", ())
             for pattern in patterns:
                 lowered = pattern.lower()
-                for host in rules.get("must_match_only", ()):
-                    self.assertIn(host, lowered,
-                                  "%s @match %s must stay inside %s - widening it is how the "
-                                  "original shim broke sign-in" % (name, pattern, host))
+                if match_only:
+                    # Each @match must sit on one of the allowed hosts. (One host -> "inside it";
+                    # several -> "inside one of them".) Widening it is how the original shim broke
+                    # sign-in, so an off-list pattern is a failure.
+                    self.assertTrue(any(host in lowered for host in match_only),
+                                    "%s @match %s must stay inside one of %s - widening it is how "
+                                    "the original shim broke sign-in"
+                                    % (name, pattern, ", ".join(match_only)))
                 for host in rules["must_not_match"]:
                     self.assertNotIn(host, lowered,
                                      "%s @match %s must never cover %s - Google refuses the "

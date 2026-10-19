@@ -282,6 +282,12 @@ to its own domain, a fix for one site can never leak onto another.
 > qutebrowser's `content.user_stylesheets` is global (no per-domain patterns),
 > which is why fixes go through Greasemonkey instead of a shared stylesheet.
 
+It also checks for **JavaScript over-blocking**: `bin/ai-fix-overblocking` asks the real
+adblock engine whether this page's own scripts/assets are being dropped, and reads the
+on-page bot / anti-adblock signatures. The verdict is saved under `js_overblocking` and
+reported, so a page left blank by our blocking — or by a bot-detection interstitial — is
+not mistaken for a CSS defect. See `docs/blocking.md`.
+
 ## Reader mode
 
 `,r` extracts the article (Mozilla Readability) and opens it in a clean,
@@ -376,6 +382,7 @@ omarchy-qutebrowser/
 │   └── readability.js       — Mozilla Readability (Apache-2.0)
 ├── bin/
 │   ├── reader-server        — loopback bridge: serves reader page + POST /ai (local agent)
+│   ├── ai-fix-overblocking  — does this page's own JS look over-blocked? (used by ,af)
 │   └── set-system-default   — privileged: sets qutebrowser as system default browser
 ├── install.sh               — one-shot installer
 └── manifest.json            — Omarchy plugin manifest

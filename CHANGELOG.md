@@ -1,5 +1,63 @@
 # Changelog
 
+## 1.17.51
+
+### Added
+- **qute-ai-fix now checks for JavaScript over-blocking.** `,af` diagnosed cookie banners,
+  consent walls and ad containers that slipped through the filter lists, but had no way to answer
+  the other half of a broken page: our own ad/tracker blocking (or a bot-detection interstitial)
+  stopping the page's JavaScript. A blank page with no banner to explain it is exactly that shape.
+  The new `bin/ai-fix-overblocking` collects the page's own subresources (script/link/iframe `src`,
+  and `fetch()`/`import()`/XHR URLs inside inline scripts) from the live DOM, asks the **real**
+  adblock engine about this repo's shipped lists, matches the hostnames in qutebrowser's parsed
+  `blocked-hosts`, and reads the on-page **anti-adblock wall** and **bot-detection** signatures
+  (Cloudflare / DataDome). It returns a verdict — `over-blocking likely` / `some page resources
+  blocked` / `anti-adblock wall detected` / `bot-challenge` / `clean` — which `,af` records in the
+  fix file under `js_overblocking`, reports in the message bar, and hands to the model (instructed
+  not to attribute a bot challenge or a blocked network request to a CSS defect). The check covers
+  the hosts blocker and our own lists; the upstream filter lists are not re-readable here, so that
+  caveat is stated in `docs/blocking.md` rather than implied.
+  - Tests: `tests/test_unit_ai_fix_overblocking.py` (extraction, party classification, hosts
+    matching, signals, the verdict ladder, and the engine path via a fake engine so it is covered
+    without the adblock binding) and `tests/test_integration_ai_fix_overblocking.py` (a real
+    subprocess with the userscript env, which also covers the self-reexec); a mutation target with
+    the repo's 0.80 floor. Docs in `docs/blocking.md`, README feature list updated.
+
+## 1.17.50
+
+### Fixed
+- **Sites behind managed bot-detection blocked the browser as automated.** LinkedIn (Cloudflare),
+  immowelt (DataDome) and Kleinanzeigen answered the browser with a challenge/block page
+  ("Attention Required"; "We detected unusual activity from your device or network") instead of
+  content. Root cause is the same one the Google/Microsoft sign-in fix already names: QtWebEngine's
+  fingerprint differs from Chrome's and our privacy defaults add to the difference, so a detection
+  suite reads the session as a fake browser. Measured tells: the UA carried a `QtWebEngine/6.11.2`
+  token; `navigator.userAgentData.brands` said `Chromium` only; `window.chrome` was empty;
+  `navigator.plugins.length` was 0; `pdfViewerEnabled` was false; and the base config set
+  `content.canvas_reading = False` and `content.headers.do_not_track = True` globally — the classic
+  automation signals.
+  - Fix: extended the existing host-scoped stock-Chrome identity to these sites. `config/config.py`
+    now keeps one `_STOCK_CHROME_HOSTS` list and applies the UA (no QtWebEngine token), agreeing
+    client hints, a readable canvas, no DNT and third-party cookies to all of them; a new
+    `userscripts/omarchy-chrome-identity.js` supplies the JavaScript half (Google Chrome brand,
+    populated `window.chrome`, `pdfViewerEnabled`). Every other site keeps the strict defaults.
+  - Ruled out by measurement, not assumed: the block lists and hosts lists do **not** block the
+    challenge (probed the real adblock engine and `blocked-hosts` for `captcha-delivery.com`,
+    `challenges.cloudflare.com`, site assets — all reachable).
+  - Tests: `tests/test_integration_config_identity.py` (per-host overrides + global defaults stay
+    strict), `tests/js/chrome-identity.test.js` (the JS tells + `@match` scope),
+    `tests/test_regression_signin_untouched.py` (the new script is held to the same minimal API
+    set), and a mutation target for the new userscript. See `docs/anti-bot-identity.md`.
+- **The userAgentData brand correction produced a wrong version and the wrong order.** Verifying
+  the new script against the real engine showed the corrected brands as
+  `["Google Chrome 24", "Not=A?Brand 24", "Chromium 140"]`: QtWebEngine lists the GREASE brand
+  first, so reading `brands[0].version` stamped `"Google Chrome"` with the grease version (`24`)
+  instead of the engine major (`140`), and left the grease brand first where Chrome keeps it last
+  (the `sec-ch-ua` header this config sends already puts it last). The same latent bug was in the
+  Google sign-in script, whose test fixture used the unrepresentative Chromium-first order that hid
+  it. Both now rebuild the list as `["Google Chrome", "Chromium", "Not=A?Brand"]` with the major
+  taken from the `Chromium` brand, and both test fixtures use the engine's real order.
+
 ## 1.17.49
 
 ### Fixed

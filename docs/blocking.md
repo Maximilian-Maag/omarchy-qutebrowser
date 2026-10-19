@@ -57,6 +57,42 @@ site-functionality is left to the upstream lists (which carry per-site exception
 paired with `unbreak.txt`), and any single site that still needs one can be handled with a
 per-site `content.blocking` override.
 
+## Diagnosing over-blocking: `,af` (qute-ai-fix)
+
+Blocking has a failure mode the list set cannot see from the inside: it drops a resource the
+page actually needs, and you get a blank or half-dead page with no cookie banner to explain it.
+The `,af` AI-fix userscript now checks for exactly that. Alongside its cosmetic analysis it runs
+`bin/ai-fix-overblocking`, which:
+
+- collects the page's own subresources (script / link / iframe `src`, and `fetch()` / `import()` /
+  XHR URLs inside inline scripts) from the live DOM qutebrowser
+  serialises for a userscript;
+- asks the **real** adblock engine about our two shipped lists and matches the hostnames in
+  qutebrowser's parsed `blocked-hosts` (the union of the configured hosts lists);
+- reads the on-page signatures of an **anti-adblock wall** and of a **bot-detection interstitial**
+  (Cloudflare / DataDome) — a bot challenge is *not* over-blocking, and saying so is half the
+  value, because a fingerprint refusal and a blocked page look identical.
+
+It returns a verdict (`over-blocking likely` / `some page resources blocked` / `anti-adblock wall
+detected` / `bot-challenge` / `clean`), which the userscript records in the fix file under
+`js_overblocking` and reports in the message bar. The evidence is also handed to the model, which
+is told not to attribute a bot challenge or a blocked network request to a CSS defect.
+
+Caveat, stated so it is not mistaken for a guarantee: the check covers the **hosts** blocker and
+our **own** lists. The large upstream filter lists are cached in a binary form
+(`adblock-cache.dat`) that cannot be re-read here, so a rule from EasyList/uBlock that over-blocks
+is not caught — the hosts lists are the aggressive ones that most often do.
+
+```text
+,af                    # on the broken page; the message bar shows the blocking verdict
+```
+
+The tool is testable on its own, too:
+
+```text
+QUTE_URL=https://www.example/ QUTE_HTML=/tmp/page.html bin/ai-fix-overblocking
+```
+
 ## Updating
 
 qutebrowser caches the *parsed* lists (`~/.local/share/qutebrowser/adblock-cache.dat`) and

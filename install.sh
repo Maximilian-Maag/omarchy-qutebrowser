@@ -61,6 +61,11 @@ ln -sf "$PLUGIN_DIR/userscripts/omarchy-ms-passkey-platform-probe.js" \
 # Google's sign-in refuses this browser at submit without it (measured); scoped to Google hosts only.
 ln -sf "$PLUGIN_DIR/userscripts/omarchy-google-signin-chrome-identity.js" \
        "$GREASEMONKEY_DIR/omarchy-google-signin-chrome-identity.js"
+# JavaScript half of the stock-Chrome identity for sites behind managed bot-detection
+# (LinkedIn/Cloudflare, Kleinanzeigen and immowelt/DataDome); scoped to those hosts only.
+# The request-level half is the _STOCK_CHROME_HOSTS block in config/config.py — keep the two in step.
+ln -sf "$PLUGIN_DIR/userscripts/omarchy-chrome-identity.js" \
+       "$GREASEMONKEY_DIR/omarchy-chrome-identity.js"
 # site-fixes.js is gone — per-domain fixes are generated scripts now
 # (config/site-overrides.py -> greasemonkey/omarchy-sitefix-<domain>.js).
 rm -f "$GREASEMONKEY_DIR/site-fixes.js"
@@ -76,6 +81,8 @@ done
 echo "  Linked userscripts (qute-yt-dl, qute-keepassxc-setup, qute-keepassxc-fill, qute-zoom, qute-ai-fix, qute-reader)"
 chmod +x "$PLUGIN_DIR/bin/reader-server"
 echo "  Reader server: $PLUGIN_DIR/bin/reader-server (started on demand by ,r)"
+chmod +x "$PLUGIN_DIR/bin/ai-fix-overblocking"
+echo "  Over-blocking check: $PLUGIN_DIR/bin/ai-fix-overblocking (run by ,af)"
 
 # ── 4b. Config modules ────────────────────────────────────────────────────────
 ln -sf "$PLUGIN_DIR/config/site-overrides.py" "$QUTE_CONFIG_DIR/site-overrides.py"

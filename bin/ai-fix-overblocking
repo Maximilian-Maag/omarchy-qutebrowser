@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""ai-fix-overblocking — is this page's own JavaScript being over-blocked?
+
+The qute-ai-fix userscript (bound to `,af`) diagnoses cookie banners, consent walls and ad
+containers that slipped through the filter lists. It had no way to answer the *other* half of a
+broken page: our own ad/tracker blocking stopping JavaScript the page needs. That is a real
+failure mode here — the always-on tracker list and the hosts lists (haGeZi Pro is aggressive)
+carry first-party and functional-CDN domains, and a blocked page script leaves a blank or
+half-dead page with no cookie banner in sight to explain it.
+
+This tool answers that question with evidence:
+
+  * it collects the page's own subresources (script/link/iframe src, and fetch()/import()/XHR
+    URLs inside inline scripts) from the live DOM that qutebrowser serialises for a userscript;
+  * it asks the REAL block engine (Brave's adblock-rust — the one qutebrowser blocks with) about
+    the ABP lists this repo ships, and matches the hostnames in qutebrowser's parsed
+    `blocked-hosts` (the union of the configured hosts lists);
+  * it also reads the on-page signatures of an anti-adblock wall and of a bot-detection
+    interstitial — a bot challenge is NOT over-blocking, and saying so is half the value.
+
+Output is a single JSON object on stdout (see `analyze`). It degrades rather than fails: with no
+adblock binding it still checks the hosts file; with no HTML it reports nothing to check.
+
+Interpreter: the `adblock` binding lives with the SYSTEM python (qutebrowser's), so the script
+self-execs into it — comparing REAL paths, because `/usr/bin/python3` is usually a symlink and
+comparing against the literal path re-execs forever.
+"""
+
+import json
+import os
+import pathlib
+import re
+import sys
+
+_SYS_PYTHON = "/usr/bin/python3"
+
+
+def _reexec_target(executable, sys_python=_SYS_PYTHON):
+    """The interpreter to re-exec into, or None when nothing needs doing.
+
+    Pure, so the decision is testable without an actual execv. Re-exec is needed when the
+    system interpreter exists and is not the one we are already running — compared by REAL path,
+    because `/usr/bin/python3` is normally a symlink and a literal compare would loop forever.
+    """
+    if not os.path.exists(sys_python):
+        return None
+    if os.path.realpath(executable or "") == os.path.realpath(sys_python):
+        return None
+    return sys_python
+
+
+def _reexec_args(argv, fallback):
+    """The argument tail to re-exec with: an explicit argv when given, else the interpreter's own.
+
+    Extracted (and pure) so the choice is testable — inside `_ensure_system_python` the whole
+    function is one execv that a unit test cannot call without replacing the test process.
+    """
+    return list(argv or fallback)
+
+
+def _ensure_system_python(argv=None):
+    """Re-exec under the interpreter that has the adblock binding, once."""
+    target = _reexec_target(sys.executable)
+    if target:
+        os.environ["PYTHONUNBUFFERED"] = "1"
+        os.execv(target, [target, os.path.abspath(__file__),
+                          *_reexec_args(argv, sys.argv[1:])])
+
+
+# ── paths ────────────────────────────────────────────────────────────────────
+
+
+def plugin_dir() -> pathlib.Path:
+    """The plugin root (this file lives in <plugin>/bin/)."""
+    return pathlib.Path(__file__).resolve().parent.parent
+
+
+def blocking_lists() -> list:
+    """Our own always-on ABP lists, shipped with the repo (config/blocking/*.txt)."""
+    return sorted((plugin_dir() / "config" / "blocking").glob("*.txt"))
+
+
+def hosts_cache_path() -> pathlib.Path:
+    base = os.environ.get("XDG_DATA_HOME") or (pathlib.Path.home() / ".local" / "share")
+    return pathlib.Path(base) / "qutebrowser" / "blocked-hosts"
+
+
+# ── the block sources ────────────────────────────────────────────────────────
+
+
+def load_engine():
+    """A Brave adblock-rust engine over our own lists, or None if the binding is absent."""
+    try:
+        import adblock
+    except Exception:
+        return None
+    filters = adblock.FilterSet()
+    for path in blocking_lists():
+        filters.add_filter_list(path.read_text(encoding="utf-8", errors="ignore"))
+    return adblock.Engine(filters)
+
+
+def load_hosts() -> set:
+    """The hostnames qutebrowser's hosts blocker actually drops, from its parsed cache.
+
+    The file is the union of the configured hosts lists: lines are either `0.0.0.0 domain` or a
+    bare `domain`; the hostname is always the last field.
+    """
+    hosts = set()
+    path = hosts_cache_path()
+    if not path.is_file():
+        return hosts
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split()
+        if fields:
+            hosts.add(fields[-1].lower())
+    return hosts
+
+
+def engine_blocks(engine, url: str, page_url: str, rtype: str = "script") -> bool:
+    result = engine.check_network_urls(url, page_url, rtype)
+    return bool(result.matched and result.exception is None)
+
+
+def host_blocks(hosts: set, hostname: str) -> bool:
+    """A hostname is dropped if it, or any parent domain, is on the hosts list."""
+    hostname = (hostname or "").lower()
+    if not hostname or not hosts:
+        return False
+    if hostname in hosts:
+        return True
+    labels = hostname.split(".")
+    return any(".".join(labels[i:]) in hosts for i in range(1, len(labels)))
+
+
+# ── extraction ───────────────────────────────────────────────────────────────
+
+_SCRIPT = re.compile(r"""<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']""", re.I)
+_LINK = re.compile(r"""<link\b[^>]*\bhref\s*=\s*["']([^"']+)["']""", re.I)
+_IFRAME = re.compile(r"""<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']""", re.I)
+_FETCH = re.compile(r"""\b(?:fetch|import)\s*\(\s*["']([^"']+)["']""")
+_XHR = re.compile(r"""\.open\s*\(\s*["'](?:GET|POST|PUT|DELETE|HEAD|PATCH)["']\s*,\s*["']([^"']+)["']""")
+_KIND = (("script", _SCRIPT), ("link", _LINK), ("iframe", _IFRAME),
+         ("fetch", _FETCH), ("xhr", _XHR))
+
+# The resource type adblock filters key on, so a stylesheet rule and a script rule are told apart.
+_RTYPE = {"script": "script", "fetch": "script", "xhr": "script",
+          "link": "stylesheet", "iframe": "subdocument"}
+
+
+def same_site(a: str, b: str) -> bool:
+    """True when two hostnames share the last two labels (a coarse but dependency-free check)."""
+
+    def tail(host):
+        return ".".join((host or "").lower().split(".")[-2:]) if host else ""
+
+    return bool(tail(a)) and tail(a) == tail(b)
+
+
+def registrable(url: str) -> str:
+    from urllib.parse import urlparse
+    return urlparse(url).netloc.split(":")[0].lower()
+
+
+def extract_subresources(html: str, base_url: str) -> list:
+    """Every page subresource URL we can see, made absolute, labelled with its kind and party.
+
+    Only http(s) URLs that are not the page itself are kept; duplicates are collapsed.
+    """
+    from urllib.parse import urljoin, urlparse
+
+    page_host = registrable(base_url)
+    seen = {}
+    for kind, pattern in _KIND:
+        for match in pattern.findall(html or ""):
+            url = urljoin(base_url, match.strip())
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                continue
+            if url.rstrip("/") == base_url.rstrip("/"):
+                continue
+            if url in seen:
+                continue
+            host = parsed.netloc.split(":")[0]
+            seen[url] = {"url": url, "kind": kind,
+                         "party": "first" if same_site(host, page_host) else "third"}
+    return list(seen.values())
+
+
+# ── on-page signatures ───────────────────────────────────────────────────────
+
+# A bot-detection interstitial is the OTHER reason a page shows nothing; naming it stops the fix
+# from blaming our blocking when it is the fingerprint. Phrases are deliberately specific.
+_BOT_SIGNALS = (
+    ("bot challenge (Cloudflare)", r"performing security verification|just a moment|"
+                                   r"attention required|challenges\.cloudflare\.com|cf-chl"),
+    ("bot challenge (DataDome)", r"captcha-delivery\.com|datadome|unusual activity from your device"),
+    ("bot challenge", r"verifying you are human|verify you are human|checking your browser"),
+)
+_WALL_SIGNALS = (
+    ("anti-adblock wall", r"disable (?:your |the )?ad ?block(?:er)?|turn off (?:your |the )?ad ?block|"
+                          r"werbeblocker|adblocker (?:erkannt|detected)|bitte deaktiviere"),
+)
+
+
+def page_signals(html: str) -> list:
+    labels = []
+    haystack = html or ""
+    for label, pattern in _BOT_SIGNALS + _WALL_SIGNALS:
+        if re.search(pattern, haystack, re.I):
+            if label not in labels:
+                labels.append(label)
+    return labels
+
+
+# ── the answer ───────────────────────────────────────────────────────────────
+
+
+def verdict_for(blocked: list, signals: list) -> str:
+    if any("bot challenge" in s for s in signals):
+        return "bot-challenge (not blocking — a fingerprint refusal)"
+    first_party = [b for b in blocked if b["party"] == "first"]
+    if first_party:
+        return "over-blocking likely (page's own resources are blocked)"
+    if blocked:
+        return "some page resources blocked (check if they are functional)"
+    if any("anti-adblock wall" in s for s in signals):
+        return "anti-adblock wall detected (the site reports blocking; check its detection script)"
+    return "clean (no page subresource blocked)"
+
+
+def analyze(html: str, page_url: str, engine=None, hosts=None) -> dict:
+    """The whole check: collect subresources, ask both blockers, read page signatures."""
+    subs = extract_subresources(html, page_url)
+    hosts = hosts if hosts is not None else set()
+    blocked = []
+    for sub in subs:
+        host = registrable(sub["url"])
+        by = None
+        if host_blocks(hosts, host):
+            by = "hosts"
+        elif engine is not None:
+            rtype = _RTYPE.get(sub["kind"], "other")
+            if engine_blocks(engine, sub["url"], page_url, rtype):
+                by = "our-list"
+        if by:
+            blocked.append({**sub, "by": by})
+    signals = page_signals(html)
+    return {
+        "page": page_url,
+        "checked": len(subs),
+        "blocked": blocked,
+        "blocked_count": len(blocked),
+        "first_party_blocked": len([b for b in blocked if b["party"] == "first"]),
+        "signals": signals,
+        "verdict": verdict_for(blocked, signals),
+    }
+
+
+def main(argv=None) -> int:
+    _ensure_system_python(argv)
+    page_url = os.environ.get("QUTE_URL", "")
+    html_file = os.environ.get("QUTE_HTML", "")
+    html = ""
+    if html_file and os.path.isfile(html_file):
+        html = pathlib.Path(html_file).read_text(encoding="utf-8", errors="replace")
+    if not page_url:
+        print(json.dumps({"error": "no QUTE_URL"}, indent=2))
+        return 1
+    result = analyze(html, page_url, load_engine(), load_hosts())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

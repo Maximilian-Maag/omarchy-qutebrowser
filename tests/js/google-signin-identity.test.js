@@ -15,11 +15,13 @@ const vm = require('node:vm');
 const SOURCE = fs.readFileSync(
     path.join(__dirname, '..', '..', 'userscripts', 'omarchy-google-signin-chrome-identity.js'), 'utf8');
 
-// What QtWebEngine actually reports: Chromium-only brands, no window.chrome, pdfViewerEnabled false.
+// What QtWebEngine actually reports: the GREASE brand first, then Chromium, no window.chrome,
+// pdfViewerEnabled false. Measured on the live engine — grease-first is why the fixture used to
+// (wrongly) read the version off brands[0].
 function engineBrands() {
     return [
-        { brand: 'Chromium', version: '140' },
         { brand: 'Not=A?Brand', version: '24' },
+        { brand: 'Chromium', version: '140' },
     ];
 }
 
@@ -51,6 +53,38 @@ test('the brands gain Google Chrome, which is the tell Google checks', () => {
     assert.strictEqual(brands[0].brand, 'Google Chrome');
     assert.strictEqual(brands[0].version, '140', 'it should carry the engine version');
     assert.ok(brands.some(b => b.brand === 'Chromium'), 'the real brands are kept, not replaced');
+});
+
+test('the brands are ordered like Chrome and carry the real major version', () => {
+    // Engine order is grease-first (["Not=A?Brand 24", "Chromium 140"]); Chrome leads with the real
+    // brands and keeps the grease brand last. And "Google Chrome" must take the Chromium major
+    // (140), not the grease version (24) that brands[0] would have supplied.
+    const { navigator } = run();
+    const brands = navigator.userAgentData.brands;
+    assert.deepStrictEqual([...brands.map(b => b.brand)],
+                           ['Google Chrome', 'Chromium', 'Not=A?Brand']);
+    assert.strictEqual(brands[0].version, '140');
+});
+
+test('without a Chromium brand the major falls back to the engine brand', () => {
+    // Exercises the `(source[0] && source[0].version) || ''` fallback: no Chromium entry means the
+    // major comes from the first remaining brand. Written because the fallback is otherwise
+    // unreachable and its mutants survived.
+    const proto = {};
+    Object.defineProperty(proto, 'userAgentData', {
+        configurable: true, enumerable: true,
+        get() {
+            return { brands: [{ brand: 'Not=A?Brand', version: '24' }], mobile: false, platform: 'Linux' };
+        },
+    });
+    const navigator = Object.create(proto);
+    const sandbox = { navigator, window: {}, Object, Array, Proxy };
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(SOURCE, sandbox);
+    const brands = navigator.userAgentData.brands;
+    assert.strictEqual(brands[0].brand, 'Google Chrome');
+    assert.strictEqual(brands[0].version, '24', 'falls back to the first engine brand');
 });
 
 test('the engine\'s own brand list is not mutated', () => {
