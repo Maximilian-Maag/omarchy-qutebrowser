@@ -38,7 +38,8 @@ while read -r _tag code url; do
     404|410) no "list is GONE (HTTP $code): $url";;
     4??)     no "list rejects the fetch (HTTP $code): $url";;
     2??|3??) pass=$((pass + 1));;
-    000)     no "no response from $url";;
+    # The driver retries before reporting 0, so this is a host that truly does not answer.
+    0|000)   no "no response from $url (unreachable after retries)";;
     *)       no "unexpected HTTP $code for $url";;
   esac
 done <<< "$out"

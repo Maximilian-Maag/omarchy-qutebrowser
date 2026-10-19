@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.17.52
+
+### Fixed
+- **The `tests` workflow had been red for six pushes; two causes, both fixed.** They were found by
+  reading the failed runs (`gh run list` / `gh run view --log-failed`) rather than assuming, and
+  both are the same recurring lesson — an environment assumed instead of isolated.
+  - **`bin/ai-fix-overblocking`'s baseline test failed on CI.** `ReexecTarget` asserted
+    `_reexec_target("/usr/bin/python3.14")` was `None`, which holds only where that interpreter
+    exists (Arch). On the Ubuntu runner it does not, so `realpath` differed and the function
+    returned the target — the assertion failed and the mutation target reported *"baseline tests
+    fail on unmutated code"*, failing the whole suite. The tests are now hermetic: temporary files
+    and a real symlink, no dependence on the host's interpreters.
+  - **`test_blocking_urls_e2e.sh` failed on a transient `HTTP 0`** for
+    `pgl.yoyo.org/adservers/serverlist.php`: the driver reported `0`, but the shell only matched
+    `000`, so a no-response fell through to "unexpected HTTP $code". The driver now retries a
+    no-response (3 attempts, backoff) before reporting, decides "offline" over two probe URLs
+    instead of one (a single flaky host could otherwise masquerade as offline and silently skip the
+    entire check), and the shell matches `0|000` and reports it as "unreachable after retries". A
+    list host that is genuinely down still fails, which is the point.
+
 ## 1.17.51
 
 ### Added

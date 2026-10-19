@@ -49,20 +49,38 @@ class ReexecArgs(unittest.TestCase):
 
 class ReexecTarget(unittest.TestCase):
     def test_none_when_already_the_system_interpreter(self):
-        self.assertIsNone(TOOL._reexec_target("/usr/bin/python3"))
-        self.assertIsNone(TOOL._reexec_target("/usr/bin/python3.14", sys_python="/usr/bin/python3"))
-        # A symlink to the target compares equal by REAL path, so no endless re-exec.
-        self.assertIsNone(TOOL._reexec_target("/usr/bin/python3", sys_python="/usr/bin/python3"))
+        with tempfile.TemporaryDirectory() as tmp:
+            py = pathlib.Path(tmp) / "python3"
+            py.write_text("")
+            self.assertIsNone(TOOL._reexec_target(str(py), sys_python=str(py)))
+
+    def test_a_symlink_to_the_target_compares_equal_by_real_path(self):
+        # /usr/bin/python3 is normally a symlink to /usr/bin/python3.x, so a literal compare would
+        # re-exec forever. Both directions must read as "already there".
+        with tempfile.TemporaryDirectory() as tmp:
+            real = pathlib.Path(tmp) / "python3.14"
+            real.write_text("")
+            link = pathlib.Path(tmp) / "python3"
+            link.symlink_to(real)
+            self.assertIsNone(TOOL._reexec_target(str(link), sys_python=str(real)))
+            self.assertIsNone(TOOL._reexec_target(str(real), sys_python=str(link)))
 
     def test_none_when_the_system_interpreter_is_absent(self):
         self.assertIsNone(TOOL._reexec_target("/frob/python", sys_python="/no/such/python"))
 
     def test_returns_the_target_for_a_different_interpreter(self):
-        self.assertEqual(TOOL._reexec_target("/frob/python", sys_python="/usr/bin/python3"),
-                         "/usr/bin/python3")
+        with tempfile.TemporaryDirectory() as tmp:
+            mine = pathlib.Path(tmp) / "mine"
+            mine.write_text("")
+            theirs = pathlib.Path(tmp) / "theirs"
+            theirs.write_text("")
+            self.assertEqual(TOOL._reexec_target(str(mine), sys_python=str(theirs)), str(theirs))
 
     def test_an_empty_executable_is_treated_as_different(self):
-        self.assertEqual(TOOL._reexec_target("", sys_python="/usr/bin/python3"), "/usr/bin/python3")
+        with tempfile.TemporaryDirectory() as tmp:
+            theirs = pathlib.Path(tmp) / "theirs"
+            theirs.write_text("")
+            self.assertEqual(TOOL._reexec_target("", sys_python=str(theirs)), str(theirs))
 
 
 class Paths(unittest.TestCase):

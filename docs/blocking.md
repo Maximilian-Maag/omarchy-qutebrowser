@@ -126,7 +126,10 @@ silently by the engine, so this check runs against the engine, not against a reg
 fails on a 404/410 — a dead list URL is invisible everywhere else, and qutebrowser reports
 it only as a 404 in the status bar during `:adblock-update`. Two bad URLs (`uAssets/filters/
 social.txt`, which does not exist, and haGeZi's removed `hosts/pro.txt`) shipped exactly
-that way and this check is the guard. It SKIPs when the network itself is unreachable.
+that way and this check is the guard. It SKIPs when the network itself is unreachable — but the
+driver retries a no-response (3 attempts, backoff) before reporting it, and "offline" means *two*
+probe URLs both fail, so a single flaky host shows up as a failure instead of silently skipping
+the check.
 
 `tests/test_regression_qutebrowser.py` pins the wiring (the shipped lists are in the list
 set) and that every rule in our files is a `||domain^` rule.

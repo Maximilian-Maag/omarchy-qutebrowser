@@ -7,12 +7,20 @@ itself is unreachable (in which case nothing is wrong with the URLs).
 """
 import pathlib
 import sys
+import time
 import types
 import urllib.error
 import urllib.request
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 CFG = REPO / "config"
+
+# A single request that never gets a response is far more often a transient DNS/TLS blip (or a
+# slow list host) than a list that is gone — a CI runner hit exactly that on pgl.yoyo.org and
+# turned the workflow red for a whole push. Retry, so the check measures the LIST, not the
+# runner's luck; a host that is genuinely unreachable still reports 0 after the retries.
+ATTEMPTS = 3
+BACKOFF_SECONDS = 2
 
 
 class _Auto:
@@ -59,8 +67,8 @@ def configured_urls():
     return urls
 
 
-def status(url):
-    """HTTP status for url, or 0 when the request never got a response."""
+def attempt(url):
+    """One HTTP request: the status code, or 0 when no response arrived."""
     req = urllib.request.Request(url, headers={"User-Agent": "omarchy-qutebrowser-urlcheck"})
     try:
         with urllib.request.urlopen(req, timeout=45) as resp:
@@ -72,14 +80,33 @@ def status(url):
         return 0
 
 
-urls = configured_urls()
+def status(url):
+    """HTTP status for url, or 0 when the request never got a response after retries."""
+    code = 0
+    for index in range(ATTEMPTS):
+        code = attempt(url)
+        if code != 0:
+            return code
+        if index + 1 < ATTEMPTS:
+            time.sleep(BACKOFF_SECONDS * (index + 1))
+    return code
 
-# Probe one URL first: if nothing answers at all, the network is down, not the list.
-first = status(urls[0]) if urls else 0
-if first == 0:
+
+urls = configured_urls()
+if not urls:
     print("E2E OFFLINE=1")
     sys.exit(0)
 
-print("URL %d %s" % (first, urls[0]))
-for url in urls[1:]:
-    print("URL %d %s" % (status(url), url))
+# Probe the first two URLs before fetching the rest: an offline runner fails fast here instead of
+# burning a timeout per list. Two, not one, so a single flaky host cannot masquerade as "offline"
+# and silently skip the whole check.
+probe = urls[:2]
+codes = {url: status(url) for url in probe}
+if all(code == 0 for code in codes.values()):
+    print("E2E OFFLINE=1")
+    sys.exit(0)
+
+for url in urls[2:]:
+    codes[url] = status(url)
+for url in urls:
+    print("URL %d %s" % (codes[url], url))
