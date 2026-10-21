@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.17.53
+
+### Fixed
+- **The stock-Chrome identity's two halves are now provably in step, and the drift between them is
+  recorded instead of hidden.** `sec-ch-ua` says "Google Chrome" while
+  `navigator.userAgentData.brands` says Chromium-only on any host that gets the request half but not
+  the JavaScript half — the header and the page disagreeing about what browser this is, which is
+  precisely the inconsistency the identity exists to remove. Measured: `_STOCK_CHROME_HOSTS` names
+  12 hosts, the JavaScript identity covers 7; the gap is `accounts.youtube.com` and the four
+  Microsoft sign-in hosts. `tests/test_integration_identity_halves.py` fails when a host is added to
+  one half and not the other, when an excused host carries no reason, or when the JavaScript half
+  covers a host the request half does not. Verified non-vacuous: emptying the divergence list fails
+  the test and names the six patterns.
+- **The identity docs' central measurement had gone stale, and is corrected.** qutebrowser 3.7.0 no
+  longer puts the QtWebEngine token in its own default User-Agent — its installed template has no
+  `{qt_key}/{qt_version}` — so the browser sends a plain Chrome UA on *every* host. Measured live:
+  `httpbin.org/user-agent` echoes `…Chrome/140.0.0.0 Safari/537.36` with no QtWebEngine token, and
+  `navigator.userAgent` agrees with the header. Consequence: the per-host User-Agent override is now
+  byte-identical to the engine default and changes nothing. It is kept as insurance, and a test
+  fails if upstream ever puts the token back — so the day it becomes load-bearing cannot pass
+  unnoticed. The client hints are the half doing the work today.
+- **The Microsoft sign-in hosts are now visibly one-sided rather than silently so.** The JavaScript
+  identity is deliberately kept off Microsoft hosts by
+  `tests/test_regression_signin_untouched.py`, so those four hosts send a branded `sec-ch-ua` while
+  their `brands` stays Chromium-only. That is written down in `docs/anti-bot-identity.md` as an open
+  decision — extend the JavaScript half to them, or stop sending the branded header there — instead
+  of remaining an unasserted gap.
+
+### Added
+- `tests/test_integration_identity_halves.py`: asserts the request half and the JavaScript half name
+  the same hosts, that every divergence carries a reason, and pins the engine premise the identity
+  now rests on.
+
 ## 1.17.52
 
 ### Fixed

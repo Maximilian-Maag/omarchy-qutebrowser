@@ -42,6 +42,16 @@ And from this configuration itself (the Privacy section), applied **globally**:
 The `QtWebEngine` token alone makes the browser a non-browser to most WAFs, and the JS tells
 confirm it to the ones that run script.
 
+> **Re-measured 2026-10-21 — the engine's own User-Agent changed underneath this.** qutebrowser
+> 3.7.0 no longer inserts the QtWebEngine token into its default User-Agent. Its installed template
+> (`configdata.yml`) is `Mozilla/5.0 ({os_info}) AppleWebKit/{webkit_version} (KHTML, like Gecko)
+> {upstream_browser_key}/{upstream_browser_version_short} Safari/{webkit_version}` — there is no
+> `{qt_key}/{qt_version}`. Measured live: `httpbin.org/user-agent` echoes
+> `…Chrome/140.0.0.0 Safari/537.36` with no `QtWebEngine` token, and `navigator.userAgent` agrees
+> with the header. So the first row of the table above is what the engine *used to* advertise, and
+> only the client hints still say Chromium — which is why the hints, not the User-Agent, are what
+> this configuration has to fix today.
+
 ## Ruled out (tested, not assumed)
 
 - **The ad/tracker block lists do not cause the block.** Loaded every configured list into the
@@ -84,6 +94,33 @@ Chromium-first order that hid it — it now uses the engine's real order.
 Every other site keeps the stricter privacy defaults: the identity is a per-host exception, never
 a global relaxation (asserted in `tests/test_integration_config_identity.py`).
 
+### The two halves have to name the same hosts, and nothing enforced it
+
+`sec-ch-ua` (request half) and `navigator.userAgentData.brands` (JavaScript half) are two views of
+one fact. A host with the first and not the second sends `sec-ch-ua: "Google Chrome";v="140"` while
+the page reads `brands = ["Not=A?Brand", "Chromium"]` — the header and the page disagree about what
+browser this is, which is exactly the inconsistency this section exists to remove. The rule above
+("keep the two in step") was prose; nothing tested it.
+
+Measured drift, now pinned with a reason in `tests/test_integration_identity_halves.py`:
+`_STOCK_CHROME_HOSTS` names **12** hosts, the JavaScript identity is scoped to **7**. The gap is
+`accounts.youtube.com` — a SetSID redirect endpoint of the Google handshake that renders no page a
+detector runs on — and the **four Microsoft sign-in hosts**, which are one-sided because
+`test_regression_signin_untouched.py` deliberately keeps the JavaScript identity off Microsoft
+hosts. The new test fails if a host is added to one half and not the other.
+
+**Open decision, deliberately left open rather than settled:** either extend the JavaScript half to
+the Microsoft sign-in hosts, or stop sending the branded `sec-ch-ua` there. One-sided is the one
+option that is not defensible — it is a self-inflicted header/page contradiction.
+
+### The User-Agent override is now redundant insurance
+
+Because the engine's default User-Agent lost the token, the request half's per-host User-Agent
+override is byte-identical to it — it changes nothing. It is kept on purpose: it costs nothing, it
+is what protects these hosts if an engine update puts the token back, and
+`tests/test_integration_identity_halves.py` fails if qutebrowser's default template regains
+`{qt_key}` — so that day cannot arrive unnoticed. **The client hints are the half doing the work.**
+
 ## Why the fix is not verified headlessly
 
 Managed bot-detection flags **headless** browsers regardless of identity — an offscreen
@@ -109,3 +146,6 @@ one. If a site still challenges, this is the next lever to measure — not to gu
 3. Update the host list asserted in `tests/js/chrome-identity.test.js`,
    `tests/test_integration_config_identity.py` and the `omarchy-chrome-identity.js` entry in
    `tests/test_regression_signin_untouched.py`.
+4. Run `tests/test_integration_identity_halves.py`. It fails until the JavaScript half covers the
+   new host, or the host is recorded in `ALLOWED_DIVERGENCE` with the reason it is one-sided —
+   which is the point: a host cannot be half-configured silently.

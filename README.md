@@ -104,7 +104,10 @@ Google's "This browser or app may not be secure" is handled too: qutebrowser's
 built-in `ua-google` quirk sends a *Firefox* UA to accounts.google.com, which is an
 inconsistent fingerprint on a Chromium engine. That quirk is skipped and a real
 Chrome UA is sent (the real Chromium version, no QtWebEngine token), for Google and
-Microsoft sign-in hosts only.
+Microsoft sign-in hosts only. Since qutebrowser 3.7 the engine's own default User-Agent is
+already that Chrome UA — the token is gone upstream — so the per-host override is now
+redundant insurance rather than the mechanism, and the client hints are what does the work;
+see `docs/anti-bot-identity.md`.
 
 ### Several accounts on one domain
 
