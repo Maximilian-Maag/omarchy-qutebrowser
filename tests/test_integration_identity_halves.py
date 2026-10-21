@@ -166,11 +166,15 @@ class ThePremiseThisDependsOn(unittest.TestCase):
         if match is None:
             self.fail("could not read the default User-Agent from %s" % path)
         template = match.group(1)
-        self.assertNotIn(
-            "{qt_key}", template,
-            "qutebrowser's default User-Agent advertises the QtWebEngine token again. The per-host "
-            "UA override is now LOAD-BEARING rather than redundant insurance, and the identity's "
-            "reasoning in docs/anti-bot-identity.md needs revisiting."
+        # Both placeholders, not just {qt_key}: a template that restored `QtWebEngine/{qt_version}`
+        # alone would put the token back without naming the key.
+        tokens = [token for token in ("{qt_key}", "{qt_version}") if token in template]
+        self.assertEqual(
+            [], tokens,
+            "qutebrowser's default User-Agent advertises the QtWebEngine token again (%s). The "
+            "per-host UA override is now LOAD-BEARING rather than redundant insurance, and the "
+            "identity's reasoning in docs/anti-bot-identity.md needs revisiting."
+            % ", ".join(tokens)
         )
 
     def test_our_override_can_never_add_the_token_back(self):
