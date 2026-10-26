@@ -102,16 +102,42 @@ the page reads `brands = ["Not=A?Brand", "Chromium"]` — the header and the pag
 browser this is, which is exactly the inconsistency this section exists to remove. The rule above
 ("keep the two in step") was prose; nothing tested it.
 
-Measured drift, now pinned with a reason in `tests/test_integration_identity_halves.py`:
-`_STOCK_CHROME_HOSTS` names **12** hosts, the JavaScript identity is scoped to **7**. The gap is
-`accounts.youtube.com` — a SetSID redirect endpoint of the Google handshake that renders no page a
-detector runs on — and the **four Microsoft sign-in hosts**, which are one-sided because
-`test_regression_signin_untouched.py` deliberately keeps the JavaScript identity off Microsoft
-hosts. The new test fails if a host is added to one half and not the other.
+Measured drift, now pinned in `tests/test_integration_identity_halves.py`:
+`_STOCK_CHROME_HOSTS` names **12** hosts, the JavaScript identity was scoped to **7**. The gap was
+the **four Microsoft sign-in hosts** (`login.microsoftonline.com`, `login.live.com`,
+`login.microsoft.com`, `account.microsoft.com`) — they had always been sent the branded header and
+never had the JavaScript half — plus `accounts.youtube.com`. The test fails if a host is added to
+one half and not the other, or if an excused host carries no reason.
 
-**Open decision, deliberately left open rather than settled:** either extend the JavaScript half to
-the Microsoft sign-in hosts, or stop sending the branded `sec-ch-ua` there. One-sided is the one
-option that is not defensible — it is a self-inflicted header/page contradiction.
+**Resolved, Microsoft side:** `userscripts/omarchy-ms-signin-chrome-identity.js` now carries the
+JavaScript half for those four hosts. Its code body is byte-identical to the Google script's
+(deliberately copied rather than reinvented), scoped to Microsoft hosts and held off the Google
+ones by `test_regression_signin_untouched.py`. The alternative — dropping the branded `sec-ch-ua`
+there — would have reduced the identity on a sign-in host instead of completing it.
+
+**Still one-sided on purpose:** `accounts.youtube.com`. It is a `SetSID` redirect endpoint of the
+Google handshake that renders no page a detector runs on, and the Google identity script is
+deliberately forbidden from `youtube.com` by `test_regression_signin_untouched.py` (the author's
+call: Google refuses the sign-in for even a single corrected probe). It is the only entry left in
+`ALLOWED_DIVERGENCE`, with that reason.
+
+### Verifying an identity script in the engine: keep the `@match` out of the harness
+
+Measured the hard way. QtWebEngine parses a userscript's GreaseMonkey metadata itself and applies
+its `@match` patterns as an URL filter, on top of wherever the script was injected. So injecting one
+of these scripts into a harness page served from `127.0.0.1` measures **nothing**: the script is
+filtered out before it runs, and every value reads exactly like the engine default — an
+instrumented copy never even reached its first statement (`window.__ran` stayed `undefined`), at
+both `DocumentCreation` and `DocumentReady`.
+
+To check the *code* against the real engine, strip the `@match` lines from the source before
+injecting (the `@match` scope is asserted separately, by the two tests above and
+`test_regression_signin_untouched.py`). Done that way, both identity scripts and the new Microsoft
+one report, in the real offscreen engine on a real origin:
+
+`brands = ["Google Chrome:140", "Chromium:140", "Not=A?Brand:24"]`, `pdfViewerEnabled = true`,
+`window.chrome.csi` a function, `userAgentData` still **not** an own property of `navigator`, and
+`brands` enumerable and configurable — the Chrome-shaped answer, at either injection point.
 
 ### The User-Agent override is now redundant insurance
 
@@ -142,10 +168,17 @@ one. If a site still challenges, this is the next lever to measure — not to gu
 ## Adding a site
 
 1. Add its host patterns to `_STOCK_CHROME_HOSTS` in `config/config.py`.
-2. Add matching `@match` lines to `userscripts/omarchy-chrome-identity.js`.
-3. Update the host list asserted in `tests/js/chrome-identity.test.js`,
-   `tests/test_integration_config_identity.py` and the `omarchy-chrome-identity.js` entry in
+2. Add matching `@match` lines to the JavaScript half that fits it: `omarchy-chrome-identity.js` for
+   a bot-managed site, `omarchy-google-signin-chrome-identity.js` or
+   `omarchy-ms-signin-chrome-identity.js` for a sign-in host. Each script's scope is asserted
+   separately, so a new family means a new script plus its own entry in
+   `tests/test_regression_signin_untouched.py` — do not widen an existing one.
+3. Update the host lists asserted in `tests/js/*identity*.test.js`,
+   `tests/test_integration_config_identity.py` and that script's entry in
    `tests/test_regression_signin_untouched.py`.
-4. Run `tests/test_integration_identity_halves.py`. It fails until the JavaScript half covers the
-   new host, or the host is recorded in `ALLOWED_DIVERGENCE` with the reason it is one-sided —
-   which is the point: a host cannot be half-configured silently.
+4. Add the new script to `tests/mutation.json` (`tests/no-gaps` fails until every shipped source file
+   is either a target or exempt with a reason) and give it a `tests/js/` suite — that is what kills
+   its mutants.
+5. Run `tests/test_integration_identity_halves.py`. It fails until the JavaScript half covers the
+   new host, or the host is recorded in `ALLOWED_DIVERGENCE` with the reason it is one-sided — which
+   is the point: a host cannot be half-configured silently.

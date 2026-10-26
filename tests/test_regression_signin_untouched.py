@@ -50,6 +50,18 @@ EXCEPTIONS = {
         "must_not_match": ("live.com", "microsoft.com", "microsoftonline.com", "apple.com"),
         "must_match_only": ("google.com",),
     },
+    # The Microsoft sign-in hosts. The request half has always sent them a Chrome-branded
+    # `sec-ch-ua` (config/config.py `_STOCK_CHROME_HOSTS`), and without this half the header said
+    # Chrome while `navigator.userAgentData.brands` said Chromium-only. Code body identical to the
+    # Google script above; held to Microsoft hosts, and never Google - Google refuses the sign-in
+    # for even a single corrected probe, which is why the list below is deliberately long.
+    "omarchy-ms-signin-chrome-identity.js": {
+        "allowed": ("userAgentData", "pdfViewerEnabled"),
+        "must_not_match": ("google.com", "gstatic.com", "youtube.com", "googleusercontent.com",
+                           "linkedin.com", "kleinanzeigen.de", "immowelt.de"),
+        "must_match_only": ("login.microsoftonline.com", "login.live.com", "login.microsoft.com",
+                            "account.microsoft.com"),
+    },
     # Same shape, different class of site: the JavaScript half of the stock-Chrome identity for
     # sites behind managed bot-detection. Kept to the bot-managed hosts so it can never drift onto
     # an auth flow, and to the same two tells so it cannot grow into the shim that broke sign-in.

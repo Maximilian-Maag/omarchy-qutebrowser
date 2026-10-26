@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.17.54
+
+### Fixed
+- **The cookie/consent userscript did nothing on any page in qutebrowser — the banner was never
+  dismissed.** qutebrowser runs Greasemonkey scripts inside `with (windowProxy)`, and its Proxy
+  returns the engine's `getComputedStyle` *unbound* (the wrapper only binds functions whose
+  `.prototype` is undefined, and `getComputedStyle`'s is an object). Calling it as
+  `window.getComputedStyle(el)` therefore throws `TypeError: Illegal invocation`; `isVisible()`
+  caught the throw and reported every element hidden, so `findButton()` skipped every button and no
+  consent decision was ever made. Every style read now goes through `styleOf(el)`, which reaches
+  `getComputedStyle` via `document.defaultView` (the real window) and falls back to `window` only
+  if that fails; a style that cannot be read at all is treated as "not visible". Measured on the
+  real `www.youtube.com` "Before you continue to YouTube" lightbox in real qutebrowser: before, the
+  lightbox stayed up with an empty decision log; after, the log reads `reject`, the SOCS consent
+  cookie is set, and the dialog is `display:none`. `tests/js/cookie.test.js` and
+  `tests/js/cookie.harness.test.js` slice `styleOf` alongside every function that reads a style.
+- **The Microsoft sign-in hosts were half-configured; the missing half is now shipped.**
+  `_STOCK_CHROME_HOSTS` has always sent `login.microsoftonline.com`, `login.live.com`,
+  `login.microsoft.com` and `account.microsoft.com` a `sec-ch-ua` claiming "Google Chrome", while the
+  JavaScript half was scoped only to Google and the bot-managed sites. On those four hosts the header
+  therefore claimed Chrome and `navigator.userAgentData.brands` answered Chromium-only — the header
+  and the page disagreeing about what browser this is, which is the inconsistency the identity exists
+  to remove. `userscripts/omarchy-ms-signin-chrome-identity.js` closes it: code body byte-identical to
+  the verified Google script (copied rather than reinvented), scoped to the Microsoft hosts and held
+  off the Google ones by the regression guard.
+  `tests/test_integration_identity_halves.py` no longer excuses those four hosts.
+- **Verified in the real engine, not only against the sandbox.** Injected into the real offscreen
+  QtWebEngine on a real origin, the new script — and the Google one alongside it — reports
+  `brands = ["Google Chrome:140", "Chromium:140", "Not=A?Brand:24"]`, `pdfViewerEnabled = true`,
+  `window.chrome.csi` a function, `userAgentData` still not an own property of `navigator`, and
+  `brands` enumerable and configurable. Mutation for the new target: 19/19 killed (rate 1.00).
+
+### Documented
+- **Verifying one of these scripts in a harness requires dropping its `@match`.** QtWebEngine applies
+  the metadata's `@match` patterns as its own URL filter on top of any manual injection, so a harness
+  page served from `127.0.0.1` filters the script out before it runs: every value reads exactly like
+  the engine default, and an instrumented copy never reaches its first statement — at either
+  injection point. That false negative produced a round of wrong measurements. The method that does
+  work, and the pitfall, are written into `docs/anti-bot-identity.md`.
+
 ## 1.17.53
 
 ### Fixed

@@ -120,7 +120,7 @@ test('label collapses whitespace and falls through the text sources', () => {
 
 // ── isVisible(): the check that decides whether a button is worth pressing ───
 test('isVisible rejects non-elements and hidden or zero-size boxes', () => {
-  const ctx = sandbox(slice(['isVisible']));
+  const ctx = sandbox(slice(['styleOf', 'isVisible']));
   // not an element node at all
   assert.strictEqual(ctx.isVisible({ nodeType: 2, getBoundingClientRect: () => ({ width: 10, height: 10 }) }), false);
   // display:none
@@ -136,7 +136,7 @@ test('isVisible rejects non-elements and hidden or zero-size boxes', () => {
 
 // ── findButton(): the scoring / ignore rules ────────────────────────────────
 test('findButton prefers the earliest pattern and ignores long or hidden labels', () => {
-  const ctx = sandbox(slice(['var BUTTONS', 'label', 'isVisible', 'findButton']));
+  const ctx = sandbox(slice(['styleOf', 'var BUTTONS', 'label', 'isVisible', 'findButton']));
   const reject = fakeEl({ text: 'Reject all' });            // an early pattern
   const manage = fakeEl({ text: 'Manage options' });         // a later pattern
   const long = fakeEl({ text: 'x'.repeat(80) });             // over the 60-char cap
@@ -173,7 +173,7 @@ test('press sends the whole pointer sequence and clicks', () => {
 test('decideConsent rejects by default and only accepts as a fallback', () => {
   // Regression pinned: v4.0 made consent reject-by-default — an accept button is
   // pressed only when the banner offers no reject option.
-  const ctx = sandbox(slice(['var BUTTONS', 'var REJECT_PATTERNS', 'var ACCEPT_PATTERNS',
+  const ctx = sandbox(slice(['styleOf', 'var BUTTONS', 'var REJECT_PATTERNS', 'var ACCEPT_PATTERNS',
                              'label', 'isVisible', 'findButton', 'press', 'decideConsent']));
   const accept = fakeEl({ text: 'Accept all' });
   const reject = fakeEl({ text: 'Reject all' });
@@ -190,7 +190,7 @@ test('decideConsent rejects by default and only accepts as a fallback', () => {
 
 // ── bannerFor(): find / don't run away when the node is the body ────────────
 test('bannerFor returns the pinned ancestor holding the button', () => {
-  const ctx = sandbox(slice(['bannerFor']));
+  const ctx = sandbox(slice(['styleOf', 'bannerFor']));
   const body = fakeEl({ tagName: 'BODY' });
   const btn = fakeEl({ position: 'fixed', height: 80, tagName: 'BUTTON' });
   btn.ownerDocument = { body: body, defaultView: { getComputedStyle: (el) => makeWindow().getComputedStyle(el) } };
@@ -219,7 +219,7 @@ test('note records the action and truncates a long detail', () => {
 test('unlockScroll removes the scroll-lock classes and clears overflow', () => {
   const html = fakeEl({ tagName: 'HTML', overflowY: 'hidden' });
   const body = fakeEl({ tagName: 'BODY', position: 'fixed' });
-  const ctx = sandbox(slice(['var UNLOCK_CLASSES', 'unlockScroll']), {
+  const ctx = sandbox(slice(['styleOf', 'var UNLOCK_CLASSES', 'unlockScroll']), {
     document: { documentElement: html, body: body },
   });
   ctx.unlockScroll();

@@ -73,7 +73,7 @@ test('label falls through value and title as well as innerText/textContent', () 
 // ── isVisible(): the exact zero/one boundaries and a throwing view ───────────
 test('isVisible treats each dimension exactly, and a throwing style reads false', () => {
   const doc = {};
-  const ctx = sandbox(slice(['isVisible']), {
+  const ctx = sandbox(slice(['styleOf', 'isVisible']), {
     document: doc,
     window: {
       getComputedStyle: (x) => ({
@@ -89,7 +89,7 @@ test('isVisible treats each dimension exactly, and a throwing style reads false'
   assert.strictEqual(ctx.isVisible(box(10, 0)), false, 'height 0 is not visible');
   assert.strictEqual(ctx.isVisible(box(10, 1)), true, 'height 1 is visible');
   // A throwing getComputedStyle must not read as visible.
-  const bad = sandbox(slice(['isVisible']), {
+  const bad = sandbox(slice(['styleOf', 'isVisible']), {
     document: doc,
     window: { getComputedStyle: () => { throw new Error('boom'); } },
   });
@@ -98,7 +98,7 @@ test('isVisible treats each dimension exactly, and a throwing style reads false'
 
 // ── findButton(): the 60-char cap, the past-the-end read, equal scores ──────
 test('findButton keeps a 60-char label, never reads past the list, and keeps the first winner', () => {
-  const ctx = sandbox(slice(['var BUTTONS', 'label', 'isVisible', 'findButton']), {
+  const ctx = sandbox(slice(['styleOf', 'var BUTTONS', 'label', 'isVisible', 'findButton']), {
     document: { documentElement: {}, body: {} },
     window: { getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }) },
   });
@@ -165,7 +165,7 @@ test('genericOverlaySweep removes a fixed overlay at z 1000 and logs the exact d
     id: 'ov1', text: 'We use cookies. Please give your consent.',
     width: 1280, height: 800, computed: { position: 'fixed', zIndex: '1000' },
   });
-  const ctx = sandbox(slice(['genericOverlaySweep']), {
+  const ctx = sandbox(slice(['styleOf', 'genericOverlaySweep']), {
     document: { body: { children: [ov] } },
     window: { innerWidth: 1280, innerHeight: 800, getComputedStyle: (e) => e.__computed },
     CONSENT_WORDS, isVisible: () => true, decideConsent: () => 'reject', unlockScroll: () => {},
@@ -182,7 +182,7 @@ test('genericOverlaySweep removes a sticky overlay too', () => {
     id: 'ov2', text: 'Cookies and consent required here.',
     width: 1280, height: 800, computed: { position: 'sticky', zIndex: '1000' },
   });
-  const ctx = sandbox(slice(['genericOverlaySweep']), {
+  const ctx = sandbox(slice(['styleOf', 'genericOverlaySweep']), {
     document: { body: { children: [ov] } },
     window: { innerWidth: 1280, innerHeight: 800, getComputedStyle: (e) => e.__computed },
     CONSENT_WORDS, isVisible: () => true, decideConsent: () => 'reject', unlockScroll: () => {},
@@ -255,7 +255,7 @@ test('removeAdblockWalls dismisses a wall at exactly z 500 and exactly 15% area'
     id: 'wall1', text: 'Please disable your ad blocker to keep reading this article.',
     width: 500, height: 300, computed: { position: 'fixed', zIndex: '500' },
   });
-  const ctx = sandbox(slice(['removeAdblockWalls']), {
+  const ctx = sandbox(slice(['styleOf', 'removeAdblockWalls']), {
     document: {
       querySelectorAll: (sel) => (sel.indexOf('adblock') !== -1 ? [] : [cand]),
     },
@@ -277,7 +277,7 @@ test('barSweep removes an accept-only bar pinned at z 500 and logs its detail', 
   });
   const btn = el({ tagName: 'BUTTON', text: 'Accept all', computed: { position: 'static', zIndex: '0' } });
   btn.parentElement = banner;
-  const ctx = sandbox(slice(['barSweep']), {
+  const ctx = sandbox(slice(['styleOf', 'barSweep']), {
     document: {
       querySelectorAll: (sel) => (sel === BUTTONS ? [btn] : []),
       body: { children: [] },
@@ -300,7 +300,7 @@ test('barSweep removes a consent strip that has no buttons at all', () => {
     width: 1280, height: 100, computed: { position: 'fixed', zIndex: '10' },
     querySelector: () => null,
   });
-  const ctx = sandbox(slice(['barSweep']), {
+  const ctx = sandbox(slice(['styleOf', 'barSweep']), {
     document: {
       querySelectorAll: () => [],
       body: { children: [strip] },
@@ -460,6 +460,10 @@ function boot(over = {}) {
   };
   const doc = new Doc(win);
   win.document = doc;
+  // qutebrowser runs Greasemonkey scripts with a proxied `window` whose getComputedStyle
+  // throws, while document.defaultView stays the real window. Tests that pin that use a
+  // separate defaultView.
+  if (over.defaultView) doc.defaultView = over.defaultView;
   (over.build || (() => {}))(doc);
   const ctx = {
     console,
@@ -538,4 +542,30 @@ test('the shipped IIFE rejects a cookie banner and un-locks the scroll', () => {
   assert.strictEqual(doc.body.classList.contains('no-scroll'), false);
   assert.strictEqual(doc.body.style.overflow, '', 'a hidden-overflow body must be released');
   assert.strictEqual(doc.body.style.position, '', 'a fixed body must be un-pinned');
+});
+
+test('the IIFE still rejects when window.getComputedStyle throws (qutebrowser greasemonkey proxy)', () => {
+  // Regression pinned: qutebrowser wraps Greasemonkey scripts in `with (windowProxy)`, and the
+  // Proxy returns the engine's getComputedStyle unbound, so `window.getComputedStyle(el)` throws
+  // "Illegal invocation" while document.defaultView works. Reading the style only through
+  // `window` made isVisible() report every element hidden and the banner was never dismissed.
+  const realView = { getComputedStyle: (e) => e.__computed || DEFAULT_STYLE };
+  const { win, doc } = boot({
+    window: { getComputedStyle: () => { throw new TypeError('Illegal invocation'); } },
+    defaultView: realView,
+    build(d) {
+      const banner = d.createElement('div');
+      banner.className = 'cookie-banner';
+      banner.__computed = { position: 'static', zIndex: '10' };
+      const btn = d.createElement('button');
+      btn.innerText = 'Reject all';
+      banner.appendChild(btn);
+      d.body.appendChild(banner);
+    },
+  });
+  const log = win.__omarchyConsent;
+  assert.ok(log.some((r) => r.action === 'reject'),
+    'the banner must still be rejected when only document.defaultView can measure it: '
+      + JSON.stringify(log));
+  assert.strictEqual(doc.querySelectorAll('.cookie-banner').length, 0, 'the banner must be removed');
 });

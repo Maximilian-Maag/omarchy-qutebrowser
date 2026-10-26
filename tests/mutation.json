@@ -223,6 +223,15 @@
       ]
     },
     {
+      "path": "userscripts/omarchy-ms-signin-chrome-identity.js",
+      "lang": "javascript",
+      "tests": [
+        "node",
+        "--test",
+        "tests/js/ms-signin-identity.test.js"
+      ]
+    },
+    {
       "path": "userscripts/omarchy-chrome-identity.js",
       "lang": "javascript",
       "tests": [

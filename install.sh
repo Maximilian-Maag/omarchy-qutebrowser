@@ -61,6 +61,11 @@ ln -sf "$PLUGIN_DIR/userscripts/omarchy-ms-passkey-platform-probe.js" \
 # Google's sign-in refuses this browser at submit without it (measured); scoped to Google hosts only.
 ln -sf "$PLUGIN_DIR/userscripts/omarchy-google-signin-chrome-identity.js" \
        "$GREASEMONKEY_DIR/omarchy-google-signin-chrome-identity.js"
+# JavaScript half for the Microsoft sign-in hosts. The request half has always sent them a
+# Chrome-branded sec-ch-ua, so without this the header and navigator.userAgentData disagreed about
+# the browser. Same verified code body as the Google script; scoped to the Microsoft hosts only.
+ln -sf "$PLUGIN_DIR/userscripts/omarchy-ms-signin-chrome-identity.js" \
+       "$GREASEMONKEY_DIR/omarchy-ms-signin-chrome-identity.js"
 # JavaScript half of the stock-Chrome identity for sites behind managed bot-detection
 # (LinkedIn/Cloudflare, Kleinanzeigen and immowelt/DataDome); scoped to those hosts only.
 # The request-level half is the _STOCK_CHROME_HOSTS block in config/config.py — keep the two in step.

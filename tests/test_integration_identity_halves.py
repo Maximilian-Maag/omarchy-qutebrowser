@@ -13,7 +13,9 @@ A host with the request half but not the JS half sends ``sec-ch-ua: "Google Chro
 while ``navigator.userAgentData.brands`` still says Chromium-only - the header and the page
 disagree about what browser this is, which is precisely the inconsistency the identity exists to
 remove. ``docs/anti-bot-identity.md`` states the rule ("keep the two in step") but nothing
-enforced it, and six patterns had drifted out of coverage; those are pinned below with a reason.
+enforced it, and six patterns had drifted out of coverage. The Microsoft four are now closed by
+``omarchy-ms-signin-chrome-identity.js``; one pattern is still one-sided on purpose and is pinned
+below with its reason.
 
 This file also pins the premise the whole design now rests on (see the last test): qutebrowser
 stopped advertising the QtWebEngine token in its own default User-Agent, so the per-host UA
@@ -34,21 +36,6 @@ ALLOWED_DIVERGENCE = {
         "runs on, and the Google identity script is deliberately held to accounts.google.com/* "
         "by tests/test_regression_signin_untouched.py.",
 }
-
-# The Microsoft sign-in hosts keep the request half only: the bot-managed JavaScript identity is
-# scoped away from these hosts by tests/test_regression_signin_untouched.py. Open decision, stated
-# plainly rather than hidden: either extend the JS half to them, or stop sending a branded
-# sec-ch-ua there - right now the header claims Chrome while the page's brands say Chromium.
-_MICROSOFT_REASON = (
-    "Microsoft sign-in host. The JavaScript half is scoped away from Microsoft hosts by "
-    "test_regression_signin_untouched.py, so this host keeps the request half only: the header "
-    "claims Google Chrome while navigator.userAgentData.brands does not. Extend the JS half here "
-    "or drop the branded sec-ch-ua - do not leave it silently one-sided."
-)
-for _host in ("account.microsoft.com", "login.live.com", "login.microsoft.com",
-              "login.microsoftonline.com"):
-    ALLOWED_DIVERGENCE[_host] = _MICROSOFT_REASON
-
 
 def code_only(text):
     """Strip comments, so a comment *naming* a brand is not read as code that sets it.

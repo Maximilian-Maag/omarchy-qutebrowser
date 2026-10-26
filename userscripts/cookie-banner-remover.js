@@ -126,10 +126,31 @@
             el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
   }
 
+  // getComputedStyle must be reached through a REAL window. qutebrowser wraps
+  // Greasemonkey scripts in `with (windowProxy)`, and its Proxy returns the
+  // engine's getComputedStyle UNBOUND: its bind-to-window branch only fires for
+  // functions whose .prototype is undefined, and getComputedStyle's is an object.
+  // So `window.getComputedStyle(el)` throws "Illegal invocation" there, isVisible()
+  // caught it and reported every element hidden, and no consent button was ever
+  // found — the banner was never dismissed (measured in real qutebrowser on
+  // YouTube's "Before you continue" lightbox). document.defaultView is the real
+  // window and works in qutebrowser and in an ordinary page alike.
+  function styleOf(el) {
+    try {
+      var view = (el && el.ownerDocument && el.ownerDocument.defaultView) || document.defaultView;
+      if (view && view.getComputedStyle) return view.getComputedStyle(el);
+    } catch (e) {}
+    try { return window.getComputedStyle(el); } catch (e) {}
+    return null;
+  }
+
   function isVisible(el) {
     try {
       if (!el || el.nodeType !== 1) return false;
-      var s = window.getComputedStyle(el);
+      var s = styleOf(el);
+      // No readable style means we cannot vouch for visibility. Reporting false is
+      // the safe answer: a banner we cannot measure is one we must not act on.
+      if (!s) return false;
       if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0') return false;
       var r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0;
@@ -217,7 +238,7 @@
     var el = btn, hops = 0;
     while (el && el !== doc.body && hops < 12) {
       try {
-        var st = (el.ownerDocument.defaultView || window).getComputedStyle(el);
+        var st = styleOf(el);
         var r = el.getBoundingClientRect();
         if (st && (st.position === 'fixed' || st.position === 'sticky') && r.height > 24) return el;
       } catch (e) { break; }
@@ -270,7 +291,8 @@
         for (var i = 0; i < UNLOCK_CLASSES.length; i++) {
           try { el.classList.remove(UNLOCK_CLASSES[i]); } catch (e) {}
         }
-        var cs = window.getComputedStyle(el);
+        var cs = styleOf(el);
+        if (!cs) return;
         if (cs.overflow === 'hidden' || cs.overflowY === 'hidden') el.style.overflow = '';
         if (cs.position === 'fixed' && el.tagName === 'BODY') el.style.position = '';
       });
@@ -303,7 +325,8 @@
       for (var i = 0; i < nodes.length; i++) {
         var el = nodes[i];
         if (!el || !el.isConnected || !isVisible(el)) continue;
-        var s = window.getComputedStyle(el);
+        var s = styleOf(el);
+        if (!s) continue;
         if (s.position !== 'fixed' && s.position !== 'sticky') continue;
         var z = parseInt(s.zIndex, 10);
         if (!(z >= 1000)) continue;
@@ -492,7 +515,8 @@
       for (var k = 0; k < cands.length; k++) {
         var e2 = cands[k];
         if (!e2 || !e2.isConnected || !isVisible(e2)) continue;
-        var s = window.getComputedStyle(e2);
+        var s = styleOf(e2);
+        if (!s) continue;
         var big = (s.position === 'fixed' || s.position === 'absolute') &&
                   parseInt(s.zIndex, 10) >= 500 &&
                   e2.getBoundingClientRect().width * e2.getBoundingClientRect().height >= 0.15 * vw * vh;
@@ -533,7 +557,7 @@
         }
         if (!banner || seen.indexOf(banner) !== -1) continue;
         seen.push(banner);
-        var st = window.getComputedStyle(banner);
+        var st = styleOf(banner) || {};
         var fixedish = (st.position === 'fixed' || st.position === 'sticky' || parseInt(st.zIndex, 10) >= 500);
         if (!isReject && !fixedish) continue;      // accept-only needs a real consent UI
         var action = decideConsent(banner);
@@ -551,7 +575,8 @@
       for (var n = 0; n < nodes.length; n++) {
         var el2 = nodes[n];
         if (!el2 || !el2.isConnected || !isVisible(el2)) continue;
-        var st2 = window.getComputedStyle(el2);
+        var st2 = styleOf(el2);
+        if (!st2) continue;
         if (st2.position !== 'fixed' && st2.position !== 'sticky') continue;
         var r2 = el2.getBoundingClientRect();
         var area2 = r2.width * r2.height;
