@@ -260,7 +260,7 @@
       "reason": "theme colour tables, not logic"
     },
     {
-      "path": "hooks/theme-set",
+      "path": "hooks/qutebrowser-theme-set",
       "reason": "bash omarchy hook; covered by the shell test kind"
     },
     {

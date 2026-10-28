@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.17.55
+
+### Fixed
+- **The theme-set hook shipped under the bare basename `theme-set`** (#1), shared with
+  omarchy-thunderbird / -keepassxc / -contacts, so `omarchy hook install` clobbered it and
+  it was not installed at all — qutebrowser stopped following theme changes (the
+  `active-theme` stamp and the `:config-source` reload never ran). Renamed to
+  `hooks/qutebrowser-theme-set`.
+
 ## 1.17.54
 
 ### Fixed

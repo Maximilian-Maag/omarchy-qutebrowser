@@ -96,8 +96,8 @@ ln -sf "$PLUGIN_DIR/config/omarchy_webauthn.py" "$QUTE_CONFIG_DIR/omarchy_webaut
 echo "  Linked site-overrides.py -> $QUTE_CONFIG_DIR/"
 
 # ── 5. Theme-set hook ────────────────────────────────────────────────────────
-omarchy hook install theme-set "$PLUGIN_DIR/hooks/theme-set"
-echo "  Installed theme-set hook -> ~/.config/omarchy/hooks/theme-set.d/theme-set"
+omarchy hook install theme-set "$PLUGIN_DIR/hooks/qutebrowser-theme-set"
+echo "  Installed theme-set hook -> ~/.config/omarchy/hooks/theme-set.d/qutebrowser-theme-set"
 
 # ── 6. Default browser ───────────────────────────────────────────────────────
 QUTE_DESKTOP="org.qutebrowser.qutebrowser.desktop"
