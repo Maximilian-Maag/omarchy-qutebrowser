@@ -105,6 +105,42 @@ class ThemeColorsCase(unittest.TestCase):
                             "an empty theme name must use the fallback, not themes/colors.toml")
         self.assertEqual(colors["accent"], "#82FB9C")
 
+    def _applied_dir(self):
+        return self.srv.STATE_DIR.parent.parent / "omarchy" / "current" / "theme"
+
+    def test_the_applied_palette_wins_over_the_hook_stamp(self):
+        # The reader is themed from what is ACTUALLY applied, not from a hook stamp that can be
+        # absent (dev checkout) or stale (hook did not run for the last theme change).
+        theme = self.themes / "MyTheme"
+        theme.mkdir()
+        (theme / "colors.toml").write_text('mode = "dark"\naccent = "#0f0f0f"\n')
+        self.active.write_text("MyTheme\n")                      # stale/other stamp
+        applied = self._applied_dir()
+        applied.mkdir(parents=True)
+        (applied / "colors.toml").write_text('mode = "dark"\nbackground = "#1a1b26"\n'
+                                             'accent = "#7aa2f7"\n')
+        colors = self.srv.theme_colors()
+        self.assertEqual(colors["accent"], "#7aa2f7", "the applied palette must win")
+        self.assertEqual(colors["bg"], "#1a1b26")
+
+    def test_the_hook_stamp_is_used_when_there_is_no_applied_palette(self):
+        theme = self.themes / "MyTheme"
+        theme.mkdir()
+        (theme / "colors.toml").write_text('mode = "dark"\naccent = "#0f0f0f"\n')
+        self.active.write_text("MyTheme\n")
+        self.assertEqual(self.srv.theme_colors()["accent"], "#0f0f0f")
+
+    def test_current_theme_name_beats_a_stale_stamp_without_an_applied_palette(self):
+        for name, accent in (("MyTheme", "#0f0f0f"), ("Other", "#111111")):
+            theme = self.themes / name
+            theme.mkdir()
+            (theme / "colors.toml").write_text('mode = "dark"\naccent = "%s"\n' % accent)
+        self.active.write_text("MyTheme\n")                      # stale stamp
+        current = self.srv.STATE_DIR.parent.parent / "omarchy" / "current"
+        current.mkdir(parents=True)
+        (current / "theme.name").write_text("Other\n")           # authoritative
+        self.assertEqual(self.srv.theme_colors()["accent"], "#111111")
+
     def test_named_theme_is_loaded(self):
         theme = self.themes / "MyTheme"
         theme.mkdir()

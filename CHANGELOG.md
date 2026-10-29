@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.17.56
+
+### Fixed
+- **The reader themed itself from the hook stamp, not the applied palette** (#2).
+  `theme_colors()` (bin/reader-server) resolved the theme name from
+  `<state>/omarchy-qutebrowser/active-theme` and looked that theme up, falling back to a
+  hardcoded palette — so the reader was off-theme whenever the hook had not run (a dev
+  checkout; a fresh install before the first theme change) and stale when the hook did not
+  run for a change (the clobbered bare `theme-set`, #1). It now reads the APPLIED palette
+  (`current/theme/colors.toml`) first — the reader needs colours, not a name — then the
+  recorded theme (`current/theme.name` → the hook stamp), then the hardcoded palette.
+
 ## 1.17.55
 
 ### Fixed

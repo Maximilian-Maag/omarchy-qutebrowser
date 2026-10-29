@@ -82,39 +82,71 @@ _AI_SLOTS = threading.BoundedSemaphore(2)
 # --------------------------------------------------------------------------- #
 # Theme colours (so the reader matches the active Omarchy theme)
 # --------------------------------------------------------------------------- #
+def _palette_from(raw, fallback):
+    """Map an Omarchy theme's colors.toml keys onto the reader's palette keys."""
+    return {
+        "mode": raw.get("mode", fallback["mode"]),
+        "bg": raw.get("background", fallback["bg"]),
+        "fg": raw.get("foreground", fallback["fg"]),
+        "bg_dark": raw.get("dark_background", fallback["bg_dark"]),
+        "bg_light": raw.get("lighter_background", fallback["bg_light"]),
+        "fg_dim": raw.get("dark_foreground", fallback["fg_dim"]),
+        "accent": raw.get("accent", fallback["accent"]),
+        "selection": raw.get("selection", fallback["selection"]),
+        "red": raw.get("red", fallback["red"]),
+        "green": raw.get("green", fallback["green"]),
+        "yellow": raw.get("yellow", fallback["yellow"]),
+    }
+
+
+def applied_theme_name():
+    """The applied theme's name, from the most authoritative source, else ``""``.
+
+    Omarchy writes ``<state>/omarchy/current/theme.name`` on EVERY theme change; the plugin's
+    theme-set hook stamp (``<state>/omarchy-qutebrowser/active-theme``) is only a fallback:
+    absent on a dev checkout, stale whenever the hook failed to run.
+    """
+    for path in (STATE_DIR.parent.parent / "omarchy" / "current" / "theme.name",
+                 STATE_DIR.parent / "active-theme"):
+        try:
+            name = path.read_text().strip()
+        except OSError:
+            continue
+        if name:
+            # Both sources carry Omarchy's normalised (lower-dashed) name: the hook slugifies
+            # before writing; theme.name is a directory slug. Return it unchanged so the value
+            # matches the theme directory exactly.
+            return name
+    return ""
+
+
 def theme_colors():
     fallback = {"mode": "dark", "bg": "#0B0C16", "fg": "#ddf7ff",
                 "bg_dark": "#080910", "bg_light": "#161b22",
                 "fg_dim": "#6a6e95", "accent": "#82FB9C", "selection": "#1f253a",
                 "red": "#ff5555", "green": "#82FB9C", "yellow": "#f1fa8c"}
-    try:
-        name = (STATE_DIR.parent / "active-theme").read_text().strip()
-    except OSError:
-        return fallback
-    if not name:
-        return fallback
-    for base in (pathlib.Path.home() / ".config/omarchy/themes",
-                 pathlib.Path("/usr/share/omarchy/themes")):
-        colors = base / name / "colors.toml"
-        if colors.exists():
-            try:
-                import tomllib
-                raw = tomllib.loads(colors.read_text())
-                return {
-                    "mode": raw.get("mode", "dark"),
-                    "bg": raw.get("background", fallback["bg"]),
-                    "fg": raw.get("foreground", fallback["fg"]),
-                    "bg_dark": raw.get("dark_background", fallback["bg_dark"]),
-                    "bg_light": raw.get("lighter_background", fallback["bg_light"]),
-                    "fg_dim": raw.get("dark_foreground", fallback["fg_dim"]),
-                    "accent": raw.get("accent", fallback["accent"]),
-                    "selection": raw.get("selection", fallback["selection"]),
-                    "red": raw.get("red", "#ff5555"),
-                    "green": raw.get("green", "#82FB9C"),
-                    "yellow": raw.get("yellow", "#f1fa8c"),
-                }
-            except Exception:
-                return fallback
+    applied = STATE_DIR.parent.parent / "omarchy" / "current" / "theme" / "colors.toml"
+    # The applied palette itself: what every other themed app is using. The reader needs colours
+    # rather than a name, so read them directly.
+    if applied.is_file():
+        try:
+            import tomllib
+            return _palette_from(tomllib.loads(applied.read_text()), fallback)
+        except Exception:
+            pass
+    # No applied palette (unusual): use the theme the hook recorded, so the reader still follows
+    # the name rather than a hardcoded guess.
+    name = applied_theme_name()
+    if name:
+        for base in (pathlib.Path.home() / ".config/omarchy/themes",
+                     pathlib.Path("/usr/share/omarchy/themes")):
+            colors = base / name / "colors.toml"
+            if colors.is_file():
+                try:
+                    import tomllib
+                    return _palette_from(tomllib.loads(colors.read_text()), fallback)
+                except Exception:
+                    break
     return fallback
 
 
