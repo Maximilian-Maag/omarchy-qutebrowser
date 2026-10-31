@@ -467,6 +467,24 @@ RESTORE_DRIVER = r"""
     var all = qa('#article .blk');
     return a ? all.indexOf(a) : -1;
   }());
+  // A summary that came back from the saved state must not be regenerated. ↑ at the top used
+  // to ask the AI again whenever the first block was active — and the summary card IS the first
+  // block — so pressing ↑ (or the ‹ button) after a reload rebuilt the summary already on
+  // screen, which is the reported "the summary keeps being recreated".
+  function summaryReqs() {
+    return window.__calls.fetch.filter(function (c) {
+      return c.body && c.body.indexOf('\"summary\"') !== -1; }).length;
+  }
+  var beforeUp = summaryReqs();
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+  await wait(250);
+  obs.summaryCardBeforeUp = !!q('#article .summary-blk');
+  obs.upArrowReSummarized = summaryReqs() - beforeUp;
+  obs.activeIdxAfterUp = (function () {
+    var a = q('#article .blk.active');
+    var all = qa('#article .blk');
+    return a ? all.indexOf(a) : -1;
+  }());
   obs.__done = true;
   } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
 })();

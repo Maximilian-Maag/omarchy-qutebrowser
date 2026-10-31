@@ -1095,12 +1095,22 @@
     }, factCheckArticle);
   }
 
+  function summaryPresent() {
+    return !!(pState.summary || articleEl.querySelector('.summary-blk'));
+  }
+
   // ↑ — previous paragraph, or the whole-article summary on the FIRST paragraph
   // (there is nowhere above to go). Ctrl+↑ summarises just this paragraph, so ↑
   // itself stays instant (no double-press delay).
   function upOnce() {
     var i = active < 0 ? 0 : active;
-    if (i <= 0) summarize(); else move(-1);
+    if (i > 0) { move(-1); return; }
+    // ↑ on the first block asks for the whole-article summary — but only when there is none
+    // yet. The card IS the first block, so re-asking whenever it was active rebuilt a summary
+    // already on screen (then re-saved it): opening the article again and pressing ↑ summarised
+    // it over. Regeneration stays explicit: the button, the `s` key, the ‹ control.
+    if (summaryPresent()) { return; }
+    summarize();
   }
 
   function summarizeActiveParagraph() {

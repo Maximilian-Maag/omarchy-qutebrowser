@@ -250,6 +250,15 @@ test('a saved position that matches no paragraph falls back to the saved scroll'
   assert.deepEqual(OBS.restore.scrollCalls, [0, 777]);
 });
 
+test('↑ on a restored summary does not regenerate it', opts, () => {
+  // The summary card IS the reader's first block, so ↑ at the top used to call summarize()
+  // again with the card already on screen: reopening an article and stepping up rebuilt the
+  // summary every time. Regenerating stays explicit — the button, `s`, or Ctrl+↑ for a paragraph.
+  const r = OBS.restore;
+  assert.equal(r.summaryCardBeforeUp, true, 'the summary came back from the saved state');
+  assert.equal(r.upArrowReSummarized, 0, '↑ must not ask the AI for a summary that exists');
+});
+
 test('an empty saved state does not block later saves', opts, () => {
   const e = OBS.restore_empty;
   assert.ok(e, 'restore_empty scenario ran');

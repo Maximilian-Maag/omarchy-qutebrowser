@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.17.58
+
+### Fixed
+- **The reader regenerated an existing summary when you stepped up** (#4, reported as
+  "die Zusammenfassung wird immer wieder neu erstellt"). `upOnce()` called `summarize()`
+  whenever the first block was active — and the summary card *is* the first block, so after a
+  reload pressing ↑ (or the ‹ button) asked the local AI again, rebuilt the card and re-saved
+  it, every time. It now asks only when there is no summary yet. Regeneration stays explicit:
+  the *Summarize* button, `,s`, or `Ctrl+↑` on a paragraph. Reproduced and pinned in the
+  offscreen QtWebEngine harness (restore scenario: `upArrowReSummarized` 1 -> 0).
+
 ## 1.17.57
 
 ### Tests
