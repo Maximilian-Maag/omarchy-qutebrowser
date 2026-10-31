@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.17.57
+
+### Tests
+- **Closed the one tracked coverage gap: `status/status.js` had no test at all** (#3, the
+  article status page — metrics, citation, publisher, coverage, framing). New
+  `tests/js/status.test.js` (16 tests, `node:vm` + a small fake DOM, as the rest of
+  `tests/js` does) pins the pure helpers — `esc`, `metricsOf` counting/quote/number/cue
+  logic, the SVG builders with their empty-input fallbacks, the citation formats — and
+  drives the whole shipped file: init renders metrics + citation, asks `/publisher` and
+  `/coverage` with the token, and degrades to a visible chip on failure. The mutation
+  exemption for the file now states its real reason (render glue a headless harness does
+  not observe; tried as a target it scores 0.33) instead of "no harness yet".
+
 ## 1.17.56
 
 ### Fixed

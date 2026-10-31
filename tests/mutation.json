@@ -25,12 +25,12 @@
       "equivalent": [
         {
           "line": 149,
-          "kind": "number±1",
-          "reason": "_pin_message's `getattr(pin_request, \"remainingAttempts\", -1)` default: the mutation changes -1 to -2, and BOTH are outside the 0..2 range that triggers the warning, so no input can tell them apart. The attribute is always present on a real Qt pinRequest and the None path is also out of range either way — proven by applying the mutant and diffing the full test output (identical rc and output)."
+          "kind": "number\u00b11",
+          "reason": "_pin_message's `getattr(pin_request, \"remainingAttempts\", -1)` default: the mutation changes -1 to -2, and BOTH are outside the 0..2 range that triggers the warning, so no input can tell them apart. The attribute is always present on a real Qt pinRequest and the None path is also out of range either way \u2014 proven by applying the mutant and diffing the full test output (identical rc and output)."
         },
         {
           "line": 90,
-          "kind": "number±1",
+          "kind": "number\u00b11",
           "reason": "step_index's `if count <= 0:` guard: the mutation makes it `<= 1`, and for count == 1 the guard already returns 0 - which is exactly what the clamped `min(max(current+delta,0), count-1)` returns for a one-element list. No input can tell them apart; proven by applying the mutant and diffing the full test output (identical rc and output)."
         }
       ]
@@ -75,7 +75,7 @@
       "equivalent": [
         {
           "line": 67,
-          "kind": "number±1",
+          "kind": "number\u00b11",
           "reason": "os.environ['PYTHONUNBUFFERED'] = '1' -> '2': CPython treats any non-empty value as 'on', so both disable buffering identically and no observation can tell them apart."
         }
       ]
@@ -136,7 +136,7 @@
       "equivalent": [
         {
           "line": 35,
-          "kind": "number±1",
+          "kind": "number\u00b11",
           "reason": "BLOCK_TAGS values are only tested for truthiness; 1 and 2 are both truthy"
         },
         {
@@ -265,11 +265,11 @@
     },
     {
       "path": "reader/readability.js",
-      "reason": "vendored third-party Readability — not ours to mutate"
+      "reason": "vendored third-party Readability \u2014 not ours to mutate"
     },
     {
       "path": "status/status.js",
-      "reason": "DOM-only rendering; no browser harness yet — a tracked, visible gap"
+      "reason": "DOM-only rendering; tests/js/status.test.js now covers the pure helpers and the whole init path (vm + a small fake DOM), but the bulk of the file is render glue whose output no headless harness observes, so it is exempt from mutation rather than scoring far below the floor"
     },
     {
       "path": "userscripts/qute-ai-fix",
