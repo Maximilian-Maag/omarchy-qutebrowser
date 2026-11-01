@@ -53,11 +53,12 @@ ln -sf "$PLUGIN_DIR/userscripts/youtube-adblock.js" \
        "$GREASEMONKEY_DIR/youtube-adblock.js"
 ln -sf "$PLUGIN_DIR/userscripts/cookie-banner-remover.js" \
        "$GREASEMONKEY_DIR/cookie-banner-remover.js"
-# Passkey platform-probe: QtWebEngine answers isUserVerifyingPlatformAuthenticatorAvailable()
-# false, so Microsoft's passkey page never starts a ceremony. Scoped to the Microsoft hosts,
-# deliberately NOT Google (measured: Google refuses the sign-in even for this one probe).
-ln -sf "$PLUGIN_DIR/userscripts/omarchy-ms-passkey-platform-probe.js" \
-       "$GREASEMONKEY_DIR/omarchy-ms-passkey-platform-probe.js"
+# Passkey platform-probe: RETIRED. It existed only because QtWebEngine answered
+# isUserVerifyingPlatformAuthenticatorAvailable() false; the engine patch (docs/engine-patch/)
+# makes the engine answer true, so Microsoft signs in with no page-visible correction (verified
+# 2026-10-12). Do NOT install it active: doing so would undo a deliberate disable and re-add a
+# page-visible deviation the engine patch removed. It stays in the repo as an opt-in fallback only.
+rm -f "$GREASEMONKEY_DIR/omarchy-ms-passkey-platform-probe.js"
 # Google's sign-in refuses this browser at submit without it (measured); scoped to Google hosts only.
 ln -sf "$PLUGIN_DIR/userscripts/omarchy-google-signin-chrome-identity.js" \
        "$GREASEMONKEY_DIR/omarchy-google-signin-chrome-identity.js"

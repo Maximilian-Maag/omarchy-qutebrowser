@@ -129,5 +129,62 @@ else
   skip "engine stub sources not present at $SRC"
 fi
 
+# ── 5. the BUILD guard refuses a tree the patches cannot be applied to ────────
+# build-patched-engine.sh APPLIES both patches and then REQUIRES "OK: patched". That is stronger
+# than the --check scripts' exit code, which is 0 for an *appliable* (unpatched) tree - a guard
+# that accepted rc 0 would build unpatched code, the exact failure it exists to prevent.
+BUILD="$REPO/docs/engine-patch/build-patched-engine.sh"
+
+mk_unpatched() {                       # a scratch dir holding UNPATCHED (appliable) copies
+  d="$(mktemp -d)"
+  cp "$SRC/$HDR" "$SRC/$IMP" "$SRC/$ACC" "$SRC/$CLIP" "$d/"
+  python3 "$SCRIPT" --src "$d" --revert >/dev/null 2>&1
+  python3 "$STUB"   --src "$d" --revert >/dev/null 2>&1
+  printf '%s' "$d"
+}
+
+# (A) unpatched-but-appliable: the guard applies the patches itself and passes.
+d="$(mk_unpatched)"
+if OMARCHY_ENGINE_SRC="$d" bash "$BUILD" --check-only >/tmp/bg.log 2>&1; then
+  ok "the build guard applies the patches and passes on an appliable tree"
+else
+  no "the build guard failed on an appliable tree (it should apply both patches)"
+  sed 's/^/    /' /tmp/bg.log
+fi
+rm -rf "$d"
+
+# (B) a DRIFTED tree (a Qt upgrade moved the anchor): the guard must REFUSE.
+d="$(mk_unpatched)"
+python3 - "$d/$HDR" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().replace("SupportsResidentKeys", "SupportsResidentKeysRenamed"))
+PY
+if OMARCHY_ENGINE_SRC="$d" bash "$BUILD" --check-only >/tmp/bg2.log 2>&1; then
+  no "the build guard did NOT refuse a drifted tree - it would build unpatched code"
+else
+  ok "the build guard refuses a drifted tree (patch cannot be applied)"
+fi
+rm -rf "$d"
+
+# (C) HALF-patched (patch 1 applied, patch 2 reverted): must not pass - patch 2 was previously
+#     unguarded, so a build could silently reintroduce the conditional-autofill hang.
+d="$(mk_unpatched)"
+python3 "$SCRIPT" --src "$d" >/dev/null 2>&1     # applies patch 1 AND patch 2, both anchors intact
+python3 - "$d/$IMP" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+t = p.read_text()
+new = "    if (ui_presentation == UIPresentation::kAutofill)\n        ui_presentation = UIPresentation::kModal;\n\n"
+assert new in t, "patch 2 body not found on the freshly patched copy"
+p.write_text(t.replace(new, "", 1))
+PY
+if OMARCHY_ENGINE_SRC="$d" bash "$BUILD" --check-only >/dev/null 2>&1; then
+  no "the build guard accepted a tree missing patch 2 (the conditional-autofill fix)"
+else
+  ok "the build guard requires patch 2 as well as patch 1"
+fi
+rm -rf "$d"
+
 echo "shell: $pass passed, $fail failed"
 (( fail == 0 ))

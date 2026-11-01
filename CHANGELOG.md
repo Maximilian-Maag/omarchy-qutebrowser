@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.17.59
+
+### Fixed
+- **The engine build guard did not actually guard.** `build-patched-engine.sh` refused only on a
+  non-zero `--check`, but both patch scripts return 0 for an *appliable* (i.e. UNPATCHED) tree as
+  well as a patched one — so a tree missing the four stub implementations, or missing patch 2 (the
+  conditional-autofill fix, which the guard never inspected at all), would build silently. It now
+  APPLIES both patches and requires each to report `OK: patched`, and `--check-only` lets the test
+  suite drive the guard on a scratch tree. `tests/shell/test_engine_patch.sh` now proves all three
+  cases: appliable → the guard applies and passes; drifted anchor → it refuses; patch-2-missing →
+  it refuses. The documented build procedure now applies the stubs patch too (it never did).
+- **`ClipboardQt::ReadBookmark` was not the inverse of `WriteBookmark()`.** `WriteBookmark()`
+  separates the URL from the title with a *single* `\n` byte, so the buffer has an odd length, but
+  `ReadBookmark()` decoded the whole buffer as one UTF-16 string and split on `U+000A` — decoding
+  Qt's own output misaligned after the newline, so the URL came back with the title bytes
+  garbage-appended and no title. It now splits on the raw `0x0A` byte first, which is correct for
+  Qt's writer and for Firefox's UTF-16 newline alike. (engine stubs patch; needs a rebuild to take
+  effect)
+- **`config.py` sourced `captcha-bindings.py` unconditionally**, contradicting the CHANGELOG's
+  "when it exists": qutebrowser records a config error on every start for a machine without
+  omarchy-captcha. Now guarded on the file's presence, exactly like the neighbouring
+  `site-overrides.py` source.
+- **`install.sh` re-enabled the retired Microsoft platform-probe userscript.** It is retired (the
+  engine patch answers the capability question, verified) and the machine has it disabled, but
+  install.sh symlinked it active — undoing the disable and re-adding a page-visible deviation the
+  engine patch removed. install.sh no longer installs it and removes a previously-installed one.
+
 ## 1.17.58
 
 ### Fixed

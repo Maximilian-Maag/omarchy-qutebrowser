@@ -8,7 +8,8 @@ remove a hang:
 | 1 | report a platform authenticator as available | `WebAuthenticationDelegateQt` | pages otherwise conclude "this browser cannot do passkeys" and never start a ceremony |
 | 2 | present a conditional request as modal | `AuthenticatorRequestClientDelegateQt::SetUIPresentation` | a `mediation:"conditional"` request is marked `kAutofill`, which Qt shows nothing for, and such a request never times out — the page waits forever |
 
-Both are applied by `apply-webauthn-patch.py` (with `--revert`) and built by `build-patched-engine.sh`.
+Both are applied by `apply-webauthn-patch.py` (with `--revert`); `build-patched-engine.sh` applies
+both patch scripts and refuses to build unless every anchor reports `OK: patched`.
 
 ## Patch 1 — the capability answer
 
@@ -95,13 +96,17 @@ reachable on this build, and implementable with the interfaces already at hand:
 - `BrowserAccessibilityInterface::characterRect` / `offsetAtPoint` / `keyBindingsForAction` —
   assistive-technology support (per-character bounds, hit-testing, and the element's keyboard
   shortcut); and
-- `ClipboardQt::ReadBookmark` — decode `text/x-moz-url`, the exact inverse of the `WriteBookmark()`
-  Qt already implements (Chromium's own Linux clipboard also leaves this `NOTIMPLEMENTED()`).
+- `ClipboardQt::ReadBookmark` — decode `text/x-moz-url`. `WriteBookmark()` separates the URL and the
+  title with a *single* `\n` byte, so the buffer has an odd length and cannot be decoded as one
+  UTF-16 string: the split is done on the raw `0x0A` byte first, then each half is decoded as UTF-16
+  (correct for Firefox's UTF-16 newline too). Chromium's own Linux clipboard also leaves this
+  `NOTIMPLEMENTED()`.
 
 The remaining stubs are triaged in [`../implementation-gaps.md`](../implementation-gaps.md) — most
 are platform-guarded (`#if BUILDFLAG(IS_MAC)`) or need a subsystem Qt does not ship. Same contract as
-patches 1–2: apply / `--revert` / `--check`, and `build-patched-engine.sh` refuses to build if it is
-not healthy.
+patches 1–2: apply / `--revert` / `--check`. `build-patched-engine.sh` applies it and then requires
+the tree to report `OK: patched` — not a bare zero exit, because `--check` returns 0 for an
+*appliable* (UNPATCHED) tree as well, the hole that let an unpatched tree build silently.
 
 ## Why no Chromium file is touched
 
@@ -133,19 +138,20 @@ git clone --depth=1 https://gitlab.archlinux.org/archlinux/packaging/packages/qt
 cd qt6-webengine
 makepkg -o -d
 
-# 2. apply the patches to Qt's delegate
-python3 ../apply-webauthn-patch.py
-
-# 3. build (no root: this compiles only, it does not install)
+# 2. patch and build (no root: this compiles only, it does not install). build-patched-engine.sh
+#    APPLIES both patch scripts (idempotently) and refuses to build unless every anchor reports
+#    OK: patched — so this one step patches and verifies.
 ../build-patched-engine.sh
 
-# 4. install (this is the only step that needs root)
+# 3. install (this is the only step that needs root)
 sudo pacman -U qt6-webengine-*.pkg.tar.zst
 ```
 
-`build-patched-engine.sh` refuses to build if patch 1 is missing, and uses `--noprepare` — the
-PKGBUILD's `prepare()` performs a submodule checkout that resets `src/3rdparty`, which would silently
-wipe the patches and produce a three-hour build of unpatched code.
+`build-patched-engine.sh` applies both patch scripts and refuses to build unless each anchor reports
+`OK: patched` (patch 1 and 2, and all four stubs) — an unpatched or drifted tree cannot ship
+silently. It also uses `--noprepare` — the PKGBUILD's `prepare()` performs a submodule checkout that
+resets `src/3rdparty`, which would silently wipe the patches and produce a three-hour build of
+unpatched code.
 
 `-d` skips the dependency check (for the two absent, unneeded packages above), `-e` reuses the
 fetched sources, `--nocheck` skips QtWebEngine's own test suite, and `-f` overwrites a package left

@@ -192,7 +192,7 @@ The result, and the honest triage:
 | `RenderWidgetHostViewQt::EnsureSurfaceSynchronizedForWebTest()` | **test-only** — not shipped behaviour |
 | Vulkan `NOTIMPLEMENTED()` (`chromium_overrides.cpp`) | **unreachable on Linux** — inside `#if BUILDFLAG(IS_APPLE)` (MoltenVK) |
 | `MessagePumpForUIQt::Run()` / `Quit()` | **not in normal use** — Qt's own comment: only when the pump runs outside the GUI thread |
-| `ClipboardQt::ReadBookmark()` | real but minor (X11 selection bookmark) |
+| `ClipboardQt::ReadBookmark()` | **fixed (stubs patch)** — decodes `text/x-moz-url` by splitting on the raw `0x0A` byte first; `WriteBookmark()`'s single-byte newline made the old whole-buffer UTF-16 decode mis-split the URL/title |
 | `AutofillClientQt::GetAutofillSuggestions()` | **correct as-is** — Qt's comment: "Called by password_manager component only"; with KeePassXC the empty return is right |
 
 So of the apparent gaps, exactly one was real and user-visible (the conditional-request hang); most

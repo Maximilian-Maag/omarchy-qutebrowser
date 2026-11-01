@@ -132,3 +132,38 @@ The same investigation found the mutation pass leaking runaway processes: a time
 mutator (mutating `tools/mutator.py` runs the mutator itself) left grandchildren spinning at
 100% CPU for hours — five orphans, up to 2.7h, load 7.5 — and that load was another source of
 harness flakiness. `run_tests()` now kills the whole process group on timeout (1.17.48).
+
+## Audit — gaps in the guards, the patches and the plugin (2026-11-01)
+
+The register above triages *what Qt left unimplemented*. This section is a separate audit of the
+deliverables themselves — the two patch scripts, the build guard and the plugin wiring — re-checked
+against the installed engine source and a throwaway copy. Each row was reproduced, not inferred.
+
+| gap | evidence | fix |
+|---|---|---|
+| **`build-patched-engine.sh` would build an UNPATCHED tree.** `apply-*-patch.py --check` returns `0` for *both* `patched` and `appliable`, but the guard is `if ! python3 apply-engine-stubs-patch.py --check …; then refuse; fi` — so a tree where the edits are merely *appliable* (i.e. absent) passes and the build proceeds without the four stub implementations. The comment ("refuse to build if … the edits are absent") is therefore false. | revert a copy → `--check` `rc=0` → `if !` does not trip. | make the guard require `OK: patched` (or add `--require-patched`). |
+| **The documented build procedure never applies the stubs patch.** `README.md` "Procedure" step 2 runs only `apply-webauthn-patch.py`; `apply-engine-stubs-patch.py` is never run, and the guard (row above) does not catch its absence. Following the docs literally yields a build missing all four stub implementations. | the script's own source; guard row above. | add the stubs apply step to the procedure, and/or apply it from `build-patched-engine.sh`. |
+| **The webauthn build guard covers patch 1 only.** The guard greps both files for `IsUserVerifyingPlatformAuthenticatorAvailableOverride` — patch 1's marker. Patch 2 (`kAutofill → kModal`) has no marker in that grep, and `apply-webauthn-patch.py --check` (unused by the build) also returns `0` for `appliable`. | remove only the presentation body from a copy while keeping patch 1 → the guard passes and the build would ship without the conditional-autofill fix. | grep for `ui_presentation = UIPresentation::kModal` too, or drive the guard off `--check` requiring `patched`. |
+| **`ClipboardQt::ReadBookmark` is not "the exact inverse of `WriteBookmark()`".** `WriteBookmark()` appends the newline as a *single byte* (`data.append('\n')`) between two UTF-16 segments, producing an **odd-length** buffer; `ReadBookmark()` decodes the whole buffer as UTF-16 and splits on `U+000A`, so decoding Qt's own output misaligns after the newline — the URL comes back with the title bytes garbage-appended and no title. It is correct for genuine Firefox/mozilla clipboard data (whose newline *is* a UTF-16 unit) but not the inverse of Qt's writer. | reproduced in Python with `WriteBookmark`'s exact byte layout: `http://x/` + `hello` → `'http://x/栊攀氀氀漀'`, no split. | split on the raw `0x0A` byte and decode each half as UTF-16 (or make `WriteBookmark` emit the newline as UTF-16). |
+| **`config.source("captcha-bindings.py")` is unguarded.** `CHANGELOG.md` says "Sources `captcha-bindings.py` **when it exists**", but `config/config.py:489` calls it unconditionally. `install.sh` does not provide the file (omarchy-captcha does). | without omarchy-captcha, `config.source` records a startup config error ("Error while reading captcha-bindings.py") — non-fatal (swallowed into `self.errors`) but contrary to the documented behaviour. | guard with `os.path.isfile`, exactly as the neighbouring `site-overrides.py` source is guarded. |
+| **`install.sh` re-enables a userscript the docs call retired.** This register marks the Microsoft platform-probe userscript "closed / retired … disabled (kept as a fallback only)", and on this machine it is renamed `omarchy-ms-passkey-platform-probe.js.disabled`; but `install.sh` still symlinks it as an active greasemonkey script, so re-running install.sh undoes the disable. install.sh's comment for it is also stale (it still gives the pre-engine-patch rationale). | `install.sh:59-60`; live dir shows `.disabled`. | drop the symlink from install.sh, or link it `.disabled` by default. |
+
+Doc drift: `webauthn-signin.md`'s "Implementation gap analysis" table is stale relative to this
+register — it lists `ReadBookmark` as "real but minor (open)" while the register claims it closed, and
+it predates the accessibility stubs.
+
+Worth verifying (not yet reproduced): `BrowserAccessibilityInterface::offsetAtPoint` hit-tests with
+`characterRect(i).contains(point)`, and `characterRect` returns **screen** coordinates (it uses
+`GetScreenHypertextRangeBoundsRect`, matching `rect()`). If Qt's `offsetAtPoint` contract is
+object-relative rather than screen-relative, the scan never matches and the method returns `-1`
+unconditionally. Chromium's own ATK equivalent takes an explicit coordinate-type argument, which is
+what makes this ambiguous for the Qt interface.
+
+**Resolved in 1.17.59** (all but the last item, which stays a follow-up): the build guard now applies
+both patch scripts and requires `OK: patched` (so it covers patch 2 and the stubs — no unpatched or
+drifted tree can build), the procedure applies the stubs patch, `ReadBookmark` splits on the raw
+`0x0A` byte, `config.py` guards the captcha source, and `install.sh` no longer re-enables the probe.
+Each is pinned by a test: `tests/shell/test_engine_patch.sh` drives the guard on a scratch tree
+(appliable → builds, drifted → refuses, patch-2-missing → refuses), and the regression/integration
+suites pin `ReadBookmark`, the captcha guard and the probe retirement.
+

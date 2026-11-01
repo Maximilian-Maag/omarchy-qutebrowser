@@ -9,6 +9,7 @@ qutebrowser package (and its configdata.yml) is not installed.
 import pathlib
 import re
 import sys
+import tempfile
 import types
 import unittest
 
@@ -27,11 +28,12 @@ class _Auto:
 
 
 class _RecordingConfig:
-    """Stands in for qutebrowser's `config`, recording every bind()."""
+    """Stands in for qutebrowser's `config`, recording every bind()/source()."""
     configdir = pathlib.Path.home() / ".config" / "qutebrowser"
 
     def __init__(self):
         self.binds = []
+        self.sources = []
 
     def bind(self, sequence, command, mode="normal", *args, **kwargs):
         self.binds.append((mode, sequence, command))
@@ -39,17 +41,23 @@ class _RecordingConfig:
     def set(self, *a, **k):
         return None
 
-    def source(self, *a, **k):
-        return None
+    def source(self, filename, *a, **k):
+        self.sources.append(filename)
 
     def load_autoconfig(self, *a, **k):
         return None
 
 
-def load_config():
-    """Exec config.py with stubs; return the recording `config`."""
+def load_config(configdir=None):
+    """Exec config.py with stubs; return the recording `config`.
+
+    `configdir` overrides what config.py sees as `config.configdir` (the dir it looks in for
+    sibling modules like captcha-bindings.py), so a test can control what is present there.
+    """
     c = _Auto()
     config = _RecordingConfig()
+    if configdir is not None:
+        config.configdir = pathlib.Path(configdir)
     if str(CFG) not in sys.path:
         sys.path.insert(0, str(CFG))
     stub = types.ModuleType("omarchy_webauthn")
@@ -154,6 +162,28 @@ class BindingCollisionCase(unittest.TestCase):
                    if mode == "normal" and seq in self.defaults
                    and self.defaults[seq] != cmd]
         self.assertEqual([c[0] for c in clashes], ["gd"])
+
+
+class CaptchaBindingsGuardCase(unittest.TestCase):
+    """config.py must source captcha-bindings.py only when it is actually there.
+
+    omarchy-captcha writes that file into the qutebrowser config dir. Sourcing it unconditionally
+    made qutebrowser record a config error on every start for anyone without the captcha plugin
+    (qutebrowser reports a missing sourced file), contrary to the CHANGELOG's "when it exists".
+    """
+
+    def test_not_sourced_when_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_config(configdir=tmp)
+        self.assertNotIn("captcha-bindings.py", config.sources,
+                         "a machine without omarchy-captcha must not source captcha-bindings.py")
+
+    def test_sourced_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (pathlib.Path(tmp) / "captcha-bindings.py").write_text("# stub\n")
+            config = load_config(configdir=tmp)
+        self.assertIn("captcha-bindings.py", config.sources,
+                      "omarchy-captcha's bindings must be wired when the file is present")
 
 
 if __name__ == "__main__":

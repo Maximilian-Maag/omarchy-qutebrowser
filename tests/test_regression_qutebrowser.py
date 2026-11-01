@@ -175,5 +175,47 @@ class RegressionCase(unittest.TestCase):
                 self.assertTrue(rule.startswith("||"), "%s: unexpected rule %r" % (name, rule))
 
 
+    def test_readbookmark_is_the_inverse_of_writebookmark(self):
+        """ReadBookmark decoded the WHOLE clipboard buffer as one UTF-16 string and split on
+        U+000A, but WriteBookmark() separates the two halves with a SINGLE '\\n' byte, so the
+        buffer has an odd length: decoding Qt's own output misaligned after the newline and the
+        URL came back with the title bytes garbage-appended and no title. The fix splits on the
+        raw 0x0A byte first (correct for Qt's writer and for Firefox's UTF-16 newline alike)."""
+        script = (REPO / "docs/engine-patch/apply-engine-stubs-patch.py").read_text()
+        self.assertNotIn("bookmark.indexOf", script,
+                         "the whole-buffer decode (the bug) must be gone")
+        for needle in ("data.left(newline)", "data.mid(titleStart)",
+                       "cannot be decoded as one"):
+            self.assertIn(needle, script, "the raw-byte split must be in the patch")
+
+        def readbookmark(data):                 # mirror of the patched C++ split
+            nl = data.find(b"\n")
+            if nl < 0:
+                return data.decode("utf-16-le"), ""
+            url = data[:nl].decode("utf-16-le")
+            start = nl + 1
+            if start < len(data) and data[start] == 0:
+                start += 1
+            return url, data[start:].decode("utf-16-le")
+
+        url, title = "https://example.com/a", "Example \u2014 \u00dcn\u00efcode"
+        qt = url.encode("utf-16-le") + b"\n" + title.encode("utf-16-le")   # WriteBookmark layout
+        self.assertEqual(len(qt) % 2, 1, "WriteBookmark's single-byte newline makes it odd-length")
+        self.assertEqual(readbookmark(qt), (url, title))
+        ff = (url.encode("utf-16-le") + "\n".encode("utf-16-le")
+              + title.encode("utf-16-le"))                                 # Firefox layout
+        self.assertEqual(readbookmark(ff), (url, title))
+
+    def test_install_sh_retires_the_ms_platform_probe(self):
+        """The engine patch makes the capability answer true, so the page-visible Microsoft
+        platform-probe userscript is retired. install.sh used to symlink it ACTIVE, which undid a
+        deliberate disable and re-added a deviation the engine patch had removed."""
+        sh = (REPO / "install.sh").read_text()
+        self.assertNotIn('ln -sf "$PLUGIN_DIR/userscripts/omarchy-ms-passkey-platform-probe.js"',
+                         sh, "install.sh must not install the probe userscript active")
+        self.assertIn('rm -f "$GREASEMONKEY_DIR/omarchy-ms-passkey-platform-probe.js"', sh,
+                      "install.sh must remove a previously-installed active probe")
+
+
 if __name__ == "__main__":
     unittest.main()

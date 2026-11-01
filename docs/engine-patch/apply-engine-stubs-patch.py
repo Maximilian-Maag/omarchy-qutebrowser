@@ -125,20 +125,36 @@ RB_NEW = """void ClipboardQt::ReadBookmark(const ui::DataTransferEndpoint *data_
     if (!mimeData)
         return;
 
-    // The mozilla url format WriteBookmark() writes: a UTF-16 (URL, newline, title) payload under
-    // "text/x-moz-url". Decode its exact inverse.
+    // "text/x-moz-url" is (URL, newline, title) as UTF-16. WriteBookmark() above separates the two
+    // halves with a SINGLE '\\n' byte, so the buffer has an odd length and cannot be decoded as one
+    // UTF-16 string; Firefox instead writes the newline as a real UTF-16 unit. Split on the raw
+    // 0x0A byte - correct for both - then decode each half on its own.
     const QByteArray data = mimeData->data(QString::fromLatin1(ui::kMimeTypeMozillaUrl));
     if (data.isEmpty())
         return;
 
-    const QString bookmark = QString::fromUtf16(
-            reinterpret_cast<const char16_t *>(data.constData()), data.size() / 2);
-    const qsizetype newline = bookmark.indexOf(u'\\n');
-    const QString bookmarkUrl = newline < 0 ? bookmark : bookmark.left(newline);
+    const auto decode = [](const QByteArray &bytes) {
+        return QString::fromUtf16(reinterpret_cast<const char16_t *>(bytes.constData()),
+                                  bytes.size() / 2);
+    };
+
+    const qsizetype newline = data.indexOf('\\n');
+    if (newline < 0) {
+        if (url)
+            *url = decode(data).toStdString();
+        return;
+    }
+
     if (url)
-        *url = bookmarkUrl.toStdString();
+        *url = decode(data.left(newline)).toStdString();
+
+    // Skip the separator. A UTF-16 newline leaves its 0x00 high byte behind (Firefox); Qt's single
+    // byte does not.
+    qsizetype titleStart = newline + 1;
+    if (titleStart < data.size() && data.at(titleStart) == '\\0')
+        ++titleStart;
     if (title)
-        *title = toString16(newline < 0 ? QString() : bookmark.mid(newline + 1));
+        *title = toString16(decode(data.mid(titleStart)));
 }"""
 
 # file -> list of (old, new, marker). The marker is a string that appears ONLY once patched, so it
@@ -150,7 +166,7 @@ EDIT_FILES = [
         (KB_OLD, KB_NEW, "the element's own\n    // keyboard shortcut is the honest answer"),
     ]),
     ("clipboard_qt.cpp", [
-        (RB_OLD, RB_NEW, "mozilla url format WriteBookmark() writes"),
+        (RB_OLD, RB_NEW, "odd length and cannot be decoded as one"),
     ]),
 ]
 

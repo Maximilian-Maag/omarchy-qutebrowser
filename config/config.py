@@ -486,4 +486,9 @@ config.set("content.autoplay", True, "*.youtube.com")                    # noqa
 config.set("content.autoplay", True, "*.twitch.tv")                       # noqa
 config.set("content.notifications.enabled", True, "*.github.com")         # noqa
 
-config.source("captcha-bindings.py")
+# omarchy-captcha writes captcha-bindings.py into the qutebrowser config dir. Source it only when
+# it is there: qutebrowser records a config error for a missing sourced file, so an unconditional
+# source would print "could not read captcha-bindings.py" on every start for anyone without the
+# captcha plugin. Guarded exactly like the site-overrides.py source above.
+if os.path.isfile(os.path.join(config_dir, "captcha-bindings.py")):  # noqa: F821
+    config.source("captcha-bindings.py")
