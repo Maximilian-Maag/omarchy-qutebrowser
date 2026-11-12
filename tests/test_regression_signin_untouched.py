@@ -69,7 +69,7 @@ EXCEPTIONS = {
         "allowed": ("userAgentData", "pdfViewerEnabled"),
         "must_not_match": ("google.com", "gstatic.com", "youtube.com", "googleusercontent.com",
                            "live.com", "microsoft.com", "microsoftonline.com", "apple.com"),
-        "must_match_only": ("linkedin.com", "kleinanzeigen.de", "immowelt.de"),
+        "must_match_only": ("linkedin.com", "kleinanzeigen.de", "immowelt.de", "cults3d.com"),
     },
 }
 
@@ -133,6 +133,43 @@ class SigninUntouched(unittest.TestCase):
     def test_the_shim_stays_retired(self):
         self.assertFalse((ROOT / "userscripts" / "google-signin-compat.js").exists(),
                          "google-signin-compat.js caused the sign-in refusal; keep it retired")
+
+
+class TheLinkedInRedirectStaysNavigationOnly(unittest.TestCase):
+    """The one-page fix for LinkedIn's path-scoped Cloudflare block.
+
+    Measured: https://www.linkedin.com/ is answered with Cloudflare's hard block while /login loads
+    normally in the same engine, so the script leaves the block page for the login page. That gives
+    it a reason to run on a host with an auth flow on it - which is exactly the neighbourhood where
+    the original shim broke sign-in - so it is held here to what makes it safe: it reads
+    document/location, it navigates only to a LinkedIn URL, and it stays on one host.
+    """
+
+    SCRIPT = ROOT / "userscripts" / "omarchy-linkedin-root-redirect.js"
+
+    def test_it_is_shipped_and_installed(self):
+        self.assertTrue(self.SCRIPT.exists(), "the LinkedIn redirect script is missing")
+        install = (ROOT / "install.sh").read_text()
+        self.assertIn("omarchy-linkedin-root-redirect.js", install,
+                      "a script that is not installed changes nothing in the browser")
+
+    def test_it_may_not_leave_linkedin(self):
+        urls = re.findall(r"'https?://[^']+'", code_only(self.SCRIPT.read_text()))
+        self.assertTrue(urls, "parsed no URL from the redirect script")
+        for url in urls:
+            self.assertIn("linkedin.com", url,
+                          "the script navigates to %s - it may only ever point at LinkedIn" % url)
+
+    def test_it_stays_on_one_host(self):
+        patterns = re.findall(r"^//\s*@match\s+(\S+)", self.SCRIPT.read_text(), re.M)
+        self.assertEqual(["https://www.linkedin.com/*"], patterns,
+                         "widening the scope runs a navigation fix on hosts it has no business on")
+
+    def test_it_touches_no_browser_api(self):
+        code = code_only(self.SCRIPT.read_text())
+        for needle in FORBIDDEN:
+            self.assertNotIn(needle, code,
+                             "%s is a navigation fix - it must not rewrite %s" % (self.SCRIPT.name, needle))
 
 
 if __name__ == "__main__":

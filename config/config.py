@@ -273,6 +273,10 @@ _STOCK_CHROME_HOSTS = (
     "https://*.kleinanzeigen.de/*",
     "https://www.immowelt.de", "https://www.immowelt.de/*",
     "https://*.immowelt.de/*",
+    # Cloudflare managed challenge on the Cults3D download redirect. The bare host and every path:
+    # the challenge page is served under /f/a/<token>, and the `?__cf_chl_rt_tk=` retry URL is the
+    # same document.
+    "https://spark.cults3d.com", "https://spark.cults3d.com/*",
 )
 
 # User-Agent: drop the QtWebEngine token, keep the real Chromium version so the JS the site

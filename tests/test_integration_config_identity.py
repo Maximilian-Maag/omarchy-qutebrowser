@@ -19,7 +19,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 CFG = REPO / "config"
 
 # The hosts that must get the identity (substring of one or more patterns each).
-BOT_MANAGED = ("linkedin.com", "kleinanzeigen.de", "immowelt.de")
+BOT_MANAGED = ("linkedin.com", "kleinanzeigen.de", "immowelt.de", "spark.cults3d.com")
 SIGNIN = ("accounts.google.com", "login.microsoftonline.com")
 
 

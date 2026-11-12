@@ -219,7 +219,7 @@ test('it leaves pdfViewerEnabled alone when there is no getter to wrap', () => {
 test('@match covers exactly the bot-managed hosts and nothing wildcard', () => {
     const matches = [...SOURCE.matchAll(/^\/\/\s*@match\s+(\S+)/gm)].map(m => m[1]);
     assert.ok(matches.length > 0, 'the script declares no @match, so its scope is unasserted');
-    const allowed = ['linkedin.com', 'kleinanzeigen.de', 'immowelt.de'];
+    const allowed = ['linkedin.com', 'kleinanzeigen.de', 'immowelt.de', 'cults3d.com'];
     for (const pattern of matches) {
         assert.ok(allowed.some(h => pattern.includes(h)),
                   pattern + ' must stay on a bot-managed host');

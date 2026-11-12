@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "Maximilian-Maag.qutebrowser",
   "name": "Qutebrowser",
-  "version": "1.17.59",
+  "version": "1.17.60",
   "author": "Maximilian-Maag",
   "license": "MIT",
   "description": "Qutebrowser as the default Omarchy browser \u2014 all 22 stock themes, KeePassXC password fill, ad-free YouTube, and built-in ad blocking.",
@@ -25,7 +25,8 @@
       "AI per-site fixes (qute-ai-fix) applied via generated per-domain Greasemonkey scripts, with a JavaScript over-blocking check",
       "Reader mode (,r): distraction-free article view with paragraph focus, local-AI per-paragraph/whole-article AI-writing marks and a summary",
       "Cookie-banner removal (filter lists + Greasemonkey)",
-      "Stock-Chrome identity for bot-managed sites (LinkedIn, Kleinanzeigen, immowelt): a host-scoped Chrome fingerprint so a bot interstitial does not block the page",
+      "Stock-Chrome identity for bot-managed sites (LinkedIn, Kleinanzeigen, immowelt, the Cults3D download redirect): a host-scoped Chrome fingerprint so a bot interstitial does not block the page",
+      "LinkedIn's path-scoped Cloudflare block: the bare root URL is hard-blocked, so the block page navigates onward to the login page (navigation-only, one host)",
       "Sets qutebrowser as the system default browser"
     ]
   }

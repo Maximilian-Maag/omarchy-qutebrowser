@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name        Stock Chrome identity for bot-managed sites
 // @namespace   Maximilian-Maag.omarchy-qutebrowser
-// @description Makes sites behind managed bot-detection (LinkedIn/Cloudflare, Kleinanzeigen
-//              and immowelt/DataDome) stop treating this browser as automated. The engine
+// @description Makes sites behind managed bot-detection (LinkedIn/Cloudflare, Kleinanzeigen,
+//              immowelt/DataDome and the Cults3D download redirect/Cloudflare) stop treating
+//              this browser as automated. The engine
 //              differs from Chrome in a few JavaScript tells — navigator.userAgentData.brands
 //              says "Chromium" only, window.chrome is empty, pdfViewerEnabled is false — and a
 //              detection suite reads those, plus the request-level tells config.py already
@@ -13,7 +14,8 @@
 //              per-host in config/config.py for the same hosts.
 //
 //              A deliberate, host-scoped exception to the repository's API-rewrite ban, held to
-//              LinkedIn / Kleinanzeigen / immowelt by tests/test_regression_signin_untouched.py
+//              LinkedIn / Kleinanzeigen / immowelt / Cults3D by
+//              tests/test_regression_signin_untouched.py
 //              and mirrored by tests/js/chrome-identity.test.js.
 //
 //              Why this shape, given the shim that failed: google-signin-compat.js redefined
@@ -32,6 +34,7 @@
 // @match       https://*.kleinanzeigen.de/*
 // @match       https://www.immowelt.de/*
 // @match       https://*.immowelt.de/*
+// @match       https://spark.cults3d.com/*
 // @run-at      document-start
 // ==/UserScript==
 (function () {

@@ -10,6 +10,14 @@ Certain sites stop working with a block or challenge page instead of content:
   rapid taps or clicks, JavaScript disabled or not working, automated (bot) activity on your
   network, use of developer or inspection tools."
 - **Kleinanzeigen** — the same class of managed bot-detection challenge.
+- **Cults3D download redirect** (`spark.cults3d.com`) — a Cloudflare "Performing security
+  verification" page with a Turnstile "Verify you are human" checkbox that never completes. The
+  page's own retry cookie climbs (`cf_chl_rc_ni=8`, 9, …) while the challenge stays up. Measured
+  on the live browser: the widget's canvas read throws `SecurityError: Failed to execute
+  'getImageData' on 'CanvasRenderingContext2D'` — `content.canvas_reading` was still `False` for
+  the host, which is the hard "tampered browser" tell the widget reads. The host was simply not in
+  `_STOCK_CHROME_HOSTS`. With the identity applied, the same page clears and redirects to
+  `cults3d.com`.
 
 ## Root cause: the browser's fingerprint is not Chrome's
 

@@ -1,10 +1,10 @@
-# LinkedIn's residual Cloudflare hard block (identity applied)
+# LinkedIn's Cloudflare hard block is PATH-scoped (the bare root URL)
 
 Companion to `docs/anti-bot-identity.md`. That doc covers the stock-Chrome identity fix for the
-managed-bot-detection **challenge**. This one records a case where the identity is fully applied
-and the site **still** hard-blocks — so the fix is not the lever.
+managed-bot-detection **challenge**. This one records a case where the identity is fully applied and
+the site **still** hard-blocks the bare root URL - and what actually gets you in.
 
-## Symptom (measured 2026-10-22)
+## Symptom
 
 `https://www.linkedin.com/` in the live qutebrowser: window title `Attention Required! | Cloudflare`;
 the body is Cloudflare's **hard block**, not a challenge:
@@ -15,60 +15,80 @@ the body is Cloudflare's **hard block**, not a challenge:
 That is the WAF/firewall block (1020-style), decided **before** the page's JavaScript runs — it is
 not the "Just a moment" managed challenge `omarchy-chrome-identity.js` was built to clear.
 
-## The identity is NOT the cause (measured live, not inferred)
+## What is NOT the cause (all measured, 2026-11-04, on the A1/Vienna egress)
 
-A main-world probe in the running browser's LinkedIn tab — `:jseval --world main`, result written to
-`document.title` and read back via `hyprctl` — shows the identity fully applied:
+The earlier version of this document concluded "the identity is not the lever, so use a Chromium
+browser for this one site". That conclusion was too broad. What the measurements actually support:
 
-| tell | live value |
+| ruled out | measurement |
 |---|---|
-| `navigator.userAgent` | `…Chrome/140.0.0.0 Safari/537.36` (no `QtWebEngine` token) |
-| `navigator.userAgentData.brands` | `["Google Chrome 140","Chromium 140","Not=A?Brand 24"]` |
-| `window.chrome` | `["app","runtime","csi","loadTimes"]` |
-| `navigator.pdfViewerEnabled` | `true` |
-| `navigator.webdriver` | `false` |
-| canvas readable | `true` |
-| `userAgentData` an own prop of `navigator` | `false` (prototype patch, correct) |
+| IP reputation | `curl https://www.linkedin.com/` from this machine gets **HTTP/2 200** and the real page (`LinkedIn: Log In or Sign Up`), on the same address the browser is blocked from. |
+| request headers | the same `curl` with the identity's exact header set (Chrome UA, `sec-ch-ua` with `Google Chrome`, `sec-fetch-*`, the engine's `accept`/`accept-encoding`) is **200**. Claiming Chrome over a non-Chrome TLS stack is not what trips it. |
+| cookies / session / profile state | a **fresh, cookieless** QtWebEngine profile is served the block page too. |
+| our config, the identity, the userscript | a **bare** engine (no config, no userscript) is blocked; adding the Chrome client hints changes nothing. `docs/anti-bot-identity.md`'s half is correct and irrelevant here. |
+| QUIC / HTTP-3 | the engine's `/cdn-cgi/trace` says `http=http/2`; `--disable-quic` changes nothing. |
+| IPv6 | no IPv6 route on this machine; both clients use the same IPv4 path. |
+| a Chrome-shaped TLS/H2 surface being missing | the engine's ClientHello has Chrome's 16 ciphers, the `X25519MLKEM768` key share, GREASE, ECH and ALPS extensions, and its HTTP/2 preface is Chrome's exactly (`SETTINGS 1:65536;2:0;4:6291456;6:262144`, `WINDOW_UPDATE 15663105`, priority frame weight 256). |
 
-Every tell the request half + the JavaScript half correct is correct on the live page. So the block
-is not the fingerprint tells this repo fixes.
+So the block tracks something about the QtWebEngine client that is **below the JavaScript layer and
+not the surfaces measured above** — but it is **not** "LinkedIn blocks this browser everywhere".
 
-## Discriminator: same machine, same public IP, different engine
+## The actual finding: the block is path-scoped
 
-- The machine's egress IP is `185.198.142.110` (TeleData, DE).
-- A **real Chromium** browser on that **same machine / same IP** loads
-  `https://www.linkedin.com/` fine — title `LinkedIn: Log In or Sign Up`, full page.
-- qutebrowser (QtWebEngine) on that same IP is hard-blocked.
+The same engine, same address, fresh profile, one request each:
 
-⇒ The block is **not** IP reputation and **not** the JavaScript fingerprint; it tracks the
-**QtWebEngine client below JavaScript** — its TLS (JA3/JA4) and HTTP/2 fingerprint and its header
-order — which no config value or userscript can change. (Not directly observable from the page, but
-the same-IP/different-engine result places the difference there.)
+| URL | result |
+|---|---|
+| `https://www.linkedin.com/` | **blocked** — `Attention Required! | Cloudflare` |
+| `https://www.linkedin.com/login` | loads — `LinkedIn Login, Einloggen | LinkedIn` |
+| `https://www.linkedin.com/uas/login` | loads (redirects to `/login`) |
+| `https://www.linkedin.com/feed/` | loads (redirects to `/login?session_redirect=…`) |
+| `https://www.linkedin.com/jobs/` | loads — the real jobs page |
+| `https://www.linkedin.com/in/` | loads LinkedIn's normal `authwall` (logged out) |
 
-Cookies/session are ruled out too: the profile's cookie store holds **no** `linkedin.com` rows, and
-the no-cookie Chromium loads the page.
+Reproduced twice for the root URL and twice for `/login`; deterministic. The tripwire is the **bare
+root URL**, not the host and not the engine's whole fingerprint.
 
-## What this means
+## The fix
 
-Nothing in `config/config.py` or the identity userscripts needs changing here — that half is already
-correct and now verified on the live page. The residual block is out of reach for this class of fix.
-For LinkedIn the options are:
+`userscripts/omarchy-linkedin-root-redirect.js` (installed by `install.sh`): when the document *is*
+Cloudflare's block page and we are not already on a `/login` path, navigate to
+`https://www.linkedin.com/login/`. On any real LinkedIn page it does nothing — the root URL serves
+the feed normally once a session exists, and that must not be redirected.
 
-- use a Chromium-family browser for that one site (Chromium is not installed on this machine today),
-  or
-- accept the block in qutebrowser.
+Deliberately small and safe, because this runs on a host that also hosts an auth flow:
 
-Re-test after any qutebrowser/QtWebEngine upgrade: if the engine's TLS/HTTP2 signature moves closer
-to Chrome's, this may clear on its own; and if Cloudflare relaxes LinkedIn's managed rule, likewise.
+- no browser API is touched (the whole `FORBIDDEN` list in
+  `tests/test_regression_signin_untouched.py` holds it, plus a dedicated class there for the scope);
+- the only URL it can navigate to is on `linkedin.com`, and its `@match` is
+  `https://www.linkedin.com/*` and nothing else;
+- `/login` itself is excluded, so a block page served *on* the login path cannot bounce forever;
+- the block page is recognised on **either** marker independently (the title
+  `Attention Required` or the body `you have been blocked`).
 
-## Tooling note: `:jseval --file` silently no-ops over IPC
+Verified end to end against the real engine and the real URL
+(`tests/e2e/test_linkedin_redirect_e2e.sh`): the run meets the block page at the root
+(`"blocked": true`, title `Attention Required! | Cloudflare`), the script moves the browser to
+`https://www.linkedin.com/login/`, the real login page renders there, and a second navigation to
+`/login` is left alone.
 
-Sending `:jseval --world main --file /tmp/probe.js` to the running instance answers
-"Opening in existing instance" but the code never runs — the target tab's title does not change, in
-**either** argument order. What works, measured:
+## Re-testing
 
-- inline code: `qutebrowser --target tab ':jseval --world main document.title="x"'` (spaces are fine), and
-- base64 + eval: `qutebrowser --target tab ":jseval --world main eval(atob(\"$B64\"))"` — the reliable
-  form for a multi-statement probe.
+- After any qutebrowser/QtWebEngine upgrade, the engine's signature may shift again; if `/login`
+  starts being blocked too, this fix stops helping and the below-JS question is back.
+- If Cloudflare relaxes LinkedIn's managed rule, the root URL loads normally and the script does
+  nothing — the e2e run reports that as a note (nothing to escape) rather than a failure.
 
-Read the result back from the window title (`hyprctl clients -j`), which avoids the clipboard.
+## Tooling notes (still true, still cost time)
+
+- `:jseval --file` silently no-ops over IPC: `qutebrowser --target tab ':jseval --world main --file
+  /tmp/probe.js'` answers "Opening in existing instance" and never runs. Use the short `-f` form, or
+  inline code (a `;` breaks the send — qutebrowser's command separator).
+- Reproduce and read this class of block **without touching the live browser**: an offscreen
+  QtWebEngine with throwaway XDG dirs (so it does not collide with the running profile) is served
+  the same block page. `tests/e2e/linkedin_redirect_driver.py` is the working example, and reading
+  results back over the page's own `console.log` beats `document.title`, which a document that is
+  navigated away from cannot give you.
+- `QTWEBENGINE_CHROMIUM_FLAGS` is whitespace-split by the engine, so a `--host-resolver-rules=MAP
+  a:443 b:8443` rule (which contains a space) cannot be expressed there; a local capture listener
+  needs a hostname that already resolves to `127.0.0.1`.

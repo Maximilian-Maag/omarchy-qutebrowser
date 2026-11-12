@@ -109,6 +109,13 @@ already that Chrome UA — the token is gone upstream — so the per-host overri
 redundant insurance rather than the mechanism, and the client hints are what does the work;
 see `docs/anti-bot-identity.md`.
 
+LinkedIn is a special case on top of that: its Cloudflare hard block is **path-scoped**. The bare
+root URL `https://www.linkedin.com/` is answered with "Sorry, you have been blocked" while `/login`,
+`/feed/` and `/jobs/` load normally in the same engine on the same address (measured; see
+`docs/linkedin-hard-block.md`). A Greasemonkey script leaves that block page for the login page, so
+`linkedin.com` from the URL bar still gets you in; it touches no browser API and does nothing on any
+page that is not the block page.
+
 ### Several accounts on one domain
 
 When more than one entry matches a site (personal + work, two shops, …):

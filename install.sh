@@ -72,6 +72,12 @@ ln -sf "$PLUGIN_DIR/userscripts/omarchy-ms-signin-chrome-identity.js" \
 # The request-level half is the _STOCK_CHROME_HOSTS block in config/config.py — keep the two in step.
 ln -sf "$PLUGIN_DIR/userscripts/omarchy-chrome-identity.js" \
        "$GREASEMONKEY_DIR/omarchy-chrome-identity.js"
+# LinkedIn's Cloudflare hard block is PATH-scoped: the bare root URL (https://www.linkedin.com/) is
+# answered with "Sorry, you have been blocked" while /login, /feed/ and /jobs/ load normally in the
+# same engine. This leaves that block page for the login page instead of the front door. It is
+# navigation-only (no browser API is touched) and scoped to www.linkedin.com.
+ln -sf "$PLUGIN_DIR/userscripts/omarchy-linkedin-root-redirect.js" \
+       "$GREASEMONKEY_DIR/omarchy-linkedin-root-redirect.js"
 # site-fixes.js is gone — per-domain fixes are generated scripts now
 # (config/site-overrides.py -> greasemonkey/omarchy-sitefix-<domain>.js).
 rm -f "$GREASEMONKEY_DIR/site-fixes.js"

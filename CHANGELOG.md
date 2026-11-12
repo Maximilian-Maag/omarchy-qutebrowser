@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.17.60
+
+### Added
+- **LinkedIn's Cloudflare hard block is escaped, because it turns out to be PATH-scoped.** The bare
+  root URL `https://www.linkedin.com/` is answered with "Sorry, you have been blocked" (1020-style,
+  Ray ID in the page) while `/login`, `/uas/login`, `/feed/` and `/jobs/` load normally — same
+  engine, same address, fresh profile, deterministic. The previous conclusion here ("the identity is
+  not the lever, use a Chromium browser for this one site") was too broad; what the measurements
+  support is narrower, and they now say the front door is the tripwire and the login page is the way
+  in. `userscripts/omarchy-linkedin-root-redirect.js` leaves the block page for
+  `https://www.linkedin.com/login/`. It is navigation-only (no browser API is read or rewritten),
+  scoped to `https://www.linkedin.com/*`, excluded on `/login` so a block page served there cannot
+  bounce forever, and inert on every page that is not a block page — the root URL must keep showing
+  the feed once a session exists.
+
+  Held by three test kinds: `tests/js/linkedin-redirect.test.js` (17 cases, mutation target),
+  the new `TheLinkedInRedirectStaysNavigationOnly` class in
+  `tests/test_regression_signin_untouched.py` (scope, destination host, no API rewrite), and
+  `tests/e2e/test_linkedin_redirect_e2e.sh`, which runs the real script in the real engine against
+  the real URL: the run meets the block page at the root, lands on the login page, renders it, and
+  leaves a second navigation to `/login` alone (4 passed).
+
+### Changed
+- `docs/linkedin-hard-block.md` rewritten around the measurements: what is ruled out and how (IP,
+  request headers, cookies, our config, QUIC, IPv6, and the engine's Chrome-shaped TLS/H2 surface —
+  the ClientHello carries Chrome's 16 ciphers, the `X25519MLKEM768` key share and the GREASE/ECH/ALPS
+  extensions, and the HTTP/2 preface is Chrome's exactly), the path-scoped table, the fix, and how
+  to re-test after an engine upgrade.
+
+### Fixed
+- **The Cults3D download redirect's Cloudflare challenge could never pass.** `spark.cults3d.com` is
+  behind a managed challenge whose Turnstile widget reads the canvas; with the global privacy
+  defaults (`content.canvas_reading = False`, third-party cookies refused) the read threw
+  `SecurityError`, the widget scored the session as tampered, and the "Verify you are human"
+  checkbox did nothing while the page's own retry cookie climbed to `cf_chl_rc_ni=9`. The host was
+  simply missing from `_STOCK_CHROME_HOSTS`. Added to both halves of the stock-Chrome identity
+  (`config/config.py` and `userscripts/omarchy-chrome-identity.js`); the same URL now clears the
+  challenge and redirects to `cults3d.com`. Held by the widened host lists in
+  `tests/test_integration_config_identity.py`, `tests/test_regression_signin_untouched.py` and
+  `tests/js/chrome-identity.test.js`.
+
 ## 1.17.59
 
 ### Fixed

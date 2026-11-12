@@ -239,6 +239,15 @@
         "--test",
         "tests/js/chrome-identity.test.js"
       ]
+    },
+    {
+      "path": "userscripts/omarchy-linkedin-root-redirect.js",
+      "lang": "javascript",
+      "tests": [
+        "node",
+        "--test",
+        "tests/js/linkedin-redirect.test.js"
+      ]
     }
   ],
   "max_mutants": 60,
