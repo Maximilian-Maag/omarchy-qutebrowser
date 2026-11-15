@@ -322,8 +322,13 @@ class _AccountPopup:
             QListWidgetItem(name, self._list)
 
         colors = _colors()
-        bg = colors.get("bg_dark") or colors.get("bg") or "#1e1e2e"
-        fg = colors.get("fg") or "#cdd6f4"
+        # _colors() returns the RAW colors.toml dict (keys background / dark_background /
+        # foreground / accent), not the engine's mapped names. Reading bg_dark/bg/fg here made
+        # every lookup miss and the popup always fell back to hardcoded catppuccin. Read the
+        # real keys, with the mapped names kept only as a defensive fallback.
+        bg = (colors.get("dark_background") or colors.get("background")
+              or colors.get("bg_dark") or colors.get("bg") or "#1e1e2e")
+        fg = colors.get("foreground") or colors.get("fg") or "#cdd6f4"
         accent = colors.get("accent") or "#89b4fa"
         self._widget.setStyleSheet(
             "QWidget{background:%s;border:1px solid %s;}"

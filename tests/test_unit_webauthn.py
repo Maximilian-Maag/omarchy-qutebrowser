@@ -976,11 +976,31 @@ class Popup(QtStubCase):
         self.assertTrue(popup._widget.shown)
 
     def test_the_popup_is_styled_from_the_live_theme(self):
+        # _colors() hands back the RAW colors.toml dict (background / dark_background /
+        # foreground / accent) — these are the keys that actually reach the popup, so the
+        # popup must read them (the old code read bg_dark/bg/fg, which never exist there,
+        # and always fell back to the hardcoded catppuccin defaults).
+        self.m._colors = lambda: {"background": "#101010", "dark_background": "#080808",
+                                  "foreground": "#eeeeee", "accent": "#ff00ff"}
+        popup = self.m._AccountPopup(["a", "b"], [].append)
+        self.assertIn("#080808", popup._widget.ss)          # dark_background wins for the bg
+        self.assertIn("#eeeeee", popup._widget.ss)
+        self.assertIn("#ff00ff", popup._widget.ss)
+        self.assertNotIn("#1e1e2e", popup._widget.ss, "the applied palette must not be ignored")
+
+    def test_the_background_is_used_when_there_is_no_dark_background(self):
+        self.m._colors = lambda: {"background": "#202020", "foreground": "#e0e0e0"}
+        popup = self.m._AccountPopup(["a", "b"], [].append)
+        self.assertIn("#202020", popup._widget.ss)
+        self.assertIn("#e0e0e0", popup._widget.ss)
+        self.assertNotIn("#1e1e2e", popup._widget.ss)
+
+    def test_a_palette_of_mapped_names_is_still_honoured(self):
+        # Defensive fallback: if _colors() ever returns the theme engine's mapped names again.
         self.m._colors = lambda: {"bg_dark": "#101010", "fg": "#eeeeee", "accent": "#ff00ff"}
         popup = self.m._AccountPopup(["a", "b"], [].append)
         self.assertIn("#101010", popup._widget.ss)
         self.assertIn("#eeeeee", popup._widget.ss)
-        self.assertIn("#ff00ff", popup._widget.ss)
 
     def test_a_theme_without_colours_falls_back_to_defaults(self):
         popup = self.popup(["a", "b"])
