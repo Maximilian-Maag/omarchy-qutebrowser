@@ -133,6 +133,18 @@ def qutebrowser_normal_defaults():
 
 
 class BindingCollisionCase(unittest.TestCase):
+    # A plugin binding that reuses a stock key normally DISABLES the stock command
+    # (the later binding wins), which is the bug this guard exists to catch. A small,
+    # exact-match allow-list records the overrides that were reviewed and accepted.
+    ALLOWED_OVERRIDES = {
+        ("<Return>", "reader-open-article"):
+            "qutebrowser's key_mappings send <Enter> (numpad) to <Return>, so the "
+            "reader's Enter key must be bound on <Return> to fire at all. The stock "
+            "normal-mode <Return> is selection-follow, which is caret-only and raises "
+            "in normal mode, so the reader's guarded no-op replaces a broken stock "
+            "binding, not a working one.",
+    }
+
     def setUp(self):
         self.config = load_config()
         self.defaults = qutebrowser_normal_defaults()
@@ -147,21 +159,52 @@ class BindingCollisionCase(unittest.TestCase):
         for mode, sequence, command in self.config.binds:
             if mode != "normal" or sequence not in self.defaults:
                 continue
+            if (sequence, command) in self.ALLOWED_OVERRIDES:
+                continue
             stock = self.defaults[sequence]
             if stock != command:
                 clashes.append((sequence, command, stock))
         self.assertEqual(clashes, [], "plugin bindings that disable a stock qutebrowser "
                                       "binding (key, plugin, qutebrowser): %r" % (clashes,))
 
+    def test_the_allocated_override_is_actually_used(self):
+        # An allow-list entry for a binding that no longer exists would silently
+        # bless a future clash on the same key: every entry must match a real bind.
+        binds = {(seq, cmd) for mode, seq, cmd in self.config.binds if mode == "normal"}
+        for key in self.ALLOWED_OVERRIDES:
+            self.assertIn(key, binds,
+                          "stale override in ALLOWED_OVERRIDES: %r is not bound" % (key,))
+
     def test_a_known_collision_would_be_caught(self):
         """The guard must be able to fail: feed it the gd case that really happened."""
         if self.defaults is None:
             self.skipTest("qutebrowser's configdata.yml is not installed here")
-        fake = [(("normal", "gd", "zoom-load"))]
+        fake = [("normal", "gd", "zoom-load")]
         clashes = [(seq, cmd, self.defaults[seq]) for mode, seq, cmd in fake
                    if mode == "normal" and seq in self.defaults
+                   and (seq, cmd) not in self.ALLOWED_OVERRIDES
                    and self.defaults[seq] != cmd]
         self.assertEqual([c[0] for c in clashes], ["gd"])
+
+
+class ReaderReturnBindingCase(unittest.TestCase):
+    """Regression: the reader's Enter key must be bound on <Return>.
+
+    Bug pinned: config.py bound only <Enter> for reader-open-article, but
+    qutebrowser's default key_mappings send <Enter> to <Return>, so the binding
+    never fired for the main Return key — the reader's "Enter opens the focused
+    supporting-article preview" did nothing.
+    """
+    def setUp(self):
+        self.config = load_config()
+
+    def test_return_is_bound_to_reader_open_article(self):
+        binds = {(mode, seq, cmd) for mode, seq, cmd in self.config.binds}
+        self.assertIn(("normal", "<Return>", "reader-open-article"), binds)
+
+    def test_numpad_enter_is_still_bound(self):
+        binds = {(mode, seq, cmd) for mode, seq, cmd in self.config.binds}
+        self.assertIn(("normal", "<Enter>", "reader-open-article"), binds)
 
 
 class CaptchaBindingsGuardCase(unittest.TestCase):

@@ -473,7 +473,14 @@ config.bind(",c", "reader-factcheck", mode="normal")  # noqa  reader: fact-check
 config.bind(",o", "reader-open-article", mode="normal")  # noqa  reader: open focused article
 config.bind(",O", "reader-factcheck-all", mode="normal")  # noqa  reader: fact-check whole article
 # Enter opens the focused supporting-article preview (no-op off the reader).
+# qutebrowser's default key_mappings map <Enter> (numpad) to <Return>, so a binding
+# on <Enter> alone never fires for the main Return key — it must also be bound on
+# <Return>. reader-open-article is guarded and no-ops off the reader; the stock
+# <Return> binding (selection-follow) is caret-only and errors in normal mode, so
+# this replaces a broken stock binding rather than a working one (see the collision
+# guard in tests/test_integration_config_bindings.py).
 config.bind("<Enter>", "reader-open-article", mode="normal")  # noqa
+config.bind("<Return>", "reader-open-article", mode="normal")  # noqa
 
 # Per-domain zoom persistence
 # qutebrowser does not expose the current zoom to userscripts, so zoom is
