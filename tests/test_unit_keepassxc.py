@@ -10,6 +10,7 @@ import os
 import pathlib
 import subprocess
 import stat
+import shlex
 import sys
 import tempfile
 import types
@@ -377,3 +378,42 @@ class SigninHostAdvance(UserscriptCase):
     def test_a_port_or_path_does_not_confuse_the_host_check(self):
         self.assertTrue(self.us.is_signin_host("https://login.live.com:443/login.srf?x=1"))
         self.assertFalse(self.us.is_signin_host(None))
+
+
+class PickerCommandCase(unittest.TestCase):
+    """The gum picker's ``bash -c`` string must QUOTE the attacker-influenced host.
+
+    Bug pinned: open_picker interpolated the URL host straight into
+    ``bash -c "gum choose --header '… %s' …"``, so a host containing a single
+    quote closed the header string and the remainder ran as shell commands.
+    """
+    @classmethod
+    def setUpClass(cls):
+        cls.us = load_userscript()
+
+    @staticmethod
+    def header_of(cmd):
+        parts = shlex.split(cmd)
+        return parts[parts.index("--header") + 1]
+
+    def test_a_plain_host_is_the_header_argument(self):
+        cmd = self.us.picker_command("example.com", "/l", "/o", "/d")
+        self.assertEqual(self.header_of(cmd), "KeePassXC — account for example.com")
+
+    def test_a_host_with_a_single_quote_cannot_break_out(self):
+        host = "evil'$(touch /tmp/pwned)'"
+        cmd = self.us.picker_command(host, "/l", "/o", "/d")
+        # The whole host stays INSIDE the one --header argument: shlex sees the
+        # identical string, so the quote never closed the value.
+        self.assertEqual(self.header_of(cmd), "KeePassXC — account for " + host)
+
+    def test_a_command_substitution_host_stays_in_the_header(self):
+        host = "x'; rm -rf ~; echo '"
+        cmd = self.us.picker_command(host, "/l", "/o", "/d")
+        self.assertEqual(self.header_of(cmd), "KeePassXC — account for " + host)
+
+    def test_the_header_is_not_a_bare_single_quoted_literal(self):
+        # A naive `--header '...%s...'` would leave the host's own quote able to
+        # terminate the string; shlex.quote must decorate it instead.
+        cmd = self.us.picker_command("a'b", "/l", "/o", "/d")
+        self.assertIn('"\'"', cmd)

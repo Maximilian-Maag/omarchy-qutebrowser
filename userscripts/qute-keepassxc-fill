@@ -468,6 +468,20 @@ def remembered_index(creds, url, prefs):
     return i if isinstance(i, int) and 0 <= i < len(creds) else None
 
 
+def picker_command(domain, listfile, outfile, donefile):
+    """The ``bash -c`` string for the gum picker, with every value quoted.
+
+    ``domain`` comes from the page URL and is attacker-influenced: a host that
+    contains a single quote (e.g. ``evil'$(rm -rf ~)'``) used to close the
+    ``--header '…'`` string and let the rest run as shell. ``shlex.quote`` keeps
+    each value a single argument so no host can escape its context.
+    """
+    header = "KeePassXC — account for %s" % domain
+    return ("gum choose --header %s < %s > %s; : > %s"
+            % (shlex.quote(header), shlex.quote(listfile),
+               shlex.quote(outfile), shlex.quote(donefile)))
+
+
 def open_picker(creds, url):
     """gum in a floating terminal (rofi is usually absent). Returns an index or None."""
     domain = url.split("/")[2] if "//" in url else url
@@ -482,8 +496,7 @@ def open_picker(creds, url):
     # `> outfile` redirection truncates outfile the moment the terminal launches,
     # so a cancelled picker leaves a 0-byte file and polling the file alone sat
     # here for the full 60 s before reporting "No account selected".
-    cmd = ("gum choose --header 'KeePassXC — account for %s' < %s > %s; : > %s"
-           % (domain, listfile.name, outfile, donefile))
+    cmd = picker_command(domain, listfile.name, outfile, donefile)
     try:
         subprocess.Popen(
             ["setsid", "uwsm-app", "--", "xdg-terminal-exec",
