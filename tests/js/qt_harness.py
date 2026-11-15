@@ -81,6 +81,25 @@ RAW_MEDIA = (
     "</div></body></html>"
 )
 
+# A hostile article: an <img> whose `onerror` would run in the reader origin, a
+# `javascript:` link, an inline <script> and a mouseover handler. None of these may
+# survive into #article, and none may run — the reader is served from the loopback
+# origin that holds the per-session bearer token.
+RAW_XSS = (
+    "<html><head><title>Hostile Article</title></head><body>"
+    "<div id='content'>"
+    "<h1>Hostile Article</h1>"
+    "<p>Alpha paragraph with enough words to be extracted by Readability as real article prose.</p>"
+    "<figure><img src='/nonexistent-xss-probe.png' "
+    "onerror=\"window.__xssRan = 'img-onerror'\"><figcaption>A figure</figcaption></figure>"
+    "<p onmouseover=\"window.__xssRan='hover'\">Beta paragraph with enough words to be "
+    "extracted by Readability as real article prose.</p>"
+    "<a id='xsslink' href=\"javascript:window.__xssRan='js-url'\">click me</a>"
+    "<p>Gamma paragraph with enough words to be extracted by Readability as real article prose.</p>"
+    "<script>window.__xssRan = 'inline-script';</script>"
+    "</div></body></html>"
+)
+
 STUBS = """
 window.__calls = { fetch: [], beacon: [], open: [] };
 // Record every value the status line takes. The restore writes "Restored ...", but a later
@@ -664,21 +683,57 @@ EMPTY_DRIVER = r"""
 })();
 """
 
+XSS_DRIVER = r"""
+(async function () {
+  var obs = window.__obs;
+  try {
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function q(s) { return document.querySelector(s); }
+  function qa(s) { return Array.prototype.slice.call(document.querySelectorAll(s)); }
+  await wait(350);            // let any onerror / timeout handler fire if it can
+  var img = qa('#article img')[0];
+  obs.xssImgPresent = !!img;
+  obs.xssImgOnError = img ? img.getAttribute('onerror') : null;
+  obs.xssLinkHref = (function () { var a = q('#article a'); return a ? a.getAttribute('href') : null; }());
+  obs.xssHoverPresent = !!q('#article [onmouseover]');
+  obs.articleHasAnyOnAttr = qa('#article *').some(function (el) {
+    return Array.prototype.slice.call(el.attributes).some(function (a) {
+      return a.name.toLowerCase().indexOf('on') === 0;
+    });
+  });
+  // Fire the exact event an attacker relied on: with the handler attribute gone,
+  // nothing runs even when the event really happens.
+  if (img) { try { img.dispatchEvent(new Event('error')); } catch (e) {} }
+  await wait(80);
+  obs.xssRan = (typeof window.__xssRan === 'undefined') ? null : window.__xssRan;
+  obs.tokenInDom = (document.body.dataset.token === undefined) ? null : document.body.dataset.token;
+  obs.articleHasToken = /tok123/.test(q('#article') ? q('#article').innerHTML : '');
+  obs.articleHasOnError = /onerror/i.test(q('#article') ? q('#article').innerHTML : '');
+  obs.__done = true;
+  } catch (e) { obs.__driverError = String((e && e.stack) || e); obs.__done = true; }
+})();
+"""
+
 DRIVERS = {"main": DRIVER, "ai_error": AI_ERROR_DRIVER, "restore": RESTORE_DRIVER,
            "capture": CAPTURE_DRIVER, "badjson": BADJSON_DRIVER,
            "restore_empty": RESTORE_EMPTY_DRIVER, "media": MEDIA_DRIVER,
-           "visiblekey": VISIBLEKEY_DRIVER, "empty": EMPTY_DRIVER}
+           "visiblekey": VISIBLEKEY_DRIVER, "empty": EMPTY_DRIVER, "xss": XSS_DRIVER}
 
 # Order matters: `capture` must run before `restore` (restore replays the state
 # capture saved), and `main` first so its observations lead the blob.
 DEFAULT_SCENARIOS = ["main", "ai_error", "badjson", "restore_empty", "capture",
-                     "restore", "media", "visiblekey", "empty"]
+                     "restore", "media", "visiblekey", "empty", "xss"]
 
 
 def build_html(scenario, captured=None):
     colors = json.dumps({"mode": "light", "bg": "#0b0b0b", "accent": "#11aa33",
                          "fg": "#eeeeee", "red": "#ff0000"})
-    article = json.dumps(RAW_MEDIA if scenario == "media" else RAW_ARTICLE)
+    # JSON embedded in a <script>: escape "</" so a "</script>" inside the article
+    # cannot break out of the element (this is what the reader server does too).
+    def jdump(obj):
+        return json.dumps(obj).replace("</", "<\\/")
+    article = jdump(RAW_MEDIA if scenario == "media"
+                    else RAW_XSS if scenario == "xss" else RAW_ARTICLE)
     stubs = STUBS
     if scenario == "ai_error":
         stubs += "\nwindow.__AI_ERROR__ = { ok: false, status: 500, data: { ok: false, error: '' } };\n"

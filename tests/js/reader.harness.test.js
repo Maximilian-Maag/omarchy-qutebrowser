@@ -27,7 +27,7 @@ function havePyQt6() {
 }
 
 const SCENARIOS = ['main', 'ai_error', 'badjson', 'restore_empty', 'capture', 'restore',
-                   'media', 'visiblekey', 'empty'];
+                   'media', 'visiblekey', 'empty', 'xss'];
 
 function runHarnessOnce() {
   const out = execFileSync('/usr/bin/python3', [harness], { encoding: 'utf8', timeout: 180000 });
@@ -293,5 +293,27 @@ test('the resume position is the lowest paragraph at or above the fold', opts, (
   assert.equal(v.topB, v.threshold, 'block B sits exactly at the fold');
   assert.equal(v.savedPos, v.keyA, 'of two tied paragraphs the earlier one wins');
   assert.notEqual(v.keyA, v.keyActive, 'the saved position is not merely the active block');
+});
+
+// ── hostile article content is sanitised (no scripted handler runs) ──────────
+test('an on* handler in the article never runs in the reader origin', opts, () => {
+  const x = OBS.xss;
+  assert.ok(x, 'xss scenario ran');
+  assert.equal(x.__done, true);
+  // The <img onerror=…> would have executed when the image failed to load, OR
+  // when we explicitly fired the event; either way the flag must be unset.
+  assert.equal(x.xssRan, null, 'a sanitised on* handler must not have run');
+  assert.equal(x.xssImgOnError, null, 'the onerror attribute must be stripped');
+  assert.equal(x.xssHoverPresent, false, 'the onmouseover element/handler must be gone');
+  assert.equal(x.articleHasAnyOnAttr, false, 'no on* attribute may survive into the article');
+  assert.ok(!/^javascript:/i.test(x.xssLinkHref || ''),
+    'a javascript: href must be stripped (href was ' + x.xssLinkHref + ')');
+});
+
+test('the reader does not expose the bearer token to article content', opts, () => {
+  const x = OBS.xss;
+  assert.equal(x.tokenInDom, null, 'the token must not be readable from the DOM');
+  assert.equal(x.articleHasToken, false, 'the token must not appear in the article HTML');
+  assert.equal(x.articleHasOnError, false, 'no onerror markup may reach the article');
 });
 

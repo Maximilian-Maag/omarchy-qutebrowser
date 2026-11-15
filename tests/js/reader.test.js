@@ -228,3 +228,24 @@ test('paraKey is never handed a block object (it needs a DOM element)', function
   assert.ok(!/paraKey\(blocks\[[^\]]+\](?!\.el)/.test(SRC),
     'blocks[i] is a block object — paraKey needs blocks[i].el');
 });
+
+// ── unsafeUrl: the sanitiser's scheme check ─────────────────────────────────
+test('unsafeUrl flags exactly the executable URL schemes', function () {
+  const { unsafeUrl } = load(['unsafeUrl'], {});
+  for (const bad of ['javascript:alert(1)', 'JavaScript:alert(1)', 'JAVASCRIPT:x',
+                     ' java\tscript:alert(1)', 'java\u0000script:x',
+                     'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)']) {
+    assert.ok(unsafeUrl(bad), bad + ' must be flagged as unsafe');
+  }
+  for (const ok of ['https://example.com/x', 'http://a.b', '/relative/path',
+                    'mailto:a@b.c', '#frag', 'data-not-a-scheme', 'data-image:x',
+                    '']) {
+    assert.ok(!unsafeUrl(ok), ok + ' must be allowed');
+  }
+});
+
+test('unsafeUrl treats null and undefined as empty (allowed)', function () {
+  const { unsafeUrl } = load(['unsafeUrl'], {});
+  assert.strictEqual(unsafeUrl(null), false);
+  assert.strictEqual(unsafeUrl(undefined), false);
+});

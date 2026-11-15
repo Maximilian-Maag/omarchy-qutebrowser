@@ -19,6 +19,9 @@
   var RAW = window.__READER_ARTICLE__ || '';
   var TOKEN = document.body.dataset.token || '';
   var PAGE_URL = document.body.dataset.url || '';
+  // Don't leave the bearer token readable in the DOM: hostile article markup must
+  // not be able to scrape it. reader.js keeps it in this closure alone.
+  try { delete document.body.dataset.token; } catch (e) {}
   var root = document.documentElement;
 
   Object.entries({
@@ -224,6 +227,71 @@
     return ordered.length;
   }
 
+  // ── sanitise extracted content (XSS) ────────────────────────────────
+  // Whatever Readability returned — or, when it returns nothing, the RAW page
+  // body — is FOREIGN markup from the article's origin. Assigning it to innerHTML
+  // parses its on* event-handler attributes and javascript:/data: URLs, and a
+  // handler runs in THIS loopback origin, which is where the reader's
+  // per-session bearer token lives. A malicious article could therefore read the
+  // token and drive POST /ai (which shells out to the local agent). Nothing may
+  // enter #article carrying an executable attribute or a scripted URL, so run the
+  // content through an allow-list sanitiser first.
+  var ALLOWED_TAGS = { A: 1, ABBR: 1, B: 1, BLOCKQUOTE: 1, BR: 1, CAPTION: 1, CITE: 1,
+    CODE: 1, DD: 1, DEL: 1, DIV: 1, DL: 1, DT: 1, EM: 1, FIGCAPTION: 1, FIGURE: 1,
+    H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, HR: 1, I: 1, IMG: 1, INS: 1, KBD: 1,
+    LI: 1, MARK: 1, OL: 1, P: 1, PICTURE: 1, PRE: 1, Q: 1, S: 1, SAMP: 1, SMALL: 1,
+    SOURCE: 1, SPAN: 1, STRONG: 1, SUB: 1, SUP: 1, TABLE: 1, TBODY: 1, TD: 1,
+    TFOOT: 1, TH: 1, THEAD: 1, TIME: 1, TR: 1, U: 1, UL: 1, VAR: 1, WBR: 1 };
+  var ALLOWED_ATTRS = { alt: 1, cite: 1, colspan: 1, datetime: 1, dir: 1, height: 1,
+    href: 1, lang: 1, media: 1, poster: 1, rel: 1, rowspan: 1, sizes: 1, src: 1,
+    srcset: 1, title: 1, type: 1, width: 1 };
+  // Tags that can execute or load scripted content. Drop the element AND its
+  // subtree: unwrapping a <script> would leave its text visible on the page.
+  var DROP_TAGS = { SCRIPT: 1, STYLE: 1, IFRAME: 1, EMBED: 1, OBJECT: 1, TEMPLATE: 1,
+    NOSCRIPT: 1, LINK: 1, META: 1, BASE: 1, FORM: 1, INPUT: 1, BUTTON: 1, TEXTAREA: 1,
+    SELECT: 1, OPTION: 1, SVG: 1, MATH: 1, VIDEO: 1, AUDIO: 1, CANVAS: 1 };
+
+  function unsafeUrl(value) {
+    // A scheme a browser would EXECUTE. Strip the control chars and whitespace
+    // browsers ignore when sniffing the scheme (e.g. "java\tscript:"), then match.
+    var v = String(value == null ? '' : value).replace(/[\u0000-\u0020\u007f]+/g, '');
+    return /^(?:javascript|vbscript|data):/i.test(v);
+  }
+
+  function sanitizeHtml(html) {
+    // Parse with DOMParser: that document is INERT — scripts do not run and
+    // resources (and thus onerror handlers) do not fire. Assigning foreign HTML
+    // to a live element's innerHTML is exactly what would run them.
+    var doc = new DOMParser().parseFromString(String(html == null ? '' : html), 'text/html');
+    var holder = doc.body || doc.documentElement;
+    Array.prototype.slice.call(holder.querySelectorAll('*')).forEach(function (el) {
+      if (DROP_TAGS[el.tagName]) {
+        if (el.parentNode) el.parentNode.removeChild(el);
+        return;
+      }
+      if (!ALLOWED_TAGS[el.tagName]) {          // unknown inline tag: keep its text
+        var parent = el.parentNode;
+        if (parent) {
+          while (el.firstChild) parent.insertBefore(el.firstChild, el);
+          parent.removeChild(el);
+        }
+        return;
+      }
+      Array.prototype.slice.call(el.attributes).forEach(function (attr) {
+        var name = attr.name.toLowerCase();
+        if (name.indexOf('on') === 0 || !ALLOWED_ATTRS[name]) {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if ((name === 'href' || name === 'src' || name === 'srcset' ||
+             name === 'poster' || name === 'cite') && unsafeUrl(attr.value)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+    return holder.innerHTML;
+  }
+
   function extract() {
     var parsed = null, media = [];
     try {
@@ -240,7 +308,7 @@
       var d = new DOMParser().parseFromString(RAW, 'text/html');
       content = (d.body ? d.body.innerHTML : '') || '<p>Could not extract an article from this page.</p>';
     }
-    articleEl.innerHTML = content;
+    articleEl.innerHTML = sanitizeHtml(content);
 
     // Readability keeps <video> itself (with relative URLs, and without our ad /
     // 1x1 filtering), which would double every player once we splice our own copies
