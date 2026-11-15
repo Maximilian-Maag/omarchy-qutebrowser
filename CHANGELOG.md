@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.17.61
+
+### Fixed
+- **The reader no longer runs script from the article it is showing.** `reader/reader.js` assigned
+  Readability's HTML — or, when extraction failed, the RAW page body — straight to
+  `articleEl.innerHTML`. That parses `on*` event-handler attributes and `javascript:`/`data:` URLs,
+  and a handler runs in the loopback reader origin, which is where the per-session bearer token
+  lives, so a hostile article could scrape the token and drive `POST /ai` (which shells out to the
+  local agent). The content now goes through an allow-list sanitiser (parsed inert with `DOMParser`,
+  scripted tags dropped, every `on*` attribute and `javascript:`/`data:`/`vbscript:` URL stripped)
+  before it reaches `#article`, and the token is deleted from the DOM once `reader.js` has captured
+  it. Held by a new offscreen-harness scenario (`tests/js/reader.harness.test.js` + the `xss`
+  scenario in `tests/js/qt_harness.py`): an article carrying `<img onerror>`, an `onmouseover` `<p>`
+  and a `javascript:` link leaves the handler unrun and no token readable; with the sanitiser
+  bypassed the harness shows the handler running.
+- **The KeePassXC picker quotes the page host.** `open_picker` interpolated the host into a
+  `bash -c` string, so a host containing a single quote closed the `--header '…'` value and the rest
+  ran as shell. The command is now built by `picker_command()`, which `shlex.quote`s every value.
+- **The reader's Enter key works on the main Return key.** `config.py` bound only `<Enter>`, but
+  qutebrowser's `key_mappings` send `<Enter>` (numpad) to `<Return>`, so `reader-open-article` never
+  fired for Return. `<Return>` is bound too, behind a single reviewed override in the binding
+  collision guard.
+- **qute-zoom's docstring no longer advertises the removed `gd` alias.** `config.py` deliberately
+  never bound `gd` (qutebrowser owns it for `download`). `tests/test_regression_readme_bindings.py`
+  now also scans every userscript's documented bindings against the real `config.py`, so a stale key
+  in a script's docs fails the suite.
+
 ## 1.17.60
 
 ### Added

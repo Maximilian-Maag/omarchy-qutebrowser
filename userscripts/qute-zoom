@@ -19,7 +19,8 @@ Bindings (config.py):
   ,z-   zoom out (remembered per domain)
   ,zl   apply the saved level for this domain
   ,zr   forget this domain and go back to 100%
-  gd    same as ,zl
+  (NB: there is deliberately NO `gd` alias — qutebrowser binds `gd` to `download`,
+   and a plugin binding here silently took that away. Use ,zl.)
 
 Usage:  :spawn --userscript qute-zoom [in|out|load|reset]
 """
