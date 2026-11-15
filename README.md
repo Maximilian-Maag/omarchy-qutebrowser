@@ -88,7 +88,7 @@ Requires `python-pynacl` (`omarchy pkg add python-pynacl`) — the install scrip
 
 ## Password fill on two-step logins
 
-`,pw` (and `<Alt+Shift+u>`) fill the password-manager match for the page and then
+`pw` (and `<Alt+Shift+u>`) fill the password-manager match for the page and then
 **press the login action**, because Microsoft's and Google's sign-in pages do not
 have a password field at all until "Next" is pressed:
 
@@ -122,14 +122,14 @@ When more than one entry matches a site (personal + work, two shops, …):
 
 | How | What happens |
 |-----|--------------|
-| `,pw` (or `<Alt+Shift+u>`) | Fills the remembered account; **each further press advances** to the next match, and the status bar says which: `KeePassXC: account 2/3 — press again for the next, ,ka to pick` |
+| `pw` (or `<Alt+Shift+u>`) | Fills the remembered account; **each further press advances** to the next match, and the status bar says which: `KeePassXC: account 2/3 — press again for the next, ,ka to pick` |
 | `,ka` | Opens a picker (gum, floating terminal). Entries read `group · title — login`, so two accounts on one site are told apart by their group and title, not just the username |
 | `--account 2` / `--account me@corp.example` / `--account bbbb` / `--account Shop` | Picks match #2, by login, by uuid prefix, or by a title substring — and remembers it |
 | `--forget` | Forgets the remembered account for this domain |
 
 The choice is remembered per domain in
 `$XDG_STATE_HOME/omarchy-qutebrowser/keepassxc/accounts.json` (0600). An explicit choice (`--account` or the picker) is used again next time; a plain
-`,pw` rotates, which is what makes pressing the key twice switch accounts.
+`pw` rotates, which is what makes pressing the key twice switch accounts.
 
 ## Cookies and storage
 
@@ -255,7 +255,6 @@ key to it if you want one.
 | `Alt+Shift+U` | insert | Fill password from KeePassXC |
 | `pw` | normal | Fill password from KeePassXC |
 | `pt` | normal | Fill TOTP code into the focused field |
-| `t` | normal | Open new tab |
 | `X` | normal | Close tab |
 | `F` | normal | Open link in new tab (hint mode) |
 | `,ab` | normal | Update ad block filter lists |
