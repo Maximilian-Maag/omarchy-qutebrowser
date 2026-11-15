@@ -169,6 +169,13 @@ test('fundingSvg and balanceSvg fall back when there is nothing to draw', () => 
     assert.ok(drawn.includes('<svg') && drawn.includes('not in the dataset'));
 });
 
+test('balanceSvg gives state-funded outlets their own segment', () => {
+    const c = pureCtx();
+    const svg = c.balanceSvg({ left: 1, state: 2, unknown: 1 });
+    assert.ok(svg.includes('var(--state)'), 'the state bucket uses the state colour');
+    assert.ok(svg.includes('state-funded'), 'the caption names the state bucket');
+});
+
 test('ownershipSvg builds a chain and refuses to guess', () => {
     const c = pureCtx();
     assert.ok(c.ownershipSvg({}).includes('ownership not on file'));

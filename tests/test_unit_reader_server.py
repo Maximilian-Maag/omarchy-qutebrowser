@@ -490,6 +490,30 @@ class CoverageCase(unittest.TestCase):
         self.assertEqual(res["total"], 24)
         self.assertEqual(len(res["outlets"]), 24)
 
+    def test_state_funded_publishers_get_their_own_bucket(self):
+        # data/publishers.json declares lean="state" for real outlets (Al Jazeera, RT). The
+        # aggregation must give it its own bucket, not quietly file it under "unknown" (which
+        # the balance bar labels "not in the dataset").
+        saved_pubs = self.srv.publishers
+        self.addCleanup(lambda: setattr(self.srv, "publishers", saved_pubs))
+        self.srv.publishers = lambda: {"publishers": [
+            {"domain": "aljazeera.com", "name": "Al Jazeera", "lean": "state"},
+            {"domain": "rt.com", "name": "RT", "lean": "state"}], "agencies": []}
+        self.srv.news_search = lambda query, lang: [
+            {"headline": "First story about the council today", "source": "Al Jazeera", "url": "u1"},
+            {"headline": "Second story about the council today", "source": "RT", "url": "u2"}]
+        res = self.srv.coverage_for("A headline with enough distinctive words here")
+        self.assertEqual(res["balance"].get("state"), 2,
+                         "lean=state must not be folded into 'unknown'")
+        self.assertEqual(res["balance"].get("unknown"), 0)
+        self.assertIn("state", res["balance_order"])
+        self.assertTrue(all(o["lean"] == "state" for o in res["outlets"]))
+
+    def test_balance_exposes_a_state_key_even_when_it_is_empty(self):
+        self.srv.news_search = lambda query, lang: []
+        res = self.srv.coverage_for("A headline with enough distinctive words here")
+        self.assertIn("state", res["balance"])
+
 
 class PublisherTieBreakCase(unittest.TestCase):
     @classmethod

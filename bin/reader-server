@@ -631,7 +631,7 @@ def wiki_summary(name):
             "url": ((data.get("content_urls") or {}).get("desktop") or {}).get("page", "")}
 
 
-LEAN_ORDER = ["left", "lean-left", "center", "lean-right", "right"]
+LEAN_ORDER = ["left", "lean-left", "center", "lean-right", "right", "state"]
 
 
 def coverage_for(title, url=""):

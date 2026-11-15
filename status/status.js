@@ -215,12 +215,16 @@
 
   function balanceSvg(balance) {
     if (!balance) return '';
-    var total = LEAN_ORDER.reduce(function (n, k) { return n + (balance[k] || 0); }, 0);
+    // 'state' (state-funded) is a real bucket the coverage aggregation returns, alongside the
+    // left→right spectrum; it is off that axis, so it is drawn after the five spectrum buckets
+    // and before the "not in the dataset" remainder.
+    var order = LEAN_ORDER.concat(['state']);
+    var total = order.reduce(function (n, k) { return n + (balance[k] || 0); }, 0);
     var unknown = balance.unknown || 0;
     var w = 640, h = 58, x = 0;
     var out = '';
     if (!total && !unknown) return '<p class="muted">no other coverage found</p>';
-    LEAN_ORDER.forEach(function (lean) {
+    order.forEach(function (lean) {
       var n = balance[lean] || 0;
       if (!n) return;
       var seg = (n / (total + unknown)) * w;
@@ -234,7 +238,7 @@
              '<text x="' + (x + seg2 / 2) + '" y="25" text-anchor="middle" font-size="10" fill="currentColor">' + unknown + '</text>';
     }
     out += '<text x="0" y="50" font-size="11" fill="currentColor" opacity="0.7">' +
-           'outlets by lean (left \u2192 right), plus those not in the dataset</text>';
+           'outlets by lean (left \u2192 right), then state-funded, plus those not in the dataset</text>';
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="' + h + '">' + out + '</svg>';
   }
 
