@@ -58,15 +58,6 @@ test('a request with no ad fields is returned unchanged', () => {
   assert.deepStrictEqual(JSON.parse(ctx.stripRequestAds(body)), { videoId: 'abc', context: {} });
 });
 
-test('ad URLs are recognised, video streams are not', () => {
-  const ctx = sandbox(slice(['var AD_URLS', 'isAdUrl']));
-  assert.strictEqual(ctx.isAdUrl('https://www.youtube.com/pagead/id'), true);
-  assert.strictEqual(ctx.isAdUrl('https://googleads.g.doubleclick.net/x'), true);
-  assert.strictEqual(ctx.isAdUrl('https://rr3---sn-abc.googlevideo.com/videoplayback?x=1'), false);
-  assert.strictEqual(ctx.isAdUrl('https://www.youtube.com/api/stats/watchtime'), false);
-  assert.strictEqual(ctx.isAdUrl(null), false);
-});
-
 test('the video id is read from watch and shorts URLs', () => {
   const ctx = sandbox(slice(['sbVideoId']), { location: { search: '?v=dQw4w9WgXcQ&t=1', pathname: '/watch' } });
   assert.strictEqual(ctx.sbVideoId(), 'dQw4w9WgXcQ');
@@ -292,15 +283,37 @@ test('the ytInitial* globals are installed as configurable, enumerable setters',
   assert.deepStrictEqual(ctx.window.ytInitialData, { ok: 1 }, 'the setter must strip ads');
 });
 
-test('fetch blocks ad URLs and never lets them reach the network', async () => {
-  const { ctx, log } = boot();
-  const blocked = await ctx.window.fetch('https://googleads.g.doubleclick.net/pagead/id');
-  assert.strictEqual(await blocked.text(), '{}');
-  assert.strictEqual(log.fetch.length, 0, 'a string ad URL must be blocked');
-  // a Request-like object (not a string) must be recognised too
-  const blockedObj = await ctx.window.fetch({ url: 'https://ad.doubleclick.net/x' });
-  assert.strictEqual(await blockedObj.text(), '{}');
-  assert.strictEqual(log.fetch.length, 0, 'an object-form ad URL must be blocked');
+// The regression this pins: answering an ad endpoint locally (a `{}` with status 200,
+// or `about:blank` on the XHR path) makes YouTube's player stop the video at the ad
+// break it never gets a response for. Every ad URL must therefore reach the network
+// untouched, and the ad has to be removed by stripping the payload instead.
+test('ad endpoint requests reach the network, they are never answered locally', async () => {
+  const handle = boot();
+  handle.setNextBody('{"served":"by-the-network"}');
+  const urls = [
+    'https://www.youtube.com/youtubei/v1/player/ad_break?key=1',
+    'https://www.youtube.com/get_midroll_info?x=1',
+    'https://www.youtube.com/youtubei/v1/log_event?alt=json',
+    'https://www.youtube.com/pagead/id',
+    'https://googleads.g.doubleclick.net/pagead/id',
+  ];
+  for (const url of urls) {
+    const resp = await handle.ctx.window.fetch(url);
+    assert.strictEqual(await resp.text(), '{"served":"by-the-network"}',
+      `${url} must be answered by the network, not by the userscript`);
+    assert.deepStrictEqual(handle.log.fetch.at(-1).input, url, `${url} must reach fetch`);
+  }
+  assert.strictEqual(handle.log.fetch.length, urls.length, 'every ad URL is passed through');
+});
+
+test('an ad URL keeps its XHR address instead of being redirected to about:blank', () => {
+  const { ctx } = boot();
+  const xhr = new ctx.XMLHttpRequest();
+  xhr.open('GET', 'https://www.youtube.com/get_midroll_info?x=1');
+  assert.strictEqual(xhr.openedUrl, 'https://www.youtube.com/get_midroll_info?x=1',
+    'a rewritten address is what stalls the player: the ad break never completes');
+  xhr.send(null);
+  assert.strictEqual(xhr.sentBody, null);
 });
 
 test('fetch strips ad params from player requests only, and survives a missing init', async () => {

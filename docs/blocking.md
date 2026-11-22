@@ -93,6 +93,29 @@ The tool is testable on its own, too:
 QUTE_URL=https://www.example/ QUTE_HTML=/tmp/page.html bin/ai-fix-overblocking
 ```
 
+## Why requests are not faked
+
+The YouTube ad-free userscript used to answer ad-endpoint requests locally: `{}` with
+status 200 for the player's `ad_break`, `get_midroll_info` and `log_event` calls, and
+`about:blank` for the XHR path. That is what makes YouTube **stop the video**: the player
+pauses the stream for an ad break, never gets a usable ad response, and never resumes —
+one music video died 1.2 s in, and the endless `emptied` → `waiting` → `playing` retry loop
+shows up in the console.
+
+Measured on the same profile, same config, one variable changed:
+
+| userscript state | result on a 10-minute video |
+| --- | --- |
+| unmodified (requests faked) | playback dies at 1.2 s, stream torn down, retry loop |
+| request faking removed, payload stripping kept | played 385 s without an interruption and **zero** ads scheduled |
+| one faked endpoint re-enabled (`ad_break`, `get_midroll_info`, `log_event` or `/pagead/`) | playback dies again |
+
+So the ad is removed by **stripping the ad payload from the player response**, which stops
+it being scheduled at all; faking the request only breaks playback. A pre-existing
+`content.blocking` rule that drops an ad host is fine (those are host-level, and
+`unbreak.txt` covers what playback needs) — the damage comes from answering on the
+player's own API endpoints.
+
 ## Updating
 
 qutebrowser caches the *parsed* lists (`~/.local/share/qutebrowser/adblock-cache.dat`) and

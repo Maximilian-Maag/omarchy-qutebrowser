@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.17.62
+
+### Fixed
+- **YouTube videos no longer stop dead at an ad break.** The ad-free userscript answered
+  ad-endpoint requests itself — `{}` with status 200 for the player's `ad_break`,
+  `get_midroll_info` and `log_event` calls, `about:blank` for the XHR path — and the player
+  reacts to that by tearing the stream down: it pauses the video for an ad that never
+  arrives and never resumes. Measured on one profile with one variable changed: with the
+  faking in place a 10-minute video died 1.2 s in (`emptied` → `waiting` → `playing` retry
+  loop), and with the faking removed it played 385 s straight through with no ad
+  scheduled. Re-enabling any single one of the faked endpoints brought the stall back.
+  The requests now go through untouched; ads are still removed, because stripping the ad
+  payload out of the player response is what stops them being scheduled, and the
+  skip/force-end fallback is unchanged. `docs/blocking.md` records the measurements under
+  "Why requests are not faked".
+- **A regression test pins it.** `tests/js/adblock.test.js` drives the shipped fetch/XHR
+  wrappers in a sandbox and fails if either of them answers an ad-endpoint request
+  locally, instead of asserting on the shape of the list of URLs.
+
+
 ## 1.17.61
 
 ### Fixed

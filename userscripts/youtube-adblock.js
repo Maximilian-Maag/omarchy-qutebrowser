@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Ad-Free
-// @description  Remove YouTube ads, especially pre-roll/mid-roll video ads: strip ad data out of the player response before YouTube's player reads it, drop ad/analytics requests, then skip or force-end any ad that still slips through.
-// @version      3.0
+// @description  Remove YouTube ads, especially pre-roll/mid-roll video ads: strip ad data out of the player response before YouTube's player reads it, then skip or force-end any ad that still slips through. Ad requests are never answered locally — a fabricated response makes the player stop the video.
+// @version      3.1
 // @author       omarchy-qutebrowser
 // @namespace    https://github.com/Maximilian-Maag/omarchy-qutebrowser
 // @match        *://*.youtube.com/*
@@ -97,13 +97,15 @@
   } catch (e) {}
 
   // ── 1b. fetch() interception ───────────────────────────────────────────────
+  // Requests are never answered locally: an ad endpoint that gets a fabricated
+  // response (an empty `{}`, or `about:blank` for the XHR path) makes YouTube's
+  // player tear the stream down instead of playing the video, so the ad is
+  // removed from the *response* below and any ad that still slips through is
+  // skipped client-side. See docs/blocking.md, "Why requests are not faked".
   try {
     var _fetch = window.fetch;
     window.fetch = function (input, init) {
       var url = typeof input === 'string' ? input : (input && input.url) || '';
-      if (isAdUrl(url)) {
-        return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
-      }
       if (PLAYER_RE.test(url) && init && typeof init.body === 'string') {
         var reqClean = stripRequestAds(init.body);
         if (reqClean !== null) init = Object.assign({}, init, { body: reqClean });
@@ -130,7 +132,6 @@
     XMLHttpRequest.prototype.open = function (method, url) {
       try {
         this.__yt_url = url;
-        if (typeof url === 'string' && isAdUrl(url)) arguments[1] = 'about:blank';
       } catch (e) {}
       return _open.apply(this, arguments);
     };
@@ -169,30 +170,7 @@
   } catch (e) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 2. Drop ad / analytics requests outright
-  // ═══════════════════════════════════════════════════════════════════════════
-  var AD_URLS = [
-    /doubleclick\.net/,
-    /googleadservices\.com/,
-    /googlesyndication\.com/,
-    /\/pagead\//,
-    /\/ptracking/,
-    /\/api\/stats\/ads/,
-    /\/get_midroll_info/,
-    /\/pcs\/activeview/,
-    /adformat=/,
-    /[?&]oad=/,
-    /ads\.youtube\.com/,
-    /2mdn\.net/,
-    /googletagservices\.com/,
-    /googletagmanager\.com/,
-    /\/youtubei\/v1\/player\/ad_break/,
-    /\/youtubei\/v1\/log_event/,
-  ];
-  function isAdUrl(u) { return typeof u === 'string' && AD_URLS.some(function (r) { return r.test(u); }); }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 3. Fallback: skip / force-end any ad that still plays
+  // 2. Skip / force-end any ad that still plays
   // ═══════════════════════════════════════════════════════════════════════════
   var AD_DOM = [
     'ytd-ad-slot-renderer', 'ytd-banner-promo-renderer', 'ytd-video-masthead-ad-v3-renderer',
@@ -286,7 +264,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 3b. SponsorBlock — skip sponsor / self-promo / intro / outro segments
+  // 3. SponsorBlock — skip sponsor / self-promo / intro / outro segments
   // ═══════════════════════════════════════════════════════════════════════════
   // Segment data comes from the public SponsorBlock API for whichever video is
   // playing, and is skipped locally by seeking past it — the same trick as the ad
