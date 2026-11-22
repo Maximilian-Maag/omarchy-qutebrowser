@@ -3,8 +3,9 @@ omarchy-qutebrowser: main configuration
 - Omarchy theme integration (all 22 stock themes + user themes)
 - KeePassXC password fill (Alt+Shift+u in insert mode, pw in normal mode)
 - Built-in ad blocker (hosts + Brave/uBlock lists + our YouTube video-ad list)
-- YouTube ad-free via Greasemonkey script (blocks ad requests, strips adParams from
-  the player request so no ad is ever scheduled, and skips any ad that still plays)
+- YouTube ad-free via Greasemonkey script (strips adParams from the player request and
+  response so no ad is ever scheduled, and skips any ad that still plays; ad requests are
+  never answered locally, because that makes the player stop the video)
 - yt-dlp video/MP3 download with live progress terminal
 - Per-domain zoom persistence
 """
