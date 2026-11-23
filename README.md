@@ -8,7 +8,7 @@
 |---------|---------|
 | **22 Omarchy themes** | Every stock theme (catppuccin, nord, tokyo-night, gruvbox, …) plus automatic live switching when you run `omarchy theme set` |
 | **KeePassXC** | Fill passwords with `Alt+Shift+U` (insert) or `pw` (normal) via the bundled `qute-keepassxc` userscript (`--insecure` mode, no GPG required) |
-| **YouTube ad-free** | Removes pre-roll/mid-roll video ads by stripping the ad payload out of the player response before YouTube reads it, plus ad-request blocking and skip/force-end fallbacks |
+| **YouTube ad-free** | Removes pre-roll/mid-roll video ads by stripping the ad payload out of the player response before YouTube reads it, plus skip/force-end fallbacks (ad requests are never faked: that stops playback) |
 | **Built-in ad + tracker blocking** | Brave's adblock engine over EasyList, EasyPrivacy, EasyList Germany, AdGuard, uBlock Origin and Fanboy lists, plus our own always-on tracker and YouTube-ad lists; hosts-level blocking (StevenBlack + haGeZi + Peter Lowe + Dan Pollock) |
 | **yt-dlp download** | `,dv` downloads a video (best mp4), `,dm` extracts MP3. On a video page it grabs that video; on any list (YouTube search results, a channel, …) it shows hints so you pick which video — works on YouTube, Vimeo, and 1000+ other sites |
 | **Default browser** | `install.sh` sets qutebrowser at all three levels: user `~/.config/mimeapps.list`, system `/etc/xdg/mimeapps.list`, and Omarchy `/usr/share/applications/mimeapps.list` |
@@ -190,10 +190,16 @@ Two layers, so an ad is normally never scheduled in the first place:
   the browser. YouTube builds its ad schedule from those, so with them gone there is
   no pre-roll or mid-roll ad to play at all — not merely one that gets skipped.
 - Removes the same fields from player/`ytInitialData` responses as a second line.
-- Drops requests to the ad endpoints, and removes ad DOM elements (banners,
-  overlays, sidebar ads, the "ad blocker detected" wall).
+- Removes ad DOM elements (banners, overlays, sidebar ads, the "ad blocker detected" wall).
 - Still skips/force-ends any ad that does manage to play, and restores your own
   playback speed afterwards.
+
+Ad **requests** are deliberately *not* answered locally. A fabricated response for an ad
+endpoint (`{}` for the player's `ad_break` / `get_midroll_info` / `log_event` calls, or
+`about:blank` for the XHR path) makes YouTube's player stop the video at the first ad
+break instead of playing it — measured, see `docs/blocking.md`, "Why requests are not
+faked". Stripping the payload is what removes the ad; faking the response only breaks
+playback.
 
 **At the network layer** — two lists we ship come **first** in
 `content.blocking.adblock.lists`, ahead of the upstream ones:
