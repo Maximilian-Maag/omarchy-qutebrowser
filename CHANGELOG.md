@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.18.1
+
+### Fixed
+- **golem.de's consent wall no longer strands the page.** golem does not overlay a
+  banner: it redirects to `/sonstiges/zustimmung/auswahl.html` and only lets the browser
+  back once consent is stored, so the wall *is* the page. The sweep looked for CMP
+  containers and buttons, and that page has neither, so every visit ended on the wall.
+  A `knownWall()` rule now handles it before the sweep removes anything (and again from
+  the mutation handler). Three things had to be measured to get it right:
+  its single control (`#btnsimplec`, "Zustimmen und weiter") **cannot be clicked from a
+  userscript** — the handler is a page-world `onclick`, and neither `dispatchEvent` nor
+  calling the handler from the userscript world makes golem store anything, while the
+  same click from the page world passes the wall; the consent is a cookie
+  (`golem_consent20=simple|261101`, version from the page's own `GolemConsent.config`,
+  which loads asynchronously — asking before it exists stores a value golem rejects);
+  and reloading the wall *with* the cookie does not redirect, so the rule navigates to
+  the `from` it was reached with (golem.de URLs only, front page otherwise).
+  It is an accept, which is the script's documented fallback — golem's page offers no
+  reject at all — and the ad and tracker hosts stay blocked: with consent given in a
+  throwaway profile every `.go-ad-slot__wrapper` stays empty, because `ads.golem.de`,
+  `cpx.golem.de`, `carmen.golem.de`, `remp-beam.golem.de` and `robert.golem.de` (GTM)
+  are blocked. Measured end to end: front page and a deep article URL both load with no
+  click. `tests/js/cookie.test.js` pins the rule — the cookie value, the `from`
+  handling (including an off-site `from`), the one-attempt-a-minute guard and the
+  "no config yet, do not spend the attempt" case.
+
 ## 1.18.0
 
 ### Added

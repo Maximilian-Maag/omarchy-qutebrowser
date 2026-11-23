@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cookie Banner Remover + Adblock Defuser (Omarchy)
 // @description  Automatic, reject-by-default cookie-consent handling: click "reject all" when it exists, fall back to accept only when there is no reject option, and remove the banner either way. Also defuses anti-adblock detection and removes "disable your ad blocker" walls (e.g. bild.de), plus a generic overlay fallback.
-// @version      4.1
+// @version      4.2
 // @author       omarchy-qutebrowser
 // @namespace    https://github.com/Maximilian-Maag/omarchy-qutebrowser
 // @match        *://*/*
@@ -35,6 +35,94 @@
     return false;
   }
   if (isAuthPage()) { note('skip', 'authentication page — left untouched'); return; }
+
+  // ── 0b. Consent walls that are a page of their own ────────────────────────
+  // Not every CMP overlays the article: some send the browser to a consent page and
+  // redirect back only once consent is stored, so there is no banner to remove — the
+  // wall *is* the page, and a sweep that only removes overlays leaves the user stuck
+  // on it forever. golem.de does this (…/sonstiges/zustimmung/auswahl.html).
+  //
+  // Its one control (#btnsimplec, "Zustimmen und weiter") cannot be clicked from here:
+  // the handler is a page-world `onclick`, and neither dispatchEvent nor calling it
+  // from the userscript world makes golem store the consent — measured, the click
+  // changes nothing while the same click from the page world passes the wall. What
+  // does work is the request that control makes: a GET to golem's own
+  // setconsentcookie.php, whose version string is read off GolemConsent so it cannot
+  // go stale. A reload then finds the cookie and redirects back by itself.
+  //
+  // This is an accept, and it is the documented fallback: reject first, accept only
+  // when the wall offers no reject at all — golem's page has no such control. The ad
+  // and tracker hosts stay blocked, so what it buys is the article, not the tracking.
+  // sessionStorage keeps a failing attempt from turning into a reload loop.
+  var KNOWN_WALLS = [
+    {
+      host: /(^|\.)golem\.de$/,
+      path: /^\/sonstiges\/zustimmung\//,
+      action: 'accept',
+      consent: function () {
+        var cfg = null;
+        try {
+          cfg = (typeof GolemConsent === 'object' && GolemConsent.config) ? GolemConsent.config : null;
+        } catch (e) { cfg = null; }
+        // The page's config arrives with golem_consent_201-min.js, loaded asynchronously;
+        // until then the version is unknown and golem would reject what we write.
+        var version = (cfg && cfg.cookieVersion) || '';
+        if (!version) return false;
+        // What its own control ends up storing, written directly: setconsentcookie.php
+        // answers with `golem_consent20=simple<version>` (measured), and doing it here
+        // instead of over the network keeps the whole rule synchronous — no fetch, no
+        // race with the reload.
+        var name = (cfg && cfg.cookieName) || 'golem_consent20';
+        var maxAge = 7776000;
+        try {
+          document.cookie = name + '=simple' + version
+            + '; path=/; domain=golem.de; secure; max-age=' + maxAge;
+          document.cookie = 'golem_c20date=' + Math.floor(Date.now() / 1000)
+            + '; path=/; domain=golem.de; secure; max-age=' + maxAge;
+        } catch (e) { return false; }
+        // The wall does not redirect itself when it is reloaded with the cookie in place
+        // (measured: same page, cookie present, still the wall), so go where it would have
+        // sent us — the `from` it was reached with, else the front page.
+        var target = 'https://www.golem.de/';
+        try {
+          var from = new URLSearchParams(location.search).get('from');
+          if (from && /^https:\/\/([a-z0-9-]+\.)*golem\.de(\/|$)/i.test(from)) target = from;
+        } catch (e) { /* keep the front page */ }
+        try { location.replace(target); } catch (e) { return false; }
+        return true;
+      }
+    }
+  ];
+
+  var wallBusy = false;
+
+  function knownWall() {
+    var host = '';
+    var path = '';
+    try {
+      host = String((location && location.hostname) || '').toLowerCase();
+      path = String((location && location.pathname) || '');
+    } catch (e) { return null; }
+    for (var i = 0; i < KNOWN_WALLS.length; i++) {
+      var wall = KNOWN_WALLS[i];
+      if (!wall.host.test(host) || !wall.path.test(path)) continue;
+      // one attempt a minute: the wall reloads into itself when consent did not stick
+      var key = 'omarchy-wall:' + host;
+      var last = 0;
+      try { last = Number(sessionStorage.getItem(key) || 0); } catch (e) { last = 0; }
+      if (last && Date.now() - last < 60000) return null;
+      if (wallBusy) return null;
+      // A wall declares how to consent to it; there is no generic control to press
+      // (golem's own control is a page-world handler that a userscript cannot fire).
+      if (!wall.consent) return null;
+      wallBusy = true;
+      if (!wall.consent()) { wallBusy = false; return null; }  // not ready: retry later
+      try { sessionStorage.setItem(key, String(Date.now())); } catch (e) {}
+      note(wall.action, 'consent wall ' + host);
+      return wall.action;
+    }
+    return null;
+  }
 
   // ── 1. CMP containers / overlays ──────────────────────────────────────────
   // Explicit selectors for the CMPs seen in the wild, then generic patterns.
@@ -595,6 +683,7 @@
 
   // ── 5. Sweep + observe ────────────────────────────────────────────────────
   function sweep() {
+    knownWall();
     defuseFlags();
     unhideBait();
     patchBaitMeasure();
@@ -609,6 +698,7 @@
 
   function onMutation() {
     try {
+      knownWall();
       removeMatching(document);
       genericOverlaySweep();
       barSweep();
