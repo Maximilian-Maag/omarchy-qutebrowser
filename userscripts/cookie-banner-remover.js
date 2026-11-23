@@ -112,23 +112,14 @@
       try { last = Number(sessionStorage.getItem(key) || 0); } catch (e) { last = 0; }
       if (last && Date.now() - last < 60000) return null;
       if (wallBusy) return null;
-      if (typeof wall.consent === 'function') {
-        wallBusy = true;
-        if (!wall.consent()) { wallBusy = false; return null; }  // not ready: retry later
-        try { sessionStorage.setItem(key, String(Date.now())); } catch (e) {}
-        note(wall.action, 'consent wall ' + host);
-        return wall.action;
-      }
-      for (var j = 0; j < (wall.control || []).length; j++) {
-        var el = null;
-        try { el = document.querySelector(wall.control[j]); } catch (e) { el = null; }
-        if (!el || !isVisible(el)) continue;
-        try { sessionStorage.setItem(key, String(Date.now())); } catch (e) {}
-        note(wall.action, 'consent wall ' + host + ' ' + wall.control[j]);
-        press(el);
-        return wall.action;
-      }
-      return null;
+      // A wall declares how to consent to it; there is no generic control to press
+      // (golem's own control is a page-world handler that a userscript cannot fire).
+      if (!wall.consent) return null;
+      wallBusy = true;
+      if (!wall.consent()) { wallBusy = false; return null; }  // not ready: retry later
+      try { sessionStorage.setItem(key, String(Date.now())); } catch (e) {}
+      note(wall.action, 'consent wall ' + host);
+      return wall.action;
     }
     return null;
   }

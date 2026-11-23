@@ -191,85 +191,118 @@ test('decideConsent rejects by default and only accepts as a fallback', () => {
 // ── knownWall(): a consent wall that is a page of its own ───────────────────
 test('knownWall consents on golem\'s wall page, once, and nowhere else', () => {
   // Regression pinned: golem.de redirects to /sonstiges/zustimmung/auswahl.html and
-  // only redirects back once consent is stored. Its control cannot be clicked from a
-  // userscript world (the page-world onclick never fires there), so the rule makes the
-  // request that control makes and reloads — the version string comes from the page's
-  // own GolemConsent config so it cannot go stale.
-  const code = slice(['styleOf', 'isVisible', 'press', 'var KNOWN_WALLS', 'var wallBusy', 'knownWall']);
+  // does not come back on its own — the wall IS the page, so the sweep finds nothing to
+  // remove and every visit ends there. Three measurements shape the rule: its control
+  // cannot be clicked from a userscript (the handler is a page-world onclick that does
+  // not fire across worlds), the consent is a cookie whose value carries a version the
+  // page's own config supplies (asynchronously — an unversioned write is rejected), and
+  // reloading the wall with the cookie in place does not redirect. So the rule writes
+  // what its control would have stored and then goes where the wall would have sent us.
+  const code = slice(['styleOf', 'isVisible', 'var KNOWN_WALLS', 'var wallBusy', 'knownWall']);
+  const WALL = 'https://www.golem.de/sonstiges/zustimmung/auswahl.html';
+  const CONFIG = { config: { cookieName: 'golem_consent20', cookieVersion: '|261101' } };
 
-  const build = (where, extra = {}) => {
-    const calls = { cookies: [], replace: [] };
-    const store = {};
+  const build = (opts = {}) => {
+    const calls = { cookies: [], replace: [], notes: [], keys: [], queries: 0 };
+    const store = opts.store || {};
     const doc = {
       documentElement: fakeEl(),
       body: fakeEl({ tagName: 'BODY' }),
-      querySelector: () => null,
+      querySelector: () => { calls.queries += 1; return null; },
     };
     Object.defineProperty(doc, 'cookie', {
       get: () => '',
-      set: (v) => { calls.cookies.push(v); },
+      set: (v) => { if (opts.cookieThrows) throw new Error('cookies are off'); calls.cookies.push(v); },
     });
+    const where = Object.assign({
+      hostname: 'www.golem.de',
+      pathname: '/sonstiges/zustimmung/auswahl.html',
+      search: '',
+      href: WALL,
+      replace: (u) => { if (opts.replaceThrows) throw new Error('navigation refused'); calls.replace.push(u); },
+    }, opts.where || {});
     const ctx = sandbox(code, {
       document: doc,
-      location: Object.assign({ replace: (u) => { calls.replace.push(u); } }, where),
+      location: where,
       sessionStorage: {
         getItem: (k) => (k in store ? store[k] : null),
-        setItem: (k, v) => { store[k] = v; },
+        setItem: (k, v) => { calls.keys.push(k); store[k] = v; },
       },
       URLSearchParams,
-      note: () => {},
-      ...extra,
+      Date: opts.now === undefined ? Date : { now: () => opts.now },
+      note: (action, detail) => { calls.notes.push([action, detail]); },
+      GolemConsent: 'GolemConsent' in opts ? opts.GolemConsent : CONFIG,
     });
-    return { ctx, calls };
+    return { ctx, calls, store };
   };
 
-  const wall = build({ hostname: 'www.golem.de', pathname: '/sonstiges/zustimmung/auswahl.html',
-                       search: '?from=https%3A%2F%2Fwww.golem.de%2Fnews%2Fki-2611-175000.html',
-                       href: 'https://www.golem.de/sonstiges/zustimmung/auswahl.html' },
-                     { GolemConsent: { config: { cookieName: 'golem_consent20', cookieVersion: '|261101' } } });
+  // the wall, reached from an article: write golem's own consent, then go to the article
+  const wall = build({ now: 1795449062123,
+                       where: { search: '?from=https%3A%2F%2Fwww.golem.de%2Fnews%2Fki-2611-175000.html' } });
   assert.strictEqual(wall.ctx.knownWall(), 'accept');
-  assert.strictEqual(wall.calls.cookies.length, 2, 'the consent cookie and its date: ' + JSON.stringify(wall.calls.cookies));
-  assert.ok(wall.calls.cookies[0].startsWith('golem_consent20=simple|261101;'),
-    'the value must be the one golem stores: ' + wall.calls.cookies[0]);
-  assert.ok(wall.calls.cookies[0].includes('domain=golem.de'),
-    'the cookie is a domain cookie: ' + wall.calls.cookies[0]);
+  assert.deepStrictEqual(wall.calls.cookies, [
+    'golem_consent20=simple|261101; path=/; domain=golem.de; secure; max-age=7776000',
+    'golem_c20date=1795449062; path=/; domain=golem.de; secure; max-age=7776000',
+  ], 'exactly what setconsentcookie.php stores, both cookies, ninety days');
   assert.deepStrictEqual(wall.calls.replace, ['https://www.golem.de/news/ki-2611-175000.html'],
-    'the wall does not redirect itself, so the `from` it was reached with is where to go');
-  // a second sweep on the same page must not fire again (no reload loop)
+    'the wall does not redirect itself, so the from= it was reached with is the destination');
+  assert.deepStrictEqual(wall.calls.notes, [['accept', 'consent wall www.golem.de']]);
+  assert.deepStrictEqual(wall.calls.keys, ['omarchy-wall:www.golem.de']);
+  assert.strictEqual(wall.store['omarchy-wall:www.golem.de'], '1795449062123',
+    'the attempt is stamped so a failed consent cannot loop');
+
+  // a second sweep on the same page must not fire again
   assert.strictEqual(wall.ctx.knownWall(), null);
   assert.strictEqual(wall.calls.cookies.length, 2);
   assert.strictEqual(wall.calls.replace.length, 1);
 
-  // a `from` that is not golem's own is not followed
-  const foreign = build({ hostname: 'www.golem.de', pathname: '/sonstiges/zustimmung/auswahl.html',
-                          search: '?from=https%3A%2F%2Fevil.example%2F',
-                          href: 'https://www.golem.de/sonstiges/zustimmung/auswahl.html' },
-                        { GolemConsent: { config: { cookieVersion: '|261101' } } });
+  // the guard is a minute, not a minute-and-a-bit: 60000 ms is already stale
+  const atMinute = build({ now: 1795449122123, store: { 'omarchy-wall:www.golem.de': '1795449062123' } });
+  assert.strictEqual(atMinute.ctx.knownWall(), 'accept', 'a full minute later it may try again');
+  const insideMinute = build({ now: 1795449122122, store: { 'omarchy-wall:www.golem.de': '1795449062123' } });
+  assert.strictEqual(insideMinute.ctx.knownWall(), null, 'one millisecond short is still the same attempt');
+
+  // the page's config arrives asynchronously: without the version nothing is written
+  const early = build({ GolemConsent: null });
+  assert.strictEqual(early.ctx.knownWall(), null, 'no consent before the version is known');
+  assert.strictEqual(early.calls.cookies.length, 0);
+  assert.strictEqual(early.calls.replace.length, 0);
+  assert.deepStrictEqual(early.calls.keys, [], 'and no attempt is spent, so a later sweep still acts');
+  early.ctx.GolemConsent = CONFIG;
+  assert.strictEqual(early.ctx.knownWall(), 'accept', 'the retry must still act');
+
+  // only a plain object's config is trusted (a function carrying one is not the holder)
+  const fnHolder = build({ GolemConsent: Object.assign(function () {}, CONFIG) });
+  assert.strictEqual(fnHolder.ctx.knownWall(), null, 'typeof object is what makes it the config holder');
+  assert.strictEqual(fnHolder.calls.cookies.length, 0);
+
+  // writing the cookie can fail (cookies off): that is not a consent
+  const noCookies = build({ cookieThrows: true });
+  assert.strictEqual(noCookies.ctx.knownWall(), null);
+  assert.strictEqual(noCookies.calls.replace.length, 0, 'nothing may be navigated to when nothing was stored');
+
+  // a navigation that is refused is not a consent either
+  const noNav = build({ replaceThrows: true });
+  assert.strictEqual(noNav.ctx.knownWall(), null);
+  assert.strictEqual(noNav.calls.keys.length, 0, 'a failed navigation must not burn the attempt');
+
+  // a from= that is not golem's own is not followed
+  const foreign = build({ where: { search: '?from=https%3A%2F%2Fevil.example%2F' } });
   assert.strictEqual(foreign.ctx.knownWall(), 'accept');
   assert.deepStrictEqual(foreign.calls.replace, ['https://www.golem.de/'],
     'an off-site from= must fall back to the front page');
 
-  // the page's config is loaded asynchronously: without the version nothing may be
-  // written (an unversioned consent is one golem rejects) and no attempt is spent
-  const early = build({ hostname: 'www.golem.de', pathname: '/sonstiges/zustimmung/auswahl.html',
-                        search: '', href: 'https://www.golem.de/sonstiges/zustimmung/auswahl.html' });
-  assert.strictEqual(early.ctx.knownWall(), null, 'no consent before the version is known');
-  assert.strictEqual(early.calls.cookies.length, 0);
-  early.ctx.GolemConsent = { config: { cookieVersion: '|261101' } };
-  assert.strictEqual(early.ctx.knownWall(), 'accept', 'the retry must still act');
-  assert.strictEqual(early.calls.cookies.length, 2);
-  assert.deepStrictEqual(early.calls.replace, ['https://www.golem.de/'],
-    'without a from= the front page is the destination');
-
+  // nowhere else: an article page and another host must not be consented to
   for (const where of [
-    { hostname: 'www.golem.de', pathname: '/news/ki-irgendwas-2611-175000.html', search: '', href: 'https://www.golem.de/news/x.html' },
+    { hostname: 'www.golem.de', pathname: '/news/x-2611-175000.html', search: '', href: 'https://www.golem.de/news/x.html' },
     { hostname: 'example.org', pathname: '/sonstiges/zustimmung/auswahl.html', search: '', href: 'https://example.org/x' },
   ]) {
-    const other = build(where);
+    const other = build({ where });
     assert.strictEqual(other.ctx.knownWall(), null,
       'nothing may be consented to on ' + where.hostname + where.pathname);
     assert.strictEqual(other.calls.cookies.length, 0);
     assert.strictEqual(other.calls.replace.length, 0);
+    assert.strictEqual(other.calls.queries, 0, 'a wall declares its strategy; there is no DOM to poke');
   }
 });
 
