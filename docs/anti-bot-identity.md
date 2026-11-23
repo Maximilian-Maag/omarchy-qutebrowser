@@ -167,6 +167,29 @@ Verification is therefore in the live browser: restart qutebrowser (a `,greasemo
 not enough for the request-level half to re-read config; `:config-source` re-reads config.py) and
 open the site. `install.sh` links the userscript into the Greasemonkey dir.
 
+## When the identity is not enough: hand the page to Chromium
+
+A **Turnstile / managed-challenge widget is not a fingerprint problem** and no identity fixes it.
+The widget runs in a cross-origin iframe from `challenges.cloudflare.com` and needs browser APIs
+QtWebEngine does not expose, so it never produces a token: the page's `cf-turnstile-response` input
+stays empty and the form behind it cannot be submitted. Measured on EDAS (`edas.info`, a
+`data-action="resetPassword"` widget): empty token in qutebrowser, a 709-byte token in stock
+Chromium on the same page, same network, one second apart.
+
+So there are two separate outcomes to keep apart, and the host list above only moves the first:
+
+| Symptom | Cause | Lever |
+|---------|-------|-------|
+| "unusual activity", interstitial, sign-in refused | fingerprint differs from Chrome's | `_STOCK_CHROME_HOSTS` (above) |
+| "verification failed", widget spins, empty token field | Turnstile/DataDome needs APIs the engine lacks | `,w` — open the page in Chromium |
+
+`,w` (`config.bind(",w", "spawn chromium {url}")`, bound only where Chromium is installed) hands the
+current URL to the real browser, which passes the widget unaided and keeps its own cookie jar, so a
+login collected there survives. That is also why it is a **single key on a free prefix**: a binding
+whose first key is itself bound silently kills the shorter one (`,cc` would have stopped `,c`,
+reader fact-check), which `tests/test_integration_config_optionals.py` now pins for every shipped
+binding.
+
 ## Residual tell
 
 `navigator.plugins.length` is still `0` (QtWebEngine ships no plugin list). It is left alone on
