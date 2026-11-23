@@ -53,6 +53,7 @@ apply_theme(c)  # noqa: F821  (c is injected by qutebrowser)
 # Fonts — pick up the system monospace font; falls back to a sane default
 # ---------------------------------------------------------------------------
 import re
+import shutil
 import subprocess
 
 def _system_monofont(fallback: str = "monospace") -> str:
@@ -509,3 +510,31 @@ config.set("content.notifications.enabled", True, "*.github.com")         # noqa
 # captcha plugin. Guarded exactly like the site-overrides.py source above.
 if os.path.isfile(os.path.join(config_dir, "captcha-bindings.py")):  # noqa: F821
     config.source("captcha-bindings.py")
+
+# ---------------------------------------------------------------------------
+# Escape hatch: hand the current page to a real Chromium
+# ---------------------------------------------------------------------------
+# Cloudflare Turnstile and DataDome cannot be solved by QtWebEngine at all — the widget needs
+# browser APIs the engine does not expose, so it stays unsolved and the form behind it never
+# submits (a managed-challenge "verification failed" is the visible symptom). Presenting a Chrome
+# identity (see the _STOCK_CHROME_HOSTS block above) changes how often that happens, never whether
+# it can. A real Chromium solves the same widget unaided, so `,w` hands it the URL and keeps its
+# own cookie jar on disk — the point is a browser that can pass the wall, so it must keep the
+# logins it collects there. Guarded on the binary: no dead key on a host without Chromium.
+#
+# The key is a SINGLE one on a free prefix. A binding whose first key is itself bound kills the
+# shorter one — qutebrowser has no timeout on a partial match, so `,cc` would stop `,c`
+# (reader-factcheck) from ever firing, silently. `,c`, `,p`, `,t`, `,y`, `,z`, `,k`, `,a`, `,d`,
+# `,i`, `,r`, `,n`, `,f`, `,m`, `,s`, `,e`, `,o`, `,v` and `,P` are all taken; `,w` is not.
+if shutil.which("chromium"):
+    config.bind(",w", "spawn chromium {url}", mode="normal")                    # noqa: F821
+
+# ---------------------------------------------------------------------------
+# Personal overrides
+# ---------------------------------------------------------------------------
+# user-config.py next to this file is sourced LAST, so whatever it sets wins over everything
+# above — unlike autoconfig.yml (line 88), whose option values the font assignments above would
+# overwrite again. Guarded like the two sources above, so its absence is not a config error.
+if os.path.isfile(os.path.join(config_dir, "user-config.py")):  # noqa: F821
+    config.source("user-config.py")
+

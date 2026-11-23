@@ -42,6 +42,23 @@ The install script:
 - Sets qutebrowser as the default browser via `xdg-settings`
 - Installs `python-pynacl` via pacman (required by `qute-keepassxc`)
 
+### Personal overrides
+
+`~/.config/qutebrowser/user-config.py` is sourced **last**, after this plugin's `config.py`, so
+whatever it sets wins — font sizes, extra bindings, per-domain options. It sits outside the plugin
+checkout, so re-cloning or updating the plugin cannot overwrite it, and it is skipped silently when
+absent:
+
+```python
+c.fonts.default_size = "28pt"
+c.messages.timeout = 10000
+```
+
+Put personal settings here rather than in `autoconfig.yml` whenever the plugin also sets the same
+option: `autoconfig.yml` is loaded early (`config.load_autoconfig`), and the plugin's own
+assignments run after it — which is how a font size set there gets overwritten again.
+
+
 ## Themes
 
 Themes switch automatically when you change the Omarchy theme:
@@ -283,6 +300,7 @@ key to it if you want one.
 | `,zl` | normal | Apply the saved zoom for this domain (no `gd` alias: `gd` is qutebrowser's `download`) |
 | `,zr` | normal | Forget this domain's zoom (back to 100%) |
 | `,p` | normal | Open current URL in a private window |
+| `,w` | normal | Open current URL in Chromium — for a Cloudflare/DataDome wall QtWebEngine cannot pass (only bound where Chromium is installed) |
 | `,kp` | normal | Check KeePassXC setup status |
 
 ## AI site fixes

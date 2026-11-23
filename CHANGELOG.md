@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.18.0
+
+### Added
+- **`user-config.py` is sourced last, and it is documented.** A personal overrides file next to
+  `config.py` is sourced after every plugin default, so a font size, a keybinding or a per-domain
+  option set there wins; absent, it is skipped silently (sourcing a missing file makes qutebrowser
+  record a config error on every start, which is why the two neighbouring sources are guarded the
+  same way). Until now this mechanism existed only as a local edit in a deployed checkout: a
+  re-clone or `omarchy plugin add` silently reverted the personal settings to the plugin defaults.
+  README has a "Personal overrides" section, and `tests/test_integration_config_optionals.py`
+  asserts both the sourcing order and that absence is not an error.
+- **`,w` opens the current page in Chromium.** Cloudflare Turnstile and DataDome widgets cannot be
+  solved by QtWebEngine at all — not a fingerprint problem, the widget needs browser APIs the engine
+  does not expose — so a page behind one is a dead end in this browser. `,w` hands the URL to the
+  installed Chromium, which passes the same widget unaided and keeps its own cookie jar. Bound only
+  where `chromium` is on `PATH`, so no host gets a dead key. The key is a single one on a free
+  prefix on purpose: a binding whose first key is itself bound silently kills the shorter binding
+  (`,cc` would have stopped `,c`, reader fact-check), and a new test now fails if any shipped
+  binding is the prefix of another. `docs/anti-bot-identity.md` separates the two failure modes.
+
 ## 1.17.62
 
 ### Fixed
