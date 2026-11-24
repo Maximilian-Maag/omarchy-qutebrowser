@@ -95,6 +95,22 @@ chmod +x "$PLUGIN_DIR/bin/reader-server"
 echo "  Reader server: $PLUGIN_DIR/bin/reader-server (started on demand by ,r)"
 chmod +x "$PLUGIN_DIR/bin/ai-fix-overblocking"
 echo "  Over-blocking check: $PLUGIN_DIR/bin/ai-fix-overblocking (run by ,af)"
+chmod +x "$PLUGIN_DIR/bin/omarchy-cosmetic-update"
+echo "  Cosmetic filters: $PLUGIN_DIR/bin/omarchy-cosmetic-update (rebuild from CLI; no binding)"
+
+# ── 3c. Cosmetic filters ─────────────────────────────────────────────────────
+# qutebrowser refuses ad requests but does not hide elements, so a publisher's own ad boxes
+# and sponsored teasers stay on the page (golem.de: .go-ad-slot, the "ANZEIGE" link block).
+# This compiles the hide rules of the same lists into one Greasemonkey script. The download
+# needs the network once; when it fails the previously compiled script is kept, and the
+# message says how to retry rather than pretending the step worked.
+if python3 "$PLUGIN_DIR/tools/build_cosmetic.py" \
+     --template "$PLUGIN_DIR/userscripts/cosmetic-filters.js" \
+     --output "$GREASEMONKEY_DIR/cosmetic-filters.js"; then
+  echo "  Compiled cosmetic filters -> $GREASEMONKEY_DIR/cosmetic-filters.js"
+else
+  echo "  WARNING: cosmetic filters not compiled (offline?); retry with: omarchy-cosmetic-update" >&2
+fi
 
 # ── 4b. Config modules ────────────────────────────────────────────────────────
 ln -sf "$PLUGIN_DIR/config/site-overrides.py" "$QUTE_CONFIG_DIR/site-overrides.py"

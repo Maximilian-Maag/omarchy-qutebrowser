@@ -196,6 +196,53 @@ factual-reporting ratings come from the bundled curated dataset
 a signpost, not a measurement, and the page says so. Outlets that are not in the
 dataset are shown unrated — never guessed.
 
+## Cosmetic filters: the ad boxes a request blocker cannot remove
+
+qutebrowser's blocker answers what uBlock Origin's *network* half does — the request to the ad
+server never leaves the browser. It has no *cosmetic* half, so advertising that is the
+publisher's own markup stays on screen: golem.de keeps its reserved ad frames, its "ANZEIGE"
+link block and its sponsored teasers, because nothing was ever requested for them.
+
+`tools/build_cosmetic.py` compiles the hide rules of the same EasyList sources into one
+Greasemonkey script. It is uBlock Origin's cosmetic filtering from the filter lists, not a
+list of selectors maintained by hand:
+
+- `domain##selector` rules are grouped by domain; `domain#@#selector` exceptions remove a
+  selector again, and can never add one.
+- Rules that need uBlock's matcher rather than CSS are dropped instead of approximated:
+  network rules, generic `##selector` rules (they apply everywhere and are what breaks sites),
+  negated domains (`~example.org`), wildcard domains, extended `#?#` syntax and the procedural
+  filters (`:has-text`, `:style`, `-abp-`). `:has()` is real CSS and is kept — golem.de's own
+  rules use it.
+- A page gets its own rules plus its parents' (`www.golem.de` also gets `golem.de`'s), and
+  nothing else.
+- `config/cosmetic-extra.txt` carries rules for sites where the lists lag behind the markup,
+  in the same `domain##selector` syntax — golem.de's sponsored teasers were renamed (`.go-teaser--variant-affiliate`
+  in the list, `.go-teaser--item-variant-affiliate` on the page) and stayed visible until the
+  extra file named them.
+
+Rebuild after a qutebrowser upgrade or when a site starts showing ads again:
+
+```bash
+omarchy-cosmetic-update            # writes ~/.local/share/qutebrowser/greasemonkey/cosmetic-filters.js
+```
+
+Then `:greasemonkey-reload` in a running browser; a restart is not needed. `install.sh` runs the
+same compile and keeps the previous script when the download fails.
+
+The defaults are the two ad lists; Fanboy's Annoyances is deliberately *not* one of them — it
+also hides share buttons, tag lists and newsletter boxes (`golem.de`: `.tags`,
+`.subscribe-newsletter`), which is a different decision from hiding advertising. Add it when
+that is what you want:
+
+```bash
+omarchy-cosmetic-update --source https://secure.fanboy.co.nz/fanboy-annoyance.txt
+```
+
+The script is under a megabyte (9,641 domains, 21,741 selectors with the two lists plus the
+extra file) and is parsed on each page load, so the cost is real but bounded (tens of
+milliseconds on this machine).
+
 ## Ad-free YouTube
 
 Two layers, so an ad is normally never scheduled in the first place:
@@ -409,7 +456,9 @@ omarchy-qutebrowser/
 │   ├── qute-ai-fix          — AI per-site fix engine (,af)
 │   ├── qute-reader          — reader mode: ingest page + open the reader tab (,r)
 │   ├── youtube-adblock.js   — Greasemonkey ad-blocking for YouTube
-│   └── cookie-banner-remover.js — Greasemonkey cookie-consent remover
+│   ├── cookie-banner-remover.js — Greasemonkey cookie-consent remover
+│   ├── cosmetic-filters.js  — Greasemonkey element hiding, filled in by tools/build_cosmetic.py
+│   └── cosmetic-extra.txt   — hand-checked rules for sites where the filter lists lag behind
 ├── reader/
 │   ├── index.html           — reader page template
 │   ├── reader.css           — distraction-free styling (theme-aware)
@@ -418,6 +467,7 @@ omarchy-qutebrowser/
 ├── bin/
 │   ├── reader-server        — loopback bridge: serves reader page + POST /ai (local agent)
 │   ├── ai-fix-overblocking  — does this page's own JS look over-blocked? (used by ,af)
+│   ├── omarchy-cosmetic-update — rebuild the cosmetic-filter script from the filter lists
 │   └── set-system-default   — privileged: sets qutebrowser as system default browser
 ├── install.sh               — one-shot installer
 └── manifest.json            — Omarchy plugin manifest

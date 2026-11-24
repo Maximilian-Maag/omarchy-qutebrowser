@@ -248,6 +248,35 @@
         "--test",
         "tests/js/linkedin-redirect.test.js"
       ]
+    },
+    {
+      "path": "tools/build_cosmetic.py",
+      "lang": "python",
+      "tests": [
+        "python3",
+        "-m",
+        "unittest",
+        "tests.test_unit_cosmetic_build",
+        "-q"
+      ]
+    },
+    {
+      "path": "userscripts/cosmetic-filters.js",
+      "lang": "javascript",
+      "tests": [
+        "node",
+        "--test",
+        "tests/js/cosmetic-filters.test.js"
+      ]
+    },
+    {
+      "path": "bin/omarchy-cosmetic-update",
+      "lang": "shell",
+      "tests": [
+        "bash",
+        "tests/shell/test_cosmetic_update.sh"
+      ],
+      "max_mutants": 20
     }
   ],
   "max_mutants": 60,
