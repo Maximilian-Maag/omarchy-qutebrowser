@@ -103,6 +103,12 @@ patch silently becomes a no-op and the browser stops offering passkeys — with 
   patched build is installed).
 - the handler's state machine, PIN messages, failure mapping and retry: `tests/test_unit_webauthn.py`.
 - mutation: `config/omarchy_webauthn.py` is a mutation target (floor 0.80; currently 1.00).
+- the chooser unit tests never touch Qt: `Chooser` stubs both `_view_for` and `_AccountPopup`, and
+  `tearDown` fails if the popup was constructed at all. The invariant is that a unit test which
+  reaches the real popup must fail, not kill the run — a real `_AccountPopup` builds a QWidget in
+  a process with no `QApplication`, which Qt treats as `qFatal`, so the attempt aborts the
+  interpreter (SIGABRT) and `_choose_account`'s `except Exception` never runs. That is how a
+  mutant of the single-name short-circuit turned into a core dump instead of a failing test.
 
 ## Test harness — closed
 
@@ -132,6 +138,16 @@ The same investigation found the mutation pass leaking runaway processes: a time
 mutator (mutating `tools/mutator.py` runs the mutator itself) left grandchildren spinning at
 100% CPU for hours — five orphans, up to 2.7h, load 7.5 — and that load was another source of
 harness flakiness. `run_tests()` now kills the whole process group on timeout (1.17.48).
+
+A second harness gap, in the verdict rather than the process handling: any run that *dies of a
+signal* came back with a non-zero code and was scored as a killed mutant, although no assertion
+had run. `qFatal` on a QWidget built with no `QApplication`, an `assert()` in a C library — the
+interpreter aborts and the mutant is unkillable *and* free. Four such cores came out of
+`tools/mutator.py` runs on `config/omarchy_webauthn.py` alone, each with a desktop crash
+notification. `run_target()` now names the signal, refuses to score the run, and stops the
+target at the first crash instead of storing one core per remaining mutant; the baseline check
+reports a crash as a crash rather than as "the tests fail". Pinned by `CrashedRunCase` in
+`tests/test_unit_mutator.py` (1.18.2).
 
 ## Audit — gaps in the guards, the patches and the plugin (2026-11-01)
 

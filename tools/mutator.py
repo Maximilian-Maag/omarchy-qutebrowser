@@ -216,6 +216,23 @@ def run_tests(cmd, cwd, timeout):
     return proc.returncode, out, err
 
 
+def died_of_signal(rc):
+    """The signal name when a test run was killed by one, else None.
+
+    A run that dies of a signal never reached a verdict. A native fatal assertion — PyQt6
+    building a QWidget in a process with no QApplication (`qFatal` -> SIGABRT), an `assert()`
+    in a C library — aborts the interpreter before any test can fail, so reading `rc != 0` as
+    "the suite noticed" scored an unkillable mutant as killed: it flattered the kill rate and
+    left a core dump plus a desktop "Process crashed" notification for every one.
+    """
+    if rc >= 0:
+        return None
+    try:
+        return signal.Signals(-rc).name
+    except ValueError:
+        return "signal %d" % -rc
+
+
 def run_target(repo, target, cfg, tmp_root, dry_run=False, log=print):
     src = repo / target["path"]
     if not src.is_file():
@@ -242,6 +259,12 @@ def run_target(repo, target, cfg, tmp_root, dry_run=False, log=print):
             return {"name": target["path"], "lang": lang, "mutants": [],
                     "error": "baseline test run timed out"}
         if rc != 0:
+            killed_by = died_of_signal(rc)
+            if killed_by:
+                return {"name": target["path"], "lang": lang, "mutants": [],
+                        "error": "baseline test run died of %s on unmutated code — a crash "
+                                 "is not a failing test, so no mutant can be scored against "
+                                 "an interpreter that aborts" % killed_by}
             return {"name": target["path"], "lang": lang, "mutants": [],
                     "error": "baseline tests fail on unmutated code (a mutation score "
                              "would be meaningless): " +
@@ -268,10 +291,25 @@ def run_target(repo, target, cfg, tmp_root, dry_run=False, log=print):
         started = time.time()
         try:
             rc, out, err = run_tests(target["tests"], str(work / "repo"), cfg["timeout"])
-            verdict = "killed" if rc != 0 else "survived"
-            detail = (out + err).strip().splitlines()[-1:] or [""]
         except subprocess.TimeoutExpired:
-            verdict, detail = "timeout", ["test run exceeded %ss" % cfg["timeout"]]
+            copied.write_bytes(original)
+            results.append({**record, "verdict": "timeout",
+                            "seconds": round(time.time() - started, 1),
+                            "detail": "test run exceeded %ss" % cfg["timeout"]})
+            continue
+        killed_by = died_of_signal(rc)
+        if killed_by:
+            # Stop at the first one rather than scoring it and carrying on: the target is
+            # unmeasurable until the crash is fixed, and every further mutant would abort
+            # again, storing another core and raising another crash notification.
+            copied.write_bytes(original)
+            shutil.rmtree(work, ignore_errors=True)
+            return {"name": target["path"], "lang": lang, "mutants": results,
+                    "error": "the test command died of %s on mutant %r -> %r (line %s) — a "
+                             "crashing interpreter is not a killed mutant"
+                             % (killed_by, before, replacement, line_no)}
+        verdict = "killed" if rc != 0 else "survived"
+        detail = (out + err).strip().splitlines()[-1:] or [""]
         copied.write_bytes(original)
         results.append({**record, "verdict": verdict, "seconds": round(time.time() - started, 1),
                         "detail": detail[0][:120]})

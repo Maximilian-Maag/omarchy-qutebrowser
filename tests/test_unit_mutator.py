@@ -392,3 +392,67 @@ class ShellCommentMaskCase(unittest.TestCase):
         line = "echo a # note\necho b"
         m = self.mask(line)
         self.assertTrue(m[line.index("echo b")], "only to end of line")
+
+
+class CrashedRunCase(unittest.TestCase):
+    """A test run that dies of a signal is an error, never a killed mutant.
+
+    Qt aborts the interpreter (`qFatal`) when code under test builds a QWidget with no
+    QApplication, and the harness read `rc != 0` as "the suite noticed": the mutant was
+    never observed, the kill rate was flattered, and every such run stored a core dump and
+    raised a desktop "Process crashed" notification. The fixture dies of SIGTERM rather than
+    SIGABRT on purpose — an aborting child would add a `coredumpctl` row on every `make
+    test`, which is the very behaviour under test. `died_of_signal` naming SIGABRT is pinned
+    separately, so the mapping is covered without aborting anything.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = pathlib.Path(self.tmp.name) / "repo"
+        (self.repo / "tools").mkdir(parents=True)
+        (self.repo / "tests").mkdir()
+        shutil.copy(REPO / "tools/mutator.py", self.repo / "tools/mutator.py")
+        (self.repo / "lib.py").write_text("def cap(n):\n    return 10\n")
+        (self.repo / "tests/run.py").write_text(
+            "import os, signal, sys\n"
+            "sys.path.insert(0, '.')\n"
+            "import lib\n"
+            "if lib.cap(1) != 10:\n"
+            "    os.kill(os.getpid(), signal.SIGTERM)   # dies with no test having failed\n"
+            "print('ok')\n")
+        (self.repo / "tests/mutation.json").write_text(json.dumps({
+            "min_kill_rate": 0.85, "timeout": 60, "per_operator": 2,
+            "targets": [{"path": "lib.py", "lang": "python",
+                         "tests": ["python3", "tests/run.py"]}]}) + "\n")
+
+    def run_mutator(self):
+        report = pathlib.Path(self.tmp.name) / "report.json"
+        proc = subprocess.run(["python3", "tools/mutator.py", "--json", str(report)],
+                              cwd=str(self.repo), capture_output=True, text=True)
+        return proc, json.loads(report.read_text())[0]
+
+    def test_a_run_that_dies_of_a_signal_fails_the_target(self):
+        proc, rep = self.run_mutator()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("FAIL", proc.stdout)
+        self.assertIn("died of SIGTERM", proc.stdout)
+        self.assertIn("died of SIGTERM", rep["error"])
+        self.assertNotIn("killed", rep, "a crash must never be reported as a kill")
+        self.assertEqual(rep["mutants"], [],
+                         "the target must stop at the first crash instead of storing a core "
+                         "dump per remaining mutant")
+
+    def test_a_baseline_crash_says_so_instead_of_blaming_the_tests(self):
+        (self.repo / "tests/run.py").write_text(
+            "import os, signal\nos.kill(os.getpid(), signal.SIGTERM)\n")
+        proc, rep = self.run_mutator()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("died of SIGTERM on unmutated code", rep["error"])
+        self.assertIn("died of SIGTERM", proc.stdout)
+
+    def test_the_signal_is_named(self):
+        mut = load_mutator()
+        self.assertEqual(mut.died_of_signal(-6), "SIGABRT")
+        self.assertIsNone(mut.died_of_signal(0), "a clean exit is not a signal")
+        self.assertIsNone(mut.died_of_signal(1), "a normal exit status is not a signal")
