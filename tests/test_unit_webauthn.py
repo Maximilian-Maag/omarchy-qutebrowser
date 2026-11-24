@@ -312,13 +312,49 @@ class Dispatch(unittest.TestCase):
         self.drive(Request("CollectPin", pin="Challenge"))     # must not raise
 
 
+class _StubPopup:
+    """The default popup double for the Chooser tests: record the call, do nothing else.
+
+    A real ``_AccountPopup`` builds a QWidget, and Qt treats a QWidget with no QApplication as
+    fatal (``qFatal`` -> abort): the interpreter dies of SIGABRT and ``_choose_account``'s
+    ``except Exception`` never runs, so a test that reached the popup would take the whole run
+    down instead of failing. Recording the construction lets the test fail in ``tearDown``.
+    """
+
+    def __init__(self, calls, names, callback):
+        calls.append(list(names))
+        self.size = (0, 0)
+
+    def show_at(self, anchor, viewport):
+        pass
+
+    def reposition(self, anchor, viewport):
+        pass
+
+
 class Chooser(unittest.TestCase):
     """_choose_account: a single key is taken as-is, several go through the popup."""
 
     def setUp(self):
         self.m = load()
-        # Pin the anchor lookup: these tests must not touch real Qt.
+        # Pin the anchor lookup and the popup: these tests must not touch real Qt. Stubbing
+        # _view_for alone is not enough - a code path that reaches _AccountPopup builds a real
+        # QWidget, and that aborts the interpreter rather than failing the test.
         self.m._view_for = lambda page: None
+        self.popup_calls = []
+        self.m._AccountPopup = self._stub_popup
+
+    def tearDown(self):
+        self.assertFalse(self.popup_calls,
+                         "a Chooser test reached the account popup; it must stay stubbed here")
+
+    def _stub_popup(self, names, callback):
+        return _StubPopup(self.popup_calls, names, callback)
+
+    def test_the_popup_stays_stubbed(self):
+        # __func__: every attribute access builds a fresh bound method, so the object itself
+        # never compares identical.
+        self.assertIs(self.m._AccountPopup.__func__, Chooser._stub_popup)
 
     def test_no_names_gives_none(self):
         got = []

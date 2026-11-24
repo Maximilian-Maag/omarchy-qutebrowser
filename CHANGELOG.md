@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.18.2
+
+### Fixed
+- **The passkey chooser's unit tests fail instead of aborting the interpreter.** `Chooser` pinned
+  `_view_for` ("these tests must not touch real Qt") but not `_AccountPopup`, so any code path -
+  including a mutant - that reached the popup built a real QWidget with no `QApplication`, which
+  Qt treats as fatal: `qFatal("QWidget: Must construct a QApplication before a QWidget")`,
+  SIGABRT, a core dump and a desktop "Process crashed" notification. `_choose_account`'s
+  `except Exception` cannot catch it because nothing is raised - the interpreter is gone. Four
+  such cores came out of `tools/mutator.py` runs on 23/24 Nov, and the mutator scored each one as
+  a kill although no assertion had run. `Chooser.setUp` now installs a popup double that records
+  every construction and `tearDown` fails on it, so a leaked path reports
+  "a Chooser test reached the account popup" as an ordinary failure.
+- **`tools/mutator.py` no longer scores a crashed run as a killed mutant.** A run killed by a
+  signal — Qt's `qFatal`, an `assert()` in a C library — came back with `rc != 0` and was
+  counted as killed, so an unkillable mutant flattered the kill rate while no assertion had
+  run; every occurrence also stored a core dump and raised a desktop crash notification.
+  `run_target()` names the signal (`died_of_signal()`), refuses to score the run, and stops
+  the target at the first crash instead of leaving one core per remaining mutant; a crashed
+  baseline is reported as a crash rather than as failing tests.
+
 ## 1.18.1
 
 ### Fixed
