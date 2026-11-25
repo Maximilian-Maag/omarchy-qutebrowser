@@ -36,11 +36,38 @@ bash ~/.config/omarchy/plugins/Maximilian-Maag.qutebrowser/install.sh
 ```
 
 The install script:
-- Symlinks `config.py`, `themes.py` and `site-overrides.py` into `~/.config/qutebrowser/`
-- Symlinks the YouTube + cookie-banner Greasemonkey scripts into `~/.local/share/qutebrowser/greasemonkey/`
+- Symlinks `config.py`, `themes.py`, `site-overrides.py` and `omarchy_webauthn.py` into `~/.config/qutebrowser/`
+- Symlinks the six Greasemonkey scripts (YouTube ad-block, cookie banners, the stock-Chrome identity halves and the LinkedIn root redirect) into `~/.local/share/qutebrowser/greasemonkey/`
+- Symlinks the six userscripts into both `~/.local/share/qutebrowser/userscripts/` and `~/.config/qutebrowser/userscripts/`
 - Installs the `theme-set` hook into `~/.config/omarchy/hooks/theme-set.d/`
-- Sets qutebrowser as the default browser via `xdg-settings`
+- Records your current browser handlers, then sets qutebrowser as the default browser via `xdg-settings`/`xdg-mime`
 - Installs `python-pynacl` via pacman (required by `qute-keepassxc`)
+
+### Uninstalling
+
+`install.sh --uninstall` reverses exactly what an install added, and nothing else:
+
+```bash
+bash ~/.config/omarchy/plugins/Maximilian-Maag.qutebrowser/install.sh --uninstall
+```
+
+It removes the four config modules, the six Greasemonkey scripts, the six userscripts (from both
+directories), the `theme-set` hook, the active-theme state and the recorded browser defaults, and
+hands every MIME type it changed back to the handler that was there before — dropping the
+assignment instead where there was none. Runs twice, it does nothing the second time and still
+exits 0.
+
+A path that is not a symlink into this checkout (or a byte-identical copy of the file) is never
+deleted: your own `config.py`, a `themes.py` you edited, anything else in `~/.config/qutebrowser`
+is left alone and named in the output.
+
+Two things are deliberately kept:
+
+- `~/.config/qutebrowser/config.py.bak.<timestamp>` — the backup install made of your original
+  `config.py`. Delete it, or move it back, yourself; the uninstall will not guess which of your
+  own files to put in place.
+- The system-wide default-browser files (`/etc/xdg/mimeapps.list`,
+  `/usr/share/applications/mimeapps.list`, `/usr/bin/x-www-browser`), which need root.
 
 ### Personal overrides
 

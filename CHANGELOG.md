@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.19.1
+
+### Added
+- **The generated Greasemonkey scripts go too.** `cosmetic-filters.js` (compiled by
+  `tools/build_cosmetic.py`) and `omarchy-sitefix-<domain>.js` (written from the per-domain fix
+  files by `config/site-overrides.py`) are produced at install and run time, so there is no
+  source to compare them against; the uninstall deletes them only when their `@namespace`
+  header names this project, and leaves a foreign file that merely shares the name.
+- **`install.sh --uninstall` reverses an install and nothing else (Closes #13).** The installer
+  wrote into the user's qutebrowser config, the Greasemonkey and userscript directories, the
+  theme-set hook directory and the default-browser registrations, with no way back. `--uninstall`
+  takes exactly those artifacts out again. Each target goes through one guarded helper: a path is
+  removed only when it is a symlink into this checkout or a byte-identical copy of the source, so
+  a `config.py` written by hand or a `themes.py` edited in place survives and is reported. The
+  artifact lists at the top of the script now drive both the install loops and the removal loops,
+  so a script added to one can no longer be missing from the other.
+  MIME defaults are now recorded before install overwrites them (xdg-settings and xdg-mime can
+  only overwrite, never un-set), and the uninstall hands each type back to that recorded handler —
+  or drops the assignment entirely where there was none — only while the type still points at
+  qutebrowser. The `config.py.bak.<timestamp>` backup is left in place and named in the output;
+  the system-wide files need root and are named rather than guessed at. A second run is a no-op
+  and exits 0. `tests/shell/test_uninstall.sh` runs a full install → uninstall round trip in a
+  throwaway `HOME`/XDG tree with stubbed `omarchy`/`sudo`/`xdg-*`, and diffs the tree before and
+  after to assert that exactly the documented artifacts disappeared.
+
 ## 1.19.0
 
 ### Added
