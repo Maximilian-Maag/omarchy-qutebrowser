@@ -132,13 +132,32 @@ class LoadSourceCase(unittest.TestCase):
 
 
 class RenderCase(unittest.TestCase):
-    def test_data_marker_is_replaced_once_with_json(self):
-        template = '// header\nvar COSMETIC_DATA = {"domains": {}};  // @data\ntail\n'
+    def test_data_marker_is_replaced_once_with_the_blob(self):
+        template = '// header\nvar COSMETIC_BLOB = "";  // @data\ntail\n'
         out = build_cosmetic.render(template, {"domains": {"golem.de": [".go-ad-slot"]}})
-        self.assertIn('"golem.de":[".go-ad-slot"]', out)
-        self.assertNotIn('{"domains": {}}', out)
+        self.assertIn('var COSMETIC_BLOB = "\\ngolem.de\\t.go-ad-slot\\n";  // @data', out)
+        self.assertNotIn('COSMETIC_BLOB = ""', out)
         self.assertIn("// header", out)
         self.assertIn("tail", out)
+
+    def test_a_selector_with_a_backslash_is_escaped_for_javascript(self):
+        # CSS escapes exist (`.a\\:b`); the literal has to still be one JS string.
+        out = build_cosmetic.render('var COSMETIC_BLOB = "";  // @data\n',
+                                    {"domains": {"example.org": [".a\\:b"]}})
+        self.assertIn(r".a\\:b", out)
+
+    def test_encode_blob_is_records_of_tab_separated_fields(self):
+        blob = build_cosmetic.encode_blob({"b.org": [".y"], "a.org": [".x", ".z"]})
+        self.assertEqual(blob, "\na.org\t.x\t.z\nb.org\t.y\n")
+
+    def test_encode_blob_drops_a_rule_that_would_break_the_format(self):
+        # A newline or tab inside a selector cannot be represented; the rule is skipped
+        # rather than corrupting the record around it.
+        blob = build_cosmetic.encode_blob({"a.org": [".ok", ".bad\nx", ".bad\ty"]})
+        self.assertEqual(blob, "\na.org\t.ok\n")
+
+    def test_encode_blob_skips_a_domain_with_no_usable_selectors(self):
+        self.assertEqual(build_cosmetic.encode_blob({"a.org": [], "b.org": ["\n"]}), "")
 
     def test_non_ascii_selectors_are_written_as_utf8_not_escaped(self):
         # Escaped output would still parse, but it triples the size of a table whose
@@ -152,8 +171,8 @@ class RenderCase(unittest.TestCase):
         out = build_cosmetic.render("var COSMETIC_DATA = {};  // @data\n",
                                     {"domains": {"z.example": [".b", ".a"],
                                                  "a.example": [".c"]}})
-        self.assertLess(out.index('"a.example"'), out.index('"z.example"'))
-        self.assertIn('"z.example":[".b",".a"]', out)   # selectors keep their given order
+        self.assertLess(out.index("a.example\\t"), out.index("z.example\\t"))
+        self.assertIn("z.example\\t.b\\t.a", out)   # selectors keep their given order
 
     def test_template_without_the_marker_is_an_error(self):
         with self.assertRaises(ValueError):

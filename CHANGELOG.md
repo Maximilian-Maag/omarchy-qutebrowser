@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.19.3
+
+### Changed
+- **The cosmetic rule table is a flat string, not an object literal.** The generated script ships
+  ~9,600 domains and ~21,700 selectors on every page and runs at `document-start`, and it did so
+  as a JSON-shaped object literal: ~31k arrays and ~64k strings allocated before the first paint.
+  It is now one record per line (`<domain>\t<selector>\t…`) and a page searches only its own host
+  and its parent domains. Measured in the running browser (QtWebEngine, median of five, 660 kB
+  table): evaluating the literal 1.8 ms → 0.5 ms, the generated file 709,742 → 660,349 bytes, and
+  the lookup costs 0.1–0.2 ms instead of a hash hit — a net ~1 ms and ~100k fewer allocations per
+  page. Worth having, not the 700 kB cliff it looked like from the file size alone.
+
 ## 1.19.2
 
 ### Changed

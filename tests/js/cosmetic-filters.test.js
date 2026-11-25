@@ -26,46 +26,44 @@ function helpers() {
   return ctx;
 }
 
-const DATA = {
-  domains: {
-    'golem.de': ['.go-ad-slot', '.go-alink-list'],
-    'www.example.org': ['.only-www'],
-  },
-};
+// The generated format: one record per line, `<domain>\t<selector>\t<selector>…`, with a
+// leading and trailing newline. Written out by hand rather than through the builder, so the
+// test fails if the format or the lookup changes.
+const BLOB = '\ngolem.de\t.go-ad-slot\t.go-alink-list\nwww.example.org\t.only-www\n';
 
 // Arrays built inside the vm have that realm's Array prototype, which deepStrictEqual
 // rejects; the selectors are compared as a string.
-const sel = (host, data) => helpers().cosmeticSelectors(host, data).join('|');
+const sel = (host, blob = BLOB) => helpers().cosmeticSelectors(host, blob).join('|');
 
 test('an exact host gets its selectors', () => {
-  assert.strictEqual(sel('golem.de', DATA), '.go-ad-slot|.go-alink-list');
+  assert.strictEqual(sel('golem.de'), '.go-ad-slot|.go-alink-list');
 });
 
 test('a subdomain falls back to the list entry for its parent', () => {
-  assert.strictEqual(sel('www.golem.de', DATA), '.go-ad-slot|.go-alink-list');
-  assert.strictEqual(sel('a.b.golem.de', DATA), '.go-ad-slot|.go-alink-list');
+  assert.strictEqual(sel('www.golem.de'), '.go-ad-slot|.go-alink-list');
+  assert.strictEqual(sel('a.b.golem.de'), '.go-ad-slot|.go-alink-list');
 });
 
 test('an entry for the subdomain itself is honoured and not widened', () => {
-  assert.strictEqual(sel('www.example.org', DATA), '.only-www');
-  assert.strictEqual(sel('example.org', DATA), '');
+  assert.strictEqual(sel('www.example.org'), '.only-www');
+  assert.strictEqual(sel('example.org'), '');
 });
 
 test('an unrelated host gets nothing, even when it shares a label', () => {
-  assert.strictEqual(sel('notgolem.de', DATA), '');
-  assert.strictEqual(sel('golem.de.example.com', DATA), '');
+  assert.strictEqual(sel('notgolem.de'), '');
+  assert.strictEqual(sel('golem.de.example.com'), '');
 });
 
 test('a host with no dots (localhost) never matches a list entry', () => {
-  assert.strictEqual(sel('localhost', DATA), '');
-  assert.strictEqual(sel('', DATA), '');
+  assert.strictEqual(sel('localhost'), '');
+  assert.strictEqual(sel(''), '');
 });
 
 test('selectors from a parent and the host itself are combined without duplicates', () => {
-  const data = { domains: { 'golem.de': ['.a', '.b'], 'www.golem.de': ['.b', '.c'] } };
+  const blob = '\ngolem.de\t.a\t.b\nwww.golem.de\t.b\t.c\n';
   // most specific first, then the parent's — order is irrelevant to CSS, but the
   // deduplication must not drop the parent's `.a` or repeat `.b`.
-  assert.strictEqual(sel('www.golem.de', data), '.b|.c|.a');
+  assert.strictEqual(sel('www.golem.de', blob), '.b|.c|.a');
 });
 
 test('cosmeticHosts lists the host and every parent domain but the TLD', () => {
@@ -95,6 +93,21 @@ test('the CSS is one rule per selector so an invalid one cannot drop the rest', 
 });
 
 test('the shipped template has the data marker the builder replaces', () => {
-  assert.ok(/^\s*var COSMETIC_DATA = .*; {2}\/\/ @data$/m.test(SOURCE),
+  assert.ok(/^\s*var COSMETIC_BLOB = .*; {2}\/\/ @data$/m.test(SOURCE),
     'cosmetic-filters.js must carry the `// @data` marker');
+});
+
+test('a domain that is a prefix of another cannot borrow its rules', () => {
+  // `de` appears inside `golem.de`; the record search anchors on the surrounding newline
+  // and tab so only a whole domain matches.
+  const blob = '\ngolem.de\t.go-ad-slot\nexample.de\t.only-example\n';
+  assert.strictEqual(sel('golem.de', blob), '.go-ad-slot');
+  assert.strictEqual(sel('de', blob), '');
+  assert.strictEqual(sel('mple.de', blob), '');
+});
+
+test('a malformed blob degrades to no rules instead of throwing', () => {
+  assert.strictEqual(sel('golem.de', ''), '');
+  assert.strictEqual(sel('golem.de', null), '');
+  assert.strictEqual(sel('golem.de', '\ngolem.de'), '');
 });

@@ -149,15 +149,47 @@ def load_source(url: str, cache_dir: pathlib.Path, timeout: int = 60) -> list[st
         return []
 
 
+RECORD_SEPARATOR = "\n"      # one record per domain, so a lookup is a substring search
+FIELD_SEPARATOR = "\t"       # domain, then one field per selector
+
+
+def encode_blob(domains: dict[str, list[str]]) -> str:
+    """The rule table as one string: `\\n<domain>\\t<sel>\\t<sel>\\n<domain>...`.
+
+    A string literal rather than an object literal, because this script runs on every page
+    at document-start: the object form built ~31k arrays and ~64k strings before the first
+    paint, where a flat string is only tokenised. A page needs the records of its own host
+    and its parent domains, which is two or three substring searches over that one string.
+
+    A selector containing a newline or a tab cannot be represented in this format (filter
+    lists are line-based, so this is theoretical); such a rule is dropped rather than
+    silently corrupting its neighbour.
+    """
+    records = []
+    for domain in sorted(domains):
+        selectors = domains[domain]
+        if not selectors:
+            continue
+        fields = [domain] + [sel for sel in selectors
+                             if sel and "\n" not in sel and "\t" not in sel]
+        if len(fields) > 1:
+            records.append(FIELD_SEPARATOR.join(fields))
+    if not records:
+        return ""
+    return RECORD_SEPARATOR + RECORD_SEPARATOR.join(records) + RECORD_SEPARATOR
+
+
 def render(template: str, data: dict) -> str:
-    """The template with its `// @data` marker replaced by the rule table."""
+    """The template with its `// @data` marker replaced by the encoded rule table."""
     if DATA_PLACEHOLDER not in template:
         raise ValueError(f"template has no {DATA_PLACEHOLDER!r} marker")
-    payload = json.dumps(data, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+    # json.dumps of a str is exactly a JavaScript string literal, and it escapes the
+    # separators, the quotes and any backslash a CSS selector carries (`.a\\:b`).
+    payload = json.dumps(encode_blob(data["domains"]), ensure_ascii=False)
     lines = []
     for line in template.splitlines():
         if DATA_PLACEHOLDER in line:
-            lines.append("var COSMETIC_DATA = " + payload + ";  // @data")
+            lines.append("var COSMETIC_BLOB = " + payload + ";  // @data")
         else:
             lines.append(line)
     return "\n".join(lines) + "\n"
