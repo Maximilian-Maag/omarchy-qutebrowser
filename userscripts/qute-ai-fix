@@ -13,6 +13,7 @@
 #
 #   Keybinding: ,af  (AI Fix)
 #   Usage:      spawn --userscript qute-ai-fix
+#               qute-ai-fix --export [domain]   write this machine's fixes into the repo
 #
 # Fixes are stored in:
 #   ~/.local/state/omarchy-qutebrowser/site-fixes/<domain>.json
@@ -24,6 +25,86 @@ set -euo pipefail
 # ── Helpers ───────────────────────────────────────────────────────────────────
 msg() { [[ -n "${QUTE_FIFO:-}" ]] && printf "message-info '%s'\n"  "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true; }
 err() { [[ -n "${QUTE_FIFO:-}" ]] && printf "message-error '%s'\n" "${1//\'/\'\\\'\'}" >> "$QUTE_FIFO" || true; }
+
+# The plugin root, so we can reach bin/ai-fix-overblocking and config/cosmetic-extra.txt
+# whether this script is run from the repository or through the
+# ~/.local/share/qutebrowser/userscripts symlink.
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+PLUGIN_DIR="$(dirname "$(dirname "$SELF")")"
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-qutebrowser/site-fixes"
+EXTRA_FILE="$PLUGIN_DIR/config/cosmetic-extra.txt"
+
+# ── --export: lift this machine's fixes into the repository ───────────────────
+# A fix lives in $XDG_STATE_HOME, so a reinstall wipes it and a second machine never sees
+# it. --export writes the fix's hide selectors into the repository's cosmetic rules file,
+# in the `domain##selector` syntax tools/build_cosmetic.py compiles, so a fix that was worth
+# finding once can be committed and reaches every machine. Only the block between the
+# markers is rewritten: the hand-written rules above it are the user's.
+export_fixes() {
+  python3 - "$STATE_DIR" "$EXTRA_FILE" "${1:-}" <<'PYEOF'
+import json, pathlib, sys
+
+state = pathlib.Path(sys.argv[1])
+extra = pathlib.Path(sys.argv[2])
+only = sys.argv[3]
+BEGIN = "! >>> qute-ai-fix --export (generated from the fix files; edit those, not this block)"
+END = "! <<< qute-ai-fix"
+if not extra.is_file():
+    print("error: no cosmetic rules file at %s (is this a plugin checkout?)" % extra, file=sys.stderr)
+    sys.exit(2)
+
+rules = []
+for path in sorted(state.glob("*.json")) if not only else [state / (only + ".json")]:
+    if not path.is_file():
+        continue
+    try:
+        fix = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print("warning: %s: %s; skipped" % (path, exc), file=sys.stderr)
+        continue
+    domain = fix.get("domain") or path.stem
+    for selector in fix.get("css_hide") or []:
+        selector = (selector or "").strip()
+        if selector and not any(c in selector for c in "\n\t"):
+            rules.append("%s##%s" % (domain, selector))
+
+lines = extra.read_text(encoding="utf-8").splitlines()
+kept, inside = [], False
+for line in lines:
+    if line.strip() == BEGIN:
+        inside = True
+        continue
+    if inside:
+        if line.strip() == END:
+            inside = False
+        continue
+    kept.append(line)
+while kept and not kept[-1].strip():
+    kept.pop()
+
+seen, block = set(kept), []
+for rule in rules:
+    if rule not in seen:
+        seen.add(rule)
+        block.append(rule)
+if block:
+    kept += ["", BEGIN] + block + [END]
+
+out = "\n".join(kept) + "\n"
+if out == extra.read_text(encoding="utf-8"):
+    print("cosmetic-extra.txt already carries %d exported rule(s)" % len(block))
+    sys.exit(0)
+extra.write_text(out, encoding="utf-8")
+print("wrote %d exported rule(s) to %s" % (len(block), extra))
+print("recompile with: omarchy-cosmetic-update")
+PYEOF
+}
+
+if [[ "${1:-}" == "--export" ]]; then
+  export_fixes "${2:-}"
+  exit $?
+fi
 
 # ── Validate env ──────────────────────────────────────────────────────────────
 URL="${QUTE_URL:-}"
@@ -37,14 +118,9 @@ DOMAIN=$(python3 -c 'import sys; from urllib.parse import urlparse; print(urlpar
 [[ -z "$DOMAIN" ]] && { err "qute-ai-fix: could not extract domain from URL"; exit 1; }
 
 # ── State directory ───────────────────────────────────────────────────────────
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-qutebrowser/site-fixes"
 mkdir -p "$STATE_DIR"
 FIX_FILE="$STATE_DIR/${DOMAIN}.json"
 
-# The plugin root, so we can reach bin/ai-fix-overblocking whether this script is run from the
-# repository or through the ~/.local/share/qutebrowser/userscripts symlink.
-SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
-PLUGIN_DIR="$(dirname "$(dirname "$SELF")")"
 OVERBLOCK_TOOL="$PLUGIN_DIR/bin/ai-fix-overblocking"
 
 msg "qute-ai-fix: analyzing $DOMAIN …"

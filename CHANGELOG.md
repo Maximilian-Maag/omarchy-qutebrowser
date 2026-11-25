@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.19.4
+
+### Added
+- **`qute-ai-fix --export` turns a one-machine fix into a committed rule.** A fix was written to
+  `$XDG_STATE_HOME/omarchy-qutebrowser/site-fixes/<domain>.json` and died with the state
+  directory: a reinstall wiped it and a second machine never received it, so the same page had to
+  be re-diagnosed everywhere. `--export [domain]` writes the fix's `css_hide` selectors into
+  `config/cosmetic-extra.txt`, the file `tools/build_cosmetic.py` compiles, inside a managed
+  `! >>> qute-ai-fix --export` block. Hand-written rules above the block are untouched, rules
+  already present by hand are not duplicated, a selector that has left the fix disappears, a
+  single-domain export rewrites the block for that domain only, and a second run is a no-op that
+  says so. A malformed fix file is reported and skipped rather than aborting the export.
+
 ## 1.19.3
 
 ### Changed

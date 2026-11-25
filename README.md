@@ -404,6 +404,19 @@ on-page bot / anti-adblock signatures. The verdict is saved under `js_overblocki
 reported, so a page left blank by our blocking — or by a bot-detection interstitial — is
 not mistaken for a CSS defect. See `docs/blocking.md`.
 
+### Making a fix permanent
+
+A fix lives in `~/.local/state`, so a reinstall loses it and a second machine never has
+it. `qute-ai-fix --export [domain]` writes the fix's selectors into
+`config/cosmetic-extra.txt` — the repository file `tools/build_cosmetic.py` compiles — as a
+managed `! >>> qute-ai-fix --export` block, leaving your hand-written rules above it alone.
+Exporting is a no-op when nothing changed, and running it again for one domain rewrites the
+block with that domain only, so a second machine's fixes cannot silently displace the
+committed ones. Then run `omarchy-cosmetic-update` (the export prints the hint) and commit
+the file:
+
+    ~/.local/share/qutebrowser/userscripts/qute-ai-fix --export golem.de
+
 ## Reader mode
 
 `,r` extracts the article (Mozilla Readability) and opens it in a clean,
