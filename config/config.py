@@ -415,6 +415,23 @@ config.bind(",p", "open -p {url}", mode="normal")  # noqa
 # Reload filter lists
 config.bind(",ab", "adblock-update", mode="normal")  # noqa
 
+# `,l` — what the cookie/consent userscript decided on this page.
+# (Not `,cl`: `,c` is bound to the reader fact-check, and qutebrowser fires a binding as
+# soon as its sequence completes, so a longer key under a bound prefix never runs.)
+# The decision log is set in the userscript's own JS world, so the page cannot read it and a
+# page whose banner (or drawer) was removed looks untouched — which is how a removed Appwrite
+# drawer cost an afternoon. userscripts/cookie-banner-remover.js now mirrors the last 20
+# decisions into a `data-omarchy-consent` attribute on <html>; this reads it back where the
+# user can see it: the window title (readable with a magnifier, no extra tooling) and the
+# clipboard (clipboard access is granted in user-config.py, so the page-world write succeeds).
+config.bind(",l", (  # noqa
+    "jseval (function(){"
+    "var t=document.documentElement.dataset.omarchyConsent||'(no consent decisions on this page)';"
+    "document.title='consent → '+t;"
+    "try{navigator.clipboard.writeText(t)}catch(e){}"
+    "})()"
+), mode="normal")
+
 # Toggle dark mode on current page.
 # NB: this must NOT be bound to ",d" — qutebrowser's keybinding trie fires a
 # binding the moment it has a command, even when longer bindings (",dm", ",dv")
