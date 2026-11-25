@@ -58,7 +58,7 @@ function fakeEl(opts = {}) {
     dispatchEvent: (e) => { el.events.push({ ctor: e.ctor, type: e.type, bubbles: e.bubbles, cancelable: e.cancelable }); return true; },
     click: () => { el.events.push({ ctor: 'raw', type: 'click' }); },
     querySelectorAll: () => opts.query || [],
-    querySelector: () => null,
+    querySelector: (sel) => (opts.querySelector ? opts.querySelector(sel) : null),
     remove: () => { el.removedFromDom = true; },
   };
   return el;
@@ -328,6 +328,45 @@ test('bannerFor returns the pinned ancestor holding the button', () => {
   assert.strictEqual(ctx.bannerFor(plain, body), null);
 });
 
+// ── looksLikeConsent(): a pinned box with a Close button is not a banner ────
+// Regression: Appwrite Console's "Create DNS record" drawer has an X whose aria-label
+// is "Close", and the reject pattern matches that. deepConsentSweep scans the whole
+// document, found the X, treated the drawer's own fixed panel as the consent banner,
+// clicked the X and removed the panel 800 ms later — the drawer opened and vanished
+// within a second.
+test('looksLikeConsent rejects a form drawer and any box that does not read like consent', () => {
+  const ctx = sandbox(slice(['var CONSENT_WORDS', 'looksLikeConsent']));
+  const form = (yes) => (sel) => (/input|select|textarea|form/.test(sel) && yes ? fakeEl({ tagName: 'INPUT' }) : null);
+
+  // the drawer: pinned, has an X, holds inputs — never a banner
+  assert.strictEqual(ctx.looksLikeConsent(fakeEl({
+    text: 'Create DNS Record Type Name Value Cancel Create Record',
+    querySelector: form(true),
+  })), false);
+  // even a settings dialog that does talk about cookies is a form, not a banner
+  assert.strictEqual(ctx.looksLikeConsent(fakeEl({
+    text: 'Cookie settings for this workspace',
+    querySelector: form(true),
+  })), false);
+  // no form, no consent wording: still not a banner
+  assert.strictEqual(ctx.looksLikeConsent(fakeEl({ text: 'Create DNS Record Type Name' })), false);
+  // the real thing
+  assert.strictEqual(ctx.looksLikeConsent(fakeEl({
+    text: 'We use cookies and similar technologies.',
+    querySelector: form(false),
+  })), true);
+  assert.strictEqual(ctx.looksLikeConsent(null), false, 'nothing to look at is not consent');
+});
+
+test('looksLikeConsent bounds the text it reads', () => {
+  const ctx = sandbox(slice(['var CONSENT_WORDS', 'looksLikeConsent']));
+  const banner = (text) => fakeEl({ text });
+  assert.strictEqual(ctx.looksLikeConsent(banner('cookies!!')), false, '9 characters is too short to judge');
+  assert.strictEqual(ctx.looksLikeConsent(banner('cookies!!!')), true, '10 characters is enough');
+  assert.strictEqual(ctx.looksLikeConsent(banner('cookie ' + 'x'.repeat(1993))), true, '2000 characters is still a banner');
+  assert.strictEqual(ctx.looksLikeConsent(banner('cookie ' + 'x'.repeat(1994))), false, 'past 2000 characters it is page text');
+});
+
 // ── note(): the decision log (what the page exposes on window) ──────────────
 test('note records the action and truncates a long detail', () => {
   const ctx = sandbox(slice(['var log', 'note']));
@@ -388,19 +427,19 @@ require('./cookie.harness.test.js');
 // ── the authentication-page guard ────────────────────────────────────────────
 // Observed in the wild: Gmail sign-in broke with this script installed. It matches every
 // page, and a sign-in screen is full of buttons it would click ("I agree", "Not now").
-function consentLogFor(hostname, pathname) {
+function consentLogFor(hostname, pathname, overrides = {}) {
   const noop = () => {};
   const el = () => ({ style: {}, setAttribute: noop, appendChild: noop, removeChild: noop,
     addEventListener: noop, removeEventListener: noop, click: noop, remove: noop,
     querySelector: () => null, querySelectorAll: () => [], matches: () => false,
     classList: { add: noop, remove: noop, contains: () => false } });
-  const document = {
+  const document = Object.assign({
     readyState: 'complete', documentElement: el(), body: el(), head: el(),
     createElement: el, createTextNode: () => ({}), getElementById: () => null,
     querySelector: () => null, querySelectorAll: () => [], addEventListener: noop,
     removeEventListener: noop, dispatchEvent: () => true,
-  };
-  const win = {
+  }, overrides.document || {});
+  const win = Object.assign({
     document,
     location: { hostname, pathname, href: `https://${hostname}${pathname}`, protocol: 'https:' },
     navigator: { userAgent: 'test', languages: [] },
@@ -408,8 +447,9 @@ function consentLogFor(hostname, pathname) {
     setTimeout: () => 0, clearTimeout: noop, setInterval: () => 0, clearInterval: noop,
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     addEventListener: noop, removeEventListener: noop, open: noop, scrollTo: noop,
-  };
+  }, overrides.window || {});
   win.window = win; win.self = win; win.top = win; win.parent = win;
+  document.defaultView = win;      // styleOf() reaches the style through the real window
   const vm = require('node:vm');
   const ctx = vm.createContext(win);
   ctx.MutationObserver = win.MutationObserver;
@@ -434,4 +474,34 @@ test('it still acts on an ordinary page', () => {
   const log = consentLogFor('example.com', '/article');
   assert.ok(!log.some((e) => e.action === 'skip'),
     'a normal page must not be skipped: ' + JSON.stringify(log));
+});
+
+// ── a labelled close button is not consent ───────────────────────────────────
+// In the wild: Appwrite Console. "Create DNS record" opens a fixed right-hand drawer
+// whose X carries aria-label "Close" — which the reject pattern matches. The sweep took
+// the drawer panel itself as the banner, clicked the X and removed the panel after
+// 800 ms, so the drawer appeared and vanished within a second.
+test('it leaves a form drawer with a labelled close button alone', () => {
+  const input = fakeEl({ tagName: 'INPUT' });
+  const drawer = fakeEl({
+    tagName: 'DIV', className: 'bg-background fixed inset-y-0 right-0', position: 'fixed',
+    width: 500, height: 900, z: 120,
+    text: 'Create DNS Record Type Name Value Cancel Create Record',
+    querySelector: (sel) => (/input|select|textarea|form/.test(sel) ? input : null),
+  });
+  const close = fakeEl({ tagName: 'BUTTON', aria: 'Close', width: 32, height: 32, parentElement: drawer });
+  const create = fakeEl({ tagName: 'BUTTON', text: 'Create Record', width: 120, height: 36, parentElement: drawer });
+  drawer.querySelectorAll = () => [close, create];
+
+  const log = consentLogFor('appwrite.io', '/organizations/1/domains/2', {
+    document: {
+      body: fakeEl({ tagName: 'BODY', children: [drawer] }),
+      querySelectorAll: (sel) => (/button|\[role="button"\]/.test(sel) ? [close, create] : []),
+    },
+    window: { getComputedStyle: (el) => makeWindow().getComputedStyle(el) },
+  });
+
+  assert.ok(!log.some((e) => e.action === 'reject' || e.action === 'accept'),
+    'the drawer\'s X must not be clicked: ' + JSON.stringify(log));
+  assert.ok(!drawer.removedFromDom, 'the drawer must stay on the page: ' + JSON.stringify(log));
 });
