@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.19.5
+
+### Fixed
+- **No more Qt warnings on every `qutebrowser :command`.** The WebAuthn handler installed a 2 s
+  sweep timer while the config was sourced, and a process started only to send a command to the
+  running instance — `:jseval`, `:greasemonkey-reload`, `:adblock-update`, everything the
+  userscripts drive — creates its QCoreApplication for the IPC hop and destroys it at exit. The
+  timer was left on a dead dispatcher, so every such call ended with `QObject::startTimer:
+  current thread's event dispatcher has already been destroyed`, and the process spun a sweep every
+  two seconds over pages it could never have. The class hooks still install everywhere (they cost
+  nothing and are what attaches a page the moment it exists); only the timer and the immediate
+  sweep are skipped when argv carries a command. Same class of bug as #37, different module — that
+  one was the adblock refresh, this one is the passkey handler, which had been doing it since
+  1.17.44.
+
 ## 1.19.4
 
 ### Added
