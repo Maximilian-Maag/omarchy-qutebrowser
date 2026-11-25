@@ -14,7 +14,12 @@
 // qutebrowser's job, and a procedural filter (`:has-text(`, `:style(`, `-abp-`) cannot be
 // expressed as CSS at all. Generic rules (`##selector`, no domain) are left out on purpose:
 // without uBlock's generic-exception machinery they are the ones that break sites.
-var COSMETIC_DATA = {"domains": {}};  // @data
+//
+// It is one flat string, one record per line: `<domain>\t<selector>\t<selector>…`. An object
+// literal of the same rules cost a ~31k-array, ~64k-string object graph on EVERY page,
+// built before the first paint; a string is only tokenised, and a page needs the records of
+// its own host and its parents, which is two or three substring searches.
+var COSMETIC_BLOB = "";  // @data
 
 // ── pure helpers (sliced out and tested by tests/js/cosmetic-filters.test.js) ──
 function cosmeticHosts(host) {
@@ -28,13 +33,20 @@ function cosmeticHosts(host) {
   return out;
 }
 
-function cosmeticSelectors(host, data) {
-  var table = (data && data.domains) || {};
-  var seen = {};
+function cosmeticSelectors(host, blob) {
   var out = [];
+  var seen = {};
+  if (!blob) { return out; }
   cosmeticHosts(host).forEach(function (candidate) {
-    (table[candidate] || []).forEach(function (selector) {
-      if (!seen[selector]) { seen[selector] = true; out.push(selector); }
+    // The record starts with a newline and ends with one, so `b.example.org` can never be
+    // found inside `a.b.example.org`, and a domain that is a prefix of another cannot
+    // borrow its rules.
+    var at = blob.indexOf('\n' + candidate + '\t');
+    if (at === -1) { return; }
+    var from = at + candidate.length + 2;
+    var end = blob.indexOf('\n', from);
+    blob.slice(from, end === -1 ? blob.length : end).split('\t').forEach(function (selector) {
+      if (selector && !seen[selector]) { seen[selector] = true; out.push(selector); }
     });
   });
   return out;
@@ -57,7 +69,7 @@ function cosmeticCss(selectors) {
   'use strict';
   function inject() {
     try {
-      var css = cosmeticCss(cosmeticSelectors(location.hostname, COSMETIC_DATA));
+      var css = cosmeticCss(cosmeticSelectors(location.hostname, COSMETIC_BLOB));
       if (!css) { return; }
       var style = document.createElement('style');
       style.id = 'omarchy-cosmetic-filters';
