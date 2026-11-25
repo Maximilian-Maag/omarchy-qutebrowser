@@ -681,6 +681,12 @@ class Install(unittest.TestCase):
                        "qutebrowser.browser.webengine.webview")}
         self.m = load()
 
+        # install() reads sys.argv to tell the browser from a command invocation, so pin it:
+        # the test process's own argv (unittest's flags) must not decide what these assert.
+        self._real_argv = sys.argv
+        sys.argv = ["/usr/bin/qutebrowser"]
+        self.addCleanup(setattr, sys, "argv", self._real_argv)
+
         class FakePage:
             def __init__(self, *args, **kwargs):
                 self.webAuthUxRequested = Signal()
@@ -776,6 +782,24 @@ class Install(unittest.TestCase):
         self.m.install()
         self.assertIs(self.webview.WebEnginePage.__init__, first)
         self.assertEqual(len(self.timers), 1)          # the second call returns before adding one
+
+    def test_a_command_invocation_starts_no_timer(self):
+        # `qutebrowser :jseval` (and every userscript-driven command) loads the config with a
+        # QCoreApplication that is torn down at exit; a timer there only earns Qt's "event
+        # dispatcher has already been destroyed" warning on every CLI call.
+        self.sys.argv = ["/usr/bin/qutebrowser", ":jseval", "1"]
+        self.m.install()
+        self.assertEqual([t.started for t in self.timers], [],
+                         "a command invocation must not start the 2 s sweep")
+        self.assertIsNone(getattr(self, "single_shot", None),
+                          "and must not schedule the immediate sweep either")
+        self.assertTrue(getattr(self.webview.WebEnginePage, "_omarchy_webauthn_init", False),
+                        "the class patch still applies: it costs nothing and may be needed")
+
+    def test_the_browser_itself_still_starts_the_timer(self):
+        self.sys.argv = ["/usr/bin/qutebrowser"]
+        self.m.install()
+        self.assertEqual([t.started for t in self.timers], [2000])
 
     def test_sweep_attaches_pages_found_in_the_widget_tree(self):
         page = self.FakePage()

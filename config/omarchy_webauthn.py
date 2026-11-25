@@ -27,6 +27,8 @@ applied Omarchy theme, and never blocks the page.
 
 Everything is wrapped defensively: a browser must never fail to start because of this module.
 """
+import sys
+
 try:                                                  # pragma: no cover - exercised in the browser
     from qutebrowser.utils import log
 except Exception:                                    # no browser around (unit tests, tooling)
@@ -583,6 +585,16 @@ def install():
             view_class.__init__ = vinit
     except Exception:
         log.webview.exception("could not patch the page classes; falling back to the sweep")
+
+    # A process started only to send a command to a running instance — `qutebrowser :jseval`,
+    # `:greasemonkey-reload`, every command the userscripts and the CLI drive — loads this config,
+    # creates a QCoreApplication for the IPC hop and tears it down at exit. The class patch above
+    # is harmless there (no page is ever built); a 2 s timer is not: it is serviced by a
+    # destroyed dispatcher, so every such call ends with "QObject::startTimer: current thread's
+    # event dispatcher has already been destroyed". The browser never has a `:` argument.
+    if any(arg.startswith(":") for arg in sys.argv[1:]):
+        log.webview.debug("WebAuthn UX: command invocation, not starting the sweep timer")
+        return
 
     # Catch anything built before this module loaded, then keep watching: pages appear on restore,
     # on tab creation and on window.open, and a cheap walk is more dependable than guessing all
