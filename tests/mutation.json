@@ -294,7 +294,7 @@
     },
     {
       "path": "config/config.py",
-      "reason": "qutebrowser option assignments, not logic; policy checks every option name exists"
+      "reason": "qutebrowser option assignments, plus the adblock stale-cache decision and the refresh callback - those helpers are tested (tests/test_unit_adblock_staleness.py, and test_integration_config_blocking.py drives the callback through injected qutebrowser modules); the bulk is option assignment with nothing worth scoring, and policy checks every option name exists"
     },
     {
       "path": "config/site-overrides.py",

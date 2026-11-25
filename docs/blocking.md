@@ -31,13 +31,33 @@ Then the upstream lists add breadth:
 
 - **Ads / general** — EasyList, AdGuard Base (without the EasyList overlap), uBlock
   Origin `filters`, `quick-fixes`, `general`, `badware`, `resource-abuse`.
-- **Tracking / privacy** — EasyPrivacy, AdGuard Tracking Protection, uBlock `privacy`,
-  Fanboy Social.
+- **Tracking / privacy** — EasyPrivacy, AdGuard Tracking Protection, uBlock `privacy`.
 - **Regional** — EasyList Germany.
-- **Annoyances** — Fanboy Annoyance, uBlock `annoyances` and `annoyances-cookies`,
-  Fanboy Cookie Monster, AdGuard Annoyances.
+- **Annoyances** — Fanboy Annoyance, uBlock `annoyances-cookies`, AdGuard Annoyances.
 - **Crypto-mining** — NoCoin.
 - **Safety net** — uBlock `unbreak` (re-allows what a site needs to work).
+
+### Lists that were dropped as subsets
+
+Fanboy's Annoyance list is the union of the social and cookie lists, so three
+subscriptions were redundant (measured 2026-11-25 against the live files, comparing
+non-comment rule lines by exact text):
+
+| Dropped list | Why | Download |
+| --- | --- | --- |
+| `fanboy-social.txt` | all 13,949 rules occur verbatim in `fanboy-annoyance.txt` | 408 kB |
+| `fanboy-cookiemonster.txt` | 25,373 of 25,416 rules are in `fanboy-annoyance.txt`; the other 43 are cosmetic (`##`/`#@#`), which qutebrowser never applies — its adblock wrapper only calls the engine's `check_network_urls` | 908 kB |
+| `uAssets/filters/annoyances.txt` | 417 bytes of header plus `!#include annoyances-others.txt`; nothing expands `!#include`, so the list contributed 0 rules | 0.4 kB |
+
+Everything else stays. The obvious "bigger" trims do not hold up: `uAssets/filters.txt`
+shares 225 of AdGuard Base's 56,638 rules, `uAssets/privacy.txt` has 1,799 rules of which
+12 occur in EasyPrivacy's 56,831, and the 16 MB AdGuard Tracking list is 436k rules no
+kept list contains. Dropping any of those loses coverage rather than duplicates.
+
+Note that `uAssets/filters.txt` and `privacy.txt` themselves end in `!#include` lines;
+qutebrowser does not expand them, which is why `filters-general.txt` and
+`resource-abuse.txt` are also listed explicitly.
+
 
 Hosts-level blocking adds StevenBlack, **haGeZi Pro** (its `wildcard/*-onlydomains.txt`
 list — haGeZi no longer ships a `hosts/` directory, and qutebrowser's hosts parser accepts
@@ -126,8 +146,17 @@ the hosts list (`blocked-hosts`). After a plugin change:
 ,ab                   # :adblock-update — re-download and re-parse
 ```
 
-`:adblock-update` is also what refreshes the lists over time; run it after a plugin
-update, and periodically if you want the upstream lists current.
+`:adblock-update` is also what refreshes the lists over time, and config.py now asks for it
+itself: 15 seconds after startup it checks the cache's mtime, and if it is older than seven
+days (or missing) it runs `:adblock-update`'s own implementation. The check happens at most
+once per session — a `:config-source` does not schedule it again — and it never blocks
+startup, because a `QTimer` defers it past the first page load. If the `adblock` dependency
+is not loaded the refresh cannot run, and the status bar says so instead ("adblock lists are
+N days old … — press ,ab"); the cache is never silently left stale.
+
+`tests/test_integration_config_blocking.py` drives the decision and the callback with
+injected qutebrowser modules: fresh cache → no download, stale or missing cache → exactly
+one `adblock-update`, a failing update → one status-bar message and no exception.
 
 ## How it is tested
 
