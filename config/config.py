@@ -327,11 +327,20 @@ def adblock_refresh(path=None, now=None):
 
 try:
     from qutebrowser.qt.core import QCoreApplication, QTimer
+    from qutebrowser.utils import objreg as _qb_objreg
 
     # No QCoreApplication means no event loop — a headless run (the tests) or an early
     # --version/--help exit. Scheduling there would do nothing at best, and a timer no
     # loop ever services only earns a Qt warning, so require one.
+    #
+    # A QCoreApplication alone is not enough either: `qutebrowser :command` (what ,ab, the
+    # greasemonkey reload and every jseval go through) creates one to talk to the running
+    # instance and tears it down again, so a timer scheduled there is left on a destroyed
+    # dispatcher and every CLI call ends with "QObject::startTimer: current thread's event
+    # dispatcher has already been destroyed". A populated window registry means this really
+    # is the browser, where the timer has somewhere to live.
     if (QCoreApplication.instance() is not None
+            and _qb_objreg.window_registry
             and not getattr(sys, _ADBLOCK_SESSION_FLAG, False)):
         setattr(sys, _ADBLOCK_SESSION_FLAG, True)
         QTimer.singleShot(_ADBLOCK_REFRESH_DELAY_MS, adblock_refresh)

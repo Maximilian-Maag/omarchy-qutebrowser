@@ -309,7 +309,7 @@ class AdblockSchedulingCase(unittest.TestCase):
         except AttributeError:
             pass
 
-    def _qt(self, with_app):
+    def _qt(self, with_app, with_windows=True):
         scheduled = []
         module = types.ModuleType("qutebrowser.qt.core")
 
@@ -325,11 +325,18 @@ class AdblockSchedulingCase(unittest.TestCase):
 
         module.QCoreApplication = _App
         module.QTimer = _Timer
-        return module, scheduled
+
+        # config.py asks the window registry whether this is the browser or the CLI.
+        utils = types.ModuleType("qutebrowser.utils")
+        registry = types.ModuleType("qutebrowser.utils.objreg")
+        registry.window_registry = {0: object()} if (with_app and with_windows) else {}
+        return {"qutebrowser.qt.core": module,
+                "qutebrowser.utils": utils,
+                "qutebrowser.utils.objreg": registry}, scheduled
 
     def test_schedules_once_per_session_even_when_config_is_ressourced(self):
-        module, scheduled = self._qt(with_app=True)
-        with _patched({"qutebrowser.qt.core": module}):
+        modules, scheduled = self._qt(with_app=True)
+        with _patched(modules):
             load_config()
             load_config()          # what :config-source does: a fresh exec of config.py
         self.assertEqual(len(scheduled), 1,
@@ -339,10 +346,20 @@ class AdblockSchedulingCase(unittest.TestCase):
         self.assertEqual(callback.__name__, "adblock_refresh")
 
     def test_schedules_nothing_without_an_event_loop(self):
-        module, scheduled = self._qt(with_app=False)
-        with _patched({"qutebrowser.qt.core": module}):
+        modules, scheduled = self._qt(with_app=False)
+        with _patched(modules):
             load_config()
         self.assertEqual(scheduled, [], "no QCoreApplication means the timer could never fire")
+
+    def test_schedules_nothing_in_a_cli_process_that_has_no_window(self):
+        # `qutebrowser :command` has a QCoreApplication but no window and a dispatcher that
+        # is destroyed at exit; a timer there only earns Qt's "event dispatcher has already
+        # been destroyed" warning on every invocation.
+        modules, scheduled = self._qt(with_app=True, with_windows=False)
+        with _patched(modules):
+            load_config()
+        self.assertEqual(scheduled, [],
+                         "a CLI process with no window must not schedule the refresh")
 
     def test_sourcing_works_when_qt_cannot_be_imported(self):
         """PyQt absent is the headless case: config.py must still load."""
