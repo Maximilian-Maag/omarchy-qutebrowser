@@ -164,22 +164,18 @@ def render(template: str, data: dict) -> str:
 
 
 def build(sources, cache_dir: pathlib.Path) -> dict:
-    """Compile every source into the rule table the userscript embeds."""
-    domains: dict[str, set] = {}
+    """Compile every source into the rule table the userscript embeds.
+
+    Everything goes through collect() in one pass over the concatenated sources: it is the
+    only place that applies `#@#` exceptions, and skipping exceptions here meant a list's
+    "don't hide this" was silently ignored (an exception could not remove anything, so the
+    selector stayed hidden). Concatenating also keeps the documented ordering contract —
+    a later source, such as config/cosmetic-extra.txt, can except an earlier one's rule.
+    """
+    lines: list[str] = []
     for url in sources:
-        for line in load_source(url, cache_dir):
-            parsed = parse_cosmetic_rule(line)
-            if parsed is None:
-                continue
-            kind, domain_list, selector = parsed
-            if kind != 0:
-                continue
-            for domain in domain_list.split(","):
-                domain = domain.strip()
-                if domain:
-                    domains.setdefault(domain, set()).add(selector)
-    return {"domains": {domain: sorted(selectors)
-                        for domain, selectors in sorted(domains.items())}}
+        lines.extend(load_source(url, cache_dir))
+    return {"domains": collect(lines)}
 
 
 def main(argv=None) -> int:

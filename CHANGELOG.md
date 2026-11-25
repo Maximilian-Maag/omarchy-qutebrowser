@@ -19,6 +19,13 @@
   their own were not enough — golem renamed its sponsored teaser classes — which is what the
   extra file is for, in the same `domain##selector` syntax. Fanboy's Annoyances is opt-in
   (`--source`), because it also hides share buttons and tag lists.
+### Fixed
+- **`#@#` exceptions now actually cancel a rule.** `build()` skipped every exception line and
+  kept only hides, so the module's own promise ("an exception removes exactly that selector")
+  held in `collect()` and nowhere else: a list's "do not hide this" was parsed and dropped.
+  `build()` now concatenates the sources and goes through `collect()` in one pass, which also
+  keeps the ordering contract — `config/cosmetic-extra.txt` can cancel a list's selector.
+  Covered per selector and per source, so a cancellation cannot clear the rest of a domain.
 
 ## 1.18.4
 

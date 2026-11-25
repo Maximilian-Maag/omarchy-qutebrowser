@@ -170,6 +170,34 @@ class BuildCase(unittest.TestCase):
             data = build_cosmetic.build([str(source)], pathlib.Path(tmp))
         self.assertEqual(data["domains"]["golem.de"], [".go-teaser--item-variant-affiliate"])
 
+    def test_build_applies_an_exception_from_a_later_source(self):
+        # A `#@#` line in the extra file must be able to cancel a list's rule. build() used
+        # to skip kind != 0 entirely, so the exception was parsed and then dropped: the
+        # selector stayed hidden and the list's "don't hide this" did nothing.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            listing = tmp / "list.txt"
+            listing.write_text("example.org##.teaser\nexample.org##.keep\n")
+            extra = tmp / "extra.txt"
+            extra.write_text("example.org#@#.teaser\n")
+            data = build_cosmetic.build([str(listing), str(extra)], tmp)
+        self.assertEqual(data["domains"]["example.org"], [".keep"])
+
+    def test_build_keeps_a_rule_the_exception_does_not_name(self):
+        # The exception is per selector, not per domain: one cancellation must not clear
+        # the rest of the domain's list.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            listing = tmp / "list.txt"
+            listing.write_text("example.org##.a\nexample.org##.b\nother.org##.a\n")
+            extra = tmp / "extra.txt"
+            extra.write_text("example.org#@#.a\n")
+            data = build_cosmetic.build([str(listing), str(extra)], tmp)
+        self.assertEqual(data["domains"]["example.org"], [".b"])
+        self.assertEqual(data["domains"]["other.org"], [".a"])
+
     def test_main_compiles_the_extra_rules_after_the_lists(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
