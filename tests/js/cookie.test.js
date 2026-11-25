@@ -309,8 +309,12 @@ test('knownWall consents on golem\'s wall page, once, and nowhere else', () => {
 test('the sweep and the mutation handler both run the known-wall rule', () => {
   assert.match(SOURCE, /function sweep\(\) \{\n    knownWall\(\);/,
     'sweep() must try the known-wall rule before it removes anything');
-  assert.match(SOURCE, /function onMutation\(\) \{\n    try \{\n      knownWall\(\);/,
+  assert.match(SOURCE, /function mutationSweep\(\) \{\n    try \{\n      knownWall\(\);/,
     'late-rendered walls are only caught by the mutation handler');
+  // …and every mutation-driven pass goes through the coalescer, so a SPA that mutates
+  // continuously cannot turn five whole-document scans into an idle-loop.
+  assert.match(SOURCE, /function onMutation\(\) \{\n(?:.|\n)*?settleTimer = setTimeout/,
+    'onMutation must queue a trailing pass instead of sweeping per delta');
 });
 
 // ── bannerFor(): find / don't run away when the node is the body ────────────

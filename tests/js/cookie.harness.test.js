@@ -168,7 +168,7 @@ test('genericOverlaySweep removes a fixed overlay at z 1000 and logs the exact d
   const ctx = sandbox(slice(['styleOf', 'genericOverlaySweep']), {
     document: { body: { children: [ov] } },
     window: { innerWidth: 1280, innerHeight: 800, getComputedStyle: (e) => e.__computed },
-    CONSENT_WORDS, isVisible: () => true, decideConsent: () => 'reject', unlockScroll: () => {},
+    CONSENT_WORDS, isConsentPane: () => true, isVisible: () => true, decideConsent: () => 'reject', unlockScroll: () => {},
     note: (a, d) => notes.push([a, d]),
   });
   ctx.genericOverlaySweep();
@@ -185,7 +185,7 @@ test('genericOverlaySweep removes a sticky overlay too', () => {
   const ctx = sandbox(slice(['styleOf', 'genericOverlaySweep']), {
     document: { body: { children: [ov] } },
     window: { innerWidth: 1280, innerHeight: 800, getComputedStyle: (e) => e.__computed },
-    CONSENT_WORDS, isVisible: () => true, decideConsent: () => 'reject', unlockScroll: () => {},
+    CONSENT_WORDS, isConsentPane: () => true, isVisible: () => true, decideConsent: () => 'reject', unlockScroll: () => {},
     note: () => {},
   });
   ctx.genericOverlaySweep();
@@ -285,7 +285,7 @@ test('barSweep removes an accept-only bar pinned at z 500 and logs its detail', 
     window: { innerWidth: 1280, innerHeight: 800, getComputedStyle: (e) => e.__computed },
     BUTTONS, label: (e) => (e.innerText || '').trim(), isVisible: () => true,
     REJECT_PATTERNS: [/reject/i], ACCEPT_PATTERNS: [/accept/i],
-    CONSENT_WORDS, decideConsent: () => 'accept', unlockScroll: () => {},
+    CONSENT_WORDS, isConsentPane: () => true, decideConsent: () => 'accept', unlockScroll: () => {},
     note: (a, d) => notes.push([a, d]),
   });
   ctx.barSweep();
@@ -308,7 +308,7 @@ test('barSweep removes a consent strip that has no buttons at all', () => {
     window: { innerWidth: 1280, innerHeight: 800, getComputedStyle: (e) => e.__computed },
     BUTTONS, label: (e) => (e.innerText || '').trim(), isVisible: () => true,
     REJECT_PATTERNS: [/reject/i], ACCEPT_PATTERNS: [/accept/i],
-    CONSENT_WORDS, decideConsent: () => null, unlockScroll: () => {},
+    CONSENT_WORDS, isConsentPane: () => true, decideConsent: () => null, unlockScroll: () => {},
     note: (a, d) => notes.push([a, d]),
   });
   ctx.barSweep();
@@ -378,6 +378,7 @@ class Element {
     this._events = [];
     this._rect = null;
     this._visible = true;
+    this.dataset = {};
     this.ownerDocument = doc || null;
   }
   get className() { return this._class; }
@@ -386,6 +387,7 @@ class Element {
     this.classList = new ClassList();
     String(v || '').split(/\s+/).filter(Boolean).forEach((c) => this.classList.add(c));
   }
+  matches(sel) { return matchSel(this, sel); }
   getAttribute(n) { return this._attrs[n] !== undefined ? this._attrs[n] : null; }
   setAttribute(n, v) { this._attrs[n] = String(v); }
   appendChild(child) {
@@ -568,4 +570,209 @@ test('the IIFE still rejects when window.getComputedStyle throws (qutebrowser gr
     'the banner must still be rejected when only document.defaultView can measure it: '
       + JSON.stringify(log));
   assert.strictEqual(doc.querySelectorAll('.cookie-banner').length, 0, 'the banner must be removed');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The over-blocking guard (issue #25): a page's own UI must survive the sweep
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('isConsentPane wants consent wording and no form controls', () => {
+  const ctx = sandbox(slice(['var CONSENT_WORDS', 'looksLikeConsent', 'var CMP_SPECIFIC', 'isConsentPane']));
+  const dialog = el({
+    text: 'Privacy settings for this workspace',
+    querySelector: (sel) => (/input|select|textarea|form/.test(sel) ? el({ tagName: 'INPUT' }) : null),
+  });
+  assert.strictEqual(ctx.isConsentPane(dialog), false,
+    'a settings dialog that happens to say "privacy" is a form, not a banner');
+  assert.strictEqual(ctx.isConsentPane(el({ text: 'We use cookies and similar technologies.' })), true);
+  assert.strictEqual(ctx.isConsentPane(el({ text: 'please review our privacy policy' })), true);
+  assert.strictEqual(ctx.isConsentPane(el({ text: 'short' })), false, 'too little text to judge');
+  assert.strictEqual(ctx.isConsentPane(null), false);
+  // a full-page layer whose own text is the article, wrapping a known CMP container
+  const wrapper = el({
+    text: 'x'.repeat(3000),
+    querySelector: (sel) => (/input|select|textarea|form/.test(sel) ? null : el({ id: 'CybotCookiebotDialog' })),
+  });
+  assert.strictEqual(ctx.isConsentPane(wrapper), true, 'a vendor container inside is evidence on its own');
+});
+
+test('isGenericOnly leaves a vendor selector to the unguarded path', () => {
+  const ctx = sandbox(slice(['var CMP_SPECIFIC', 'var CMP_GENERIC', 'isGenericOnly']));
+  const generic = el({ className: 'gdpr-article' });
+  generic.matches = (sel) => sel === ctx.CMP_GENERIC;
+  assert.strictEqual(ctx.isGenericOnly(generic), true);
+  const specific = el({ className: 'cc-window' });
+  specific.matches = (sel) => sel === ctx.CMP_SPECIFIC || sel === ctx.CMP_GENERIC;
+  assert.strictEqual(ctx.isGenericOnly(specific), false, 'a vendor hit outranks the generic pattern');
+  assert.strictEqual(ctx.isGenericOnly(el({})), false, 'no matches() means no generic verdict');
+  const thrower = el({});
+  thrower.matches = () => { throw new Error('nope'); };
+  assert.strictEqual(ctx.isGenericOnly(thrower), false);
+});
+
+test('removeMatching keeps generic-only hits that are not banners', () => {
+  const build = () => {
+    // an article block styled .gdpr-…, no consent wording of its own
+    const article = el({ className: 'gdpr-article', text: 'Chapter 3 covers the lawful basis for processing.', width: 1280, height: 200 });
+    // a consent-worded block, but it is half the page: page furniture, not a bar
+    const page = el({ className: 'consent-manager-page', text: 'We use cookies. Please give your consent.', width: 1280, height: 500 });
+    // a consent-worded strip of bar size: this is what the generic half is for
+    const bar = el({ className: 'cookie-consent-bar', text: 'We use cookies. Please give your consent.', width: 1280, height: 90 });
+    // and a named CMP container, which needs no wording at all
+    const cmp = el({ id: 'CybotCookiebotDialog', text: '' });
+    return { article, page, bar, cmp };
+  };
+  const nodes = build();
+  const all = Object.values(nodes);
+  const ctx = sandbox(
+    slice(['var CMP_SPECIFIC', 'var CMP_GENERIC', 'var CMP_SELECTORS', 'var CONSENT_WORDS',
+      'looksLikeConsent', 'isConsentPane', 'isGenericOnly', 'isPageSized', 'removeMatching']),
+    {
+      document: { querySelectorAll: () => all },
+      window: { innerWidth: 1280, innerHeight: 800 },
+      decideConsent: () => null,
+      note: () => {},
+    });
+  // the sliced lists are the real ones; point the fakes at the right halves
+  nodes.article.matches = (sel) => sel === ctx.CMP_GENERIC;
+  nodes.page.matches = (sel) => sel === ctx.CMP_GENERIC;
+  nodes.bar.matches = (sel) => sel === ctx.CMP_GENERIC;
+  nodes.cmp.matches = (sel) => sel === ctx.CMP_SPECIFIC;
+  ctx.removeMatching();
+  assert.strictEqual(nodes.article.isConnected, true,
+    'an article block styled .gdpr-… must not be removed just because of its class');
+  assert.strictEqual(nodes.page.isConnected, true,
+    'a consent-worded block that covers half the page is furniture, not a bar');
+  assert.strictEqual(nodes.bar.isConnected, false, 'a consent-worded bar of bar size still goes');
+  assert.strictEqual(nodes.cmp.isConnected, false, 'a named CMP container still goes, with no text of its own');
+});
+
+test('genericOverlaySweep leaves a consent-worded form dialog alone', () => {
+  const dialog = el({
+    id: 'priv', text: 'Privacy settings — choose what we may store.',
+    width: 1280, height: 800, computed: { position: 'fixed', zIndex: '9999' },
+    querySelector: (sel) => (/input|select|textarea|form/.test(sel) ? el({ tagName: 'INPUT' }) : null),
+  });
+  const ctx = sandbox(
+    slice(['styleOf', 'var CONSENT_WORDS', 'looksLikeConsent', 'var CMP_SPECIFIC', 'isConsentPane', 'genericOverlaySweep']),
+    {
+      document: { body: { children: [dialog] } },
+      window: { innerWidth: 1280, innerHeight: 800, getComputedStyle: (e) => e.__computed },
+      isVisible: () => true, decideConsent: () => 'reject', unlockScroll: () => {}, note: () => {},
+    });
+  ctx.genericOverlaySweep();
+  assert.strictEqual(dialog.isConnected, true, 'a privacy-settings dialog is not a cookie banner');
+});
+
+test('barSweep will not take a page-level container for a consent strip', () => {
+  const build = (height) => el({
+    id: 'page', text: 'This site uses cookies and consent is required before tracking starts.',
+    width: 1280, height, computed: { position: 'fixed', zIndex: '10' },
+    querySelector: () => null,
+  });
+  const run = (node) => {
+    const ctx = sandbox(
+      slice(['styleOf', 'var CONSENT_WORDS', 'looksLikeConsent', 'var CMP_SPECIFIC', 'isConsentPane', 'barSweep']),
+      {
+        document: { querySelectorAll: () => [], body: { children: [node] } },
+        window: { innerWidth: 1280, innerHeight: 800, getComputedStyle: (e) => e.__computed },
+        BUTTONS, label: () => '', isVisible: () => true,
+        REJECT_PATTERNS: [], ACCEPT_PATTERNS: [], decideConsent: () => null,
+        unlockScroll: () => {}, note: () => {},
+      });
+    ctx.barSweep();
+    return node.isConnected;
+  };
+  assert.strictEqual(run(build(320)), true, '40 % of the viewport is a page container, not a bar');
+  assert.strictEqual(run(build(280)), false, '35 % is still a strip and is removed');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mutation coalescing and the readable decision log (issue #26)
+// ═══════════════════════════════════════════════════════════════════════════
+
+test('onMutation coalesces a burst into one sweep per settle window', () => {
+  let now = 1000;
+  let sweeps = 0;
+  const timers = [];
+  const ctx = sandbox(
+    slice(['var MUTATION_SETTLE', 'var lastSweepAt', 'var settleTimer', 'mutationSweep', 'onMutation']),
+    {
+      Date: { now: () => now },
+      setTimeout: (cb, ms) => { timers.push({ cb, ms }); return timers.length; },
+      document: {},
+      knownWall: () => {}, removeMatching: () => { sweeps++; }, genericOverlaySweep: () => {},
+      barSweep: () => {}, removeAdblockWalls: () => {}, deepConsentSweep: () => {},
+    });
+
+  ctx.onMutation();                       // first delta: sweeps immediately
+  assert.strictEqual(sweeps, 1, 'the first delta sweeps at once');
+  assert.strictEqual(timers.length, 0, 'nothing is queued after an immediate pass');
+
+  now = 1100;
+  ctx.onMutation();                       // inside the window: queue one trailing pass
+  assert.strictEqual(sweeps, 1, 'a delta inside the window must not sweep');
+  assert.strictEqual(timers.length, 1);
+  assert.strictEqual(timers[0].ms, 150, 'the trailing pass waits for the window to end');
+
+  now = 1200;
+  ctx.onMutation();                       // a third delta joins the queued pass
+  assert.strictEqual(timers.length, 1, 'bursts collapse into the queued pass, they do not stack');
+
+  now = 1250;
+  timers[0].cb();
+  assert.strictEqual(sweeps, 2, 'the trailing pass runs exactly once');
+
+  // …and the boundary is exact: at exactly MUTATION_SETTLE later, the pass is immediate again
+  now = 1500;
+  ctx.onMutation();
+  assert.strictEqual(sweeps, 3, 'at exactly one window the sweep is immediate');
+  assert.strictEqual(timers.length, 1, 'no extra trailing pass is queued for it');
+});
+
+test('note mirrors the last decisions into the page so :jseval can read them', () => {
+  const root = { dataset: {} };
+  const ctx = sandbox(slice(['var log', 'note']), { document: { documentElement: root } });
+  for (let i = 0; i < 25; i++) ctx.note('removed', 'id' + i);
+  const seen = root.dataset.omarchyConsent.split(' | ');
+  assert.strictEqual(seen.length, 20, 'the last 20 decisions are what the page carries');
+  assert.strictEqual(seen[19], 'removed:id24', 'newest last');
+  assert.strictEqual(seen[0], 'removed:id5', 'the oldest fall off the front');
+});
+
+test('note caps the mirrored log so a page cannot carry a novel', () => {
+  const root = { dataset: {} };
+  const ctx = sandbox(slice(['var log', 'note']), { document: { documentElement: root } });
+  for (let i = 0; i < 20; i++) ctx.note('reject', 'x'.repeat(80));
+  assert.ok(root.dataset.omarchyConsent.length <= 1000,
+    'the attribute stays bounded: ' + root.dataset.omarchyConsent.length);
+});
+
+test('the shipped IIFE leaves an app drawer and a privacy dialog alone', () => {
+  const { doc } = boot({
+    build(d) {
+      const drawer = d.createElement('div');
+      drawer.className = 'fixed inset-y-0 right-0 bg-background';
+      drawer.__computed = { position: 'fixed', zIndex: '120' };
+      drawer.innerText = 'Create DNS Record Type Name Value Cancel Create Record';
+      const close = d.createElement('button');
+      close.setAttribute('aria-label', 'Close');
+      drawer.appendChild(close);
+      const input = d.createElement('input');
+      drawer.appendChild(input);
+      d.body.appendChild(drawer);
+
+      const privacy = d.createElement('div');
+      privacy.className = 'privacy-dialog';
+      privacy.__computed = { position: 'fixed', zIndex: '9999' };
+      privacy._rect = { width: 1280, height: 800 };
+      privacy.innerText = 'Privacy settings — choose what this app may store.';
+      const toggle = d.createElement('input');
+      privacy.appendChild(toggle);
+      d.body.appendChild(privacy);
+    },
+  });
+  assert.strictEqual(doc.querySelectorAll('.fixed').length, 1, 'the drawer must stay on the page');
+  assert.strictEqual(doc.querySelectorAll('.privacy-dialog').length, 1,
+    'a privacy-settings dialog full of inputs must stay on the page');
 });
