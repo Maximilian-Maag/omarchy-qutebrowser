@@ -158,7 +158,7 @@ class RegressionCase(unittest.TestCase):
         cfg = (REPO / "config/config.py").read_text()
         self.assertIn('_blocking_list("trackers.txt")', cfg)
         self.assertIn("*([_tracker_list] if _tracker_list else [])", cfg)
-        for needle in ("easyprivacy", "easylistgermany", "fanboy-social",
+        for needle in ("easyprivacy", "easylistgermany", "fanboy-annoyance",
                        "filters-general.txt", "filters/quick-fixes.txt",
                        "filters/3.txt", "nocoin", "hagezi", "adservers", "frogeye"):
             self.assertIn(needle, cfg, "%s must be in the blocking configuration" % needle)

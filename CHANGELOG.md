@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.19.2
+
+### Changed
+- **Three adblock lists that were subsets of a kept list are gone.** Fanboy's Annoyance list
+  is the union of the social and cookie lists, and the uBlock `annoyances` entry is an
+  `!#include` stub. Measured 2026-11-25 against the live files, comparing non-comment rule
+  lines by exact text: `fanboy-social.txt` is 13,949/13,949 rules present verbatim in
+  `fanboy-annoyance.txt`; `fanboy-cookiemonster.txt` is 25,373/25,416, and its remaining 43
+  rules are cosmetic (`##`/`#@#`) rules that qutebrowser never applies, because the adblock
+  wrapper only calls the engine's `check_network_urls`; `uAssets/filters/annoyances.txt` is
+  417 bytes of header around `!#include annoyances-others.txt` and nothing expands
+  `!#include`, so it contributed 0 rules. 1.3 MB less to download per refresh and three
+  fewer requests. The rest of the set stays: the expected bigger overlaps do not exist
+  (`filters.txt` shares 225 of AdGuard Base's 56,638 rules; `privacy.txt` has 1,799 rules,
+  12 of them in EasyPrivacy's 56,831; the AdGuard Tracking list is 436k rules no other list
+  has). `config/config.py` carries the per-list rationale, `docs/blocking.md` the table.
+
+### Fixed
+- **The adblock cache now refreshes itself once a session instead of only on `,ab`.**
+  Nothing aged the parsed lists out — `:adblock-update` was the only path — so in practice
+  they were days or weeks old and a site that moved an ad host stayed unblocked. config.py
+  schedules a `QTimer` 15 seconds after startup, stats
+  `~/.local/share/qutebrowser/adblock-cache.dat` (through `standarddir`, so `--basedir`
+  works) and runs the body of `:adblock-update` when the cache is older than seven days or
+  missing. Once per session, not once per `:config-source` (the flag lives on `sys`, which
+  survives the re-exec). Every import is guarded so a headless run with no QApplication and
+  no PyQt still sources the config cleanly; without an event loop nothing is scheduled. If
+  the refresh cannot run — the `adblock` dependency is not loaded, the download throws — the
+  status bar says the lists are N days old and `,ab` exists, rather than a silent no-op.
+
 ## 1.19.1
 
 ### Added

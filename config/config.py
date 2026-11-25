@@ -12,6 +12,7 @@ omarchy-qutebrowser: main configuration
 
 import sys
 import os
+import time
 
 # ---------------------------------------------------------------------------
 # Path: make the config dir importable so we can import themes.py
@@ -173,14 +174,37 @@ _tracker_list = _blocking_list("trackers.txt")
 c.content.blocking.enabled = True
 c.content.blocking.method = "both"      # hosts + adblock filter lists
 c.content.blocking.hosts.block_subdomains = True
+# The upstream set is one list per purpose, not a pile of overlapping "complete" lists.
+# Measured on 2026-11-25 against the live files, comparing non-comment rule lines by exact
+# text; the three lists that were dropped and why:
+#
+#   * fanboy-social.txt — all 13,949 of its rules occur verbatim in fanboy-annoyance.txt
+#     (Fanboy's Annoyance list is the union of the social and cookie lists), so it blocked
+#     nothing the kept list does not. 408 kB off every download.
+#   * fanboy-cookiemonster.txt — 25,373 of its 25,416 rules are in fanboy-annoyance.txt and
+#     the other 43 are cosmetic (`##` / `#@#`) rules. qutebrowser never applies those:
+#     BraveAdBlocker only calls the engine's check_network_urls, and element hiding is not
+#     wired at all, so not one network rule of this list is missing without it. Another
+#     908 kB.
+#   * uAssets/filters/annoyances.txt — an empty file in practice: 417 bytes of header plus
+#     `!#include annoyances-others.txt`, and nothing expands `!#include` (qutebrowser hands
+#     the raw text to adblock-rust), so it contributed 0 rules.
+#
+# Everything else stays. The issue expected uAssets/filters.txt to absorb the AdGuard and
+# fanboy lists and uAssets/privacy.txt to cover easyprivacy.txt; the same measurement says
+# it does not (filters.txt shares 225 of AdGuard Base's 56,638 rules, privacy.txt has
+# 1,799 rules of which 12 occur in EasyPrivacy's 56,831). The 16 MB AdGuard Tracking list
+# is 436k rules that no kept list contains. Dropping any of those would trade coverage for
+# size, which is not what this list set is for.
 c.content.blocking.adblock.lists = [
     *([_video_ads_list] if _video_ads_list else []),
     *([_tracker_list] if _tracker_list else []),
     "https://easylist.to/easylist/easylist.txt",
     "https://easylist.to/easylist/easyprivacy.txt",
     "https://easylist.to/easylistgermany/easylistgermany.txt",
+    # Fanboy's Annoyance list already contains the social and cookie lists below it —
+    # fanboy-social entirely, fanboy-cookiemonster for every network rule.
     "https://secure.fanboy.co.nz/fanboy-annoyance.txt",
-    "https://secure.fanboy.co.nz/fanboy-social.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt",
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/badware.txt",
@@ -190,8 +214,6 @@ c.content.blocking.adblock.lists = [
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/unbreak.txt",
     # Cookie consent banners
     "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt",
-    "https://www.fanboy.co.nz/fanboy-cookiemonster.txt",
-    "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances.txt",
     # AdGuard: base (minus EasyList overlap), tracking protection, annoyances
     "https://filters.adtidy.org/extension/ublock/filters/2_without_easylist.txt",
     "https://filters.adtidy.org/extension/ublock/filters/3.txt",
@@ -209,6 +231,113 @@ c.content.blocking.hosts.lists = [
     "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=text/plain",
     "https://someonewhocares.org/hosts/zero/hosts",
 ]
+
+# ---------------------------------------------------------------------------
+# Refresh the parsed lists once a session, when the cache has gone stale
+# ---------------------------------------------------------------------------
+# Nothing ages the cache out on its own: only `:adblock-update` (bound to ,ab above)
+# re-downloads and re-parses the lists, so on a machine that is merely used they quietly
+# become weeks old and a site that moved its ad host stays unblocked for that long. The
+# check is cheap — one stat() of the cache qutebrowser already loads at startup — and it
+# runs at most once per session, so a systemd timer and a headless browser start are not
+# needed to keep ~47 MB of parsed lists current.
+#
+# Deferred, not run while config.py is sourced: the lists are downloaded over a
+# QNetworkAccessManager, and at source time there is no window and no running event loop
+# yet. The timer waits 15 s so the first page load goes first.
+_ADBLOCK_MAX_AGE_DAYS = 7
+_ADBLOCK_REFRESH_DELAY_MS = 15_000
+# Set on the `sys` module rather than in a global: qutebrowser re-execs config.py in a
+# fresh module for every :config-source, so a module global would start a second timer in
+# the same session. `sys` outlives the re-exec.
+_ADBLOCK_SESSION_FLAG = "_omarchy_qutebrowser_adblock_scheduled"
+
+
+def adblock_cache_path():
+    """Absolute path to qutebrowser's parsed-list cache (adblock-cache.dat).
+
+    standarddir knows the real data dir, including --basedir; the XDG default is the
+    fallback for a run where qutebrowser's modules are absent (the tests, a plain Python).
+    """
+    try:
+        from qutebrowser.utils import standarddir
+
+        return os.path.join(standarddir.data(), "adblock-cache.dat")
+    except Exception:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(
+            os.path.expanduser("~"), ".local", "share")
+        return os.path.join(base, "qutebrowser", "adblock-cache.dat")
+
+
+def adblock_cache_state(mtime, now, max_age_days=_ADBLOCK_MAX_AGE_DAYS):
+    """'missing', 'fresh' or 'stale' for a cache whose mtime is `mtime`.
+
+    Pure: both timestamps are arguments, so a test can assert a week, a month or a future
+    mtime without touching the filesystem, sleeping or running a browser.
+    """
+    if mtime is None:
+        return "missing"
+    return "stale" if (now - mtime) > max_age_days * 86400 else "fresh"
+
+
+def adblock_refresh(path=None, now=None):
+    """Re-download the lists unless the cache is fresh. Never raises.
+
+    `path`/`now` are injectable so the decision can be tested without a real cache or a
+    real clock; qutebrowser's timer calls it with neither.
+
+    The command's own body is called instead of :adblock-update through a
+    CommandRunner, because a runner is per-window (qutebrowser.misc.objects keeps none
+    global) and `:config-source` can run before any window exists. If the adblock
+    dependency is not loaded, the fallback is the honest one: a status-bar message telling
+    the user the lists are old and ,ab exists — never a silent no-op dressed up as a
+    refresh.
+    """
+    path = path or adblock_cache_path()
+    now = time.time() if now is None else now
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = None
+
+    if adblock_cache_state(mtime, now) == "fresh":
+        return
+
+    try:
+        from qutebrowser.components import adblockcommands, braveadblock
+
+        if braveadblock.ad_blocker is None:
+            raise RuntimeError("the 'adblock' dependency is not loaded")
+        adblockcommands.adblock_update()        # exactly what :adblock-update runs
+        return
+    except Exception as exc:                    # never turn a stale cache into a config error
+        reason = exc
+
+    age = ("will be created" if mtime is None
+           else "%d days old" % max(0, int((now - mtime) // 86400)))
+    text = ("adblock lists are %s and the automatic refresh failed (%s) — press ,ab"
+            % (age, reason))
+    try:
+        from qutebrowser.api import message
+
+        message.info(text)
+    except Exception:
+        print("omarchy-qutebrowser: " + text, file=sys.stderr)
+
+
+try:
+    from qutebrowser.qt.core import QCoreApplication, QTimer
+
+    # No QCoreApplication means no event loop — a headless run (the tests) or an early
+    # --version/--help exit. Scheduling there would do nothing at best, and a timer no
+    # loop ever services only earns a Qt warning, so require one.
+    if (QCoreApplication.instance() is not None
+            and not getattr(sys, _ADBLOCK_SESSION_FLAG, False)):
+        setattr(sys, _ADBLOCK_SESSION_FLAG, True)
+        QTimer.singleShot(_ADBLOCK_REFRESH_DELAY_MS, adblock_refresh)
+except Exception:
+    # No Qt at all: there is no timer to set, and sourcing the config must still succeed.
+    pass
 
 # ---------------------------------------------------------------------------
 # A coherent stock-Chrome identity for sites that refuse a non-Chrome client
