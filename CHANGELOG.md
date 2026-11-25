@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.18.3
+
+### Fixed
+- **A page's own drawer is no longer mistaken for a cookie banner.** The consent sweep's
+  reject patterns include a bare `close`, because that is what a banner's X looks like —
+  but every side panel, modal and settings drawer has one too, and `deepConsentSweep`
+  scans the *whole document*. On Appwrite Console, "Create DNS record" opened a fixed
+  right-hand drawer whose X carries `aria-label="Close"`: the sweep matched the X, took
+  the drawer's own fixed panel as the banner, clicked the X and removed the panel 800 ms
+  later, so the drawer appeared and vanished within a second — on a page with no consent
+  UI at all. Anything treated as a banner now also has to pass `looksLikeConsent()`: it
+  must contain no form controls (a banner asks for a decision, a drawer asks for input)
+  and its text must talk about consent (the same `CONSENT_WORDS` guard `barSweep` already
+  applies, bounded to 10–2000 characters so page text cannot qualify). Verified against
+  the live console: with the script enabled the drawer is gone inside 900 ms, with it
+  disabled the same drawer is still connected and visible at 2.5 s.
+  `tests/js/cookie.test.js` pins all three halves — the form guard, the text guard and
+  the whole shipped userscript leaving a drawer with a labelled close button alone.
+
 ## 1.18.2
 
 ### Fixed

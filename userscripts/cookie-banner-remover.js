@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cookie Banner Remover + Adblock Defuser (Omarchy)
 // @description  Automatic, reject-by-default cookie-consent handling: click "reject all" when it exists, fall back to accept only when there is no reject option, and remove the banner either way. Also defuses anti-adblock detection and removes "disable your ad blocker" walls (e.g. bild.de), plus a generic overlay fallback.
-// @version      4.2
+// @version      4.3
 // @author       omarchy-qutebrowser
 // @namespace    https://github.com/Maximilian-Maag/omarchy-qutebrowser
 // @match        *://*/*
@@ -335,6 +335,26 @@
     return null;
   }
 
+  // Is this pinned box actually a consent banner? A drawer, a modal and a settings
+  // panel all carry a "Close" (or "Abbrechen") button, and the reject pattern that
+  // recognises a consent banner's X matches any of them. deepConsentSweep scans the
+  // whole document, so on Appwrite Console it found the X of the "Create DNS record"
+  // drawer, took the drawer's own panel as the banner, clicked the X and removed the
+  // panel 800 ms later — the drawer opened and vanished within a second, and the same
+  // would happen to every other side panel with a labelled close button. Two things
+  // have to hold before anything is treated as a banner:
+  //   - the box never contains form controls (a consent banner has no input fields;
+  //     a drawer full of them is asking for data, not consent), and
+  //   - it reads like consent (the same CONSENT_WORDS guard barSweep applies).
+  function looksLikeConsent(el) {
+    try {
+      if (!el) return false;
+      if (el.querySelector && el.querySelector('input, select, textarea, form')) return false;
+      var txt = (el.innerText || '').replace(/\s+/g, ' ');
+      return txt.length >= 10 && txt.length <= 2000 && CONSENT_WORDS.test(txt);
+    } catch (e) { return false; }
+  }
+
   // Root-aware consent sweep, with a verification pass: if the banner is still
   // there shortly after the click (some CMPs need a moment, or a second event),
   // press again and then simply remove it.
@@ -352,6 +372,7 @@
       if (!btn) continue;
       var container = bannerFor(btn, root) || btn;
       if (handledBanners.has(container)) continue;      // one decision per banner
+      if (!looksLikeConsent(container)) continue;       // a Close button is not consent
       var action = decideConsent(container);
       if (!action) continue;
       handledBanners.add(container);
