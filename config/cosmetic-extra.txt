@@ -1,0 +1,14 @@
+! Cosmetic rules this plugin adds on top of the filter lists — same syntax as a filter list
+! (`domain##selector`), compiled into the cosmetic-filters userscript by tools/build_cosmetic.py.
+!
+! Only for sites where the lists lag behind the markup: keep a rule here only after seeing the
+! element it targets on the live page, and delete it once the list catches up. An entry for a
+! domain the lists do not name is the point; an entry that duplicates a list rule is dead weight.
+!
+! golem.de (measured 2025-11): EasyList Germany hides .go-ad-slot and .go-alink-list, but the
+! sponsored teasers have since been renamed — the list still says `.go-teaser--variant-affiliate`
+! while the page serves `.go-teaser--item-variant-affiliate`, and a sponsored career teaser
+! carries only a `.go-label--sponsored` label. Both stayed visible with the list rules alone.
+golem.de##.go-teaser--item-variant-affiliate
+golem.de##.go-teaser:has(.go-label--sponsored)
+golem.de##.go-ad-slot__wrapper

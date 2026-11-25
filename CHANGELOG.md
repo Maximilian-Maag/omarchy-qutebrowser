@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.19.0
+
+### Added
+- **Cosmetic filtering: the ad boxes a request blocker cannot remove.** qutebrowser's blocker
+  drops the requests, but advertising that is the publisher's own markup was still on screen —
+  golem.de kept its reserved ad frames (`.go-ad-slot`), its "ANZEIGE" link block
+  (`.go-alink-list`) and its sponsored teasers, because nothing was ever requested for them. The
+  low-level reason is that qutebrowser implements only uBlock Origin's network half, while the
+  element hiding comes from the same filter lists as `domain##selector` rules. `tools/build_cosmetic.py`
+  compiles those rules (with `#@#` exceptions, parent-domain lookup, and no approximation of
+  procedural syntax) into one Greasemonkey script; `omarchy-cosmetic-update` rebuilds it and
+  `install.sh` runs the same compile, keeping the old script when offline. Measured on golem.de,
+  with only the generated script and no per-site fix: 9,641 domains and 21,741 selectors from
+  EasyList + EasyList Germany + `config/cosmetic-extra.txt`; article and front page then report
+  zero visible ad slots, zero affiliate teasers, zero "ANZEIGE" blocks and zero "Werbung"
+  labels (before: 1 ad slot 300x265, 1 "ANZEIGE" link block, 2 sponsored teasers). The lists on
+  their own were not enough — golem renamed its sponsored teaser classes — which is what the
+  extra file is for, in the same `domain##selector` syntax. Fanboy's Annoyances is opt-in
+  (`--source`), because it also hides share buttons and tag lists.
+
 ## 1.18.4
 
 ### Fixed

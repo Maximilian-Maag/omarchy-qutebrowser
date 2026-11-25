@@ -1,0 +1,47 @@
+#!/bin/bash
+# omarchy:summary=Rebuild the cosmetic-filter userscript from the filter lists
+# omarchy:args=[--dry-run] [--source <url>]
+# omarchy:examples=omarchy-cosmetic-update | omarchy-cosmetic-update --dry-run
+#
+# qutebrowser's adblock refuses requests; it does not hide elements. That leaves a
+# publisher's reserved ad boxes and sponsored teasers on the page (golem.de: .go-ad-slot,
+# an "ANZEIGE" link block, sponsored teasers), because they are the site's own markup.
+# This regenerates the userscript that hides what the filter lists name for each domain —
+# uBlock Origin's cosmetic half, from the same lists.
+#
+# Run it after a qutebrowser upgrade or when a site starts showing ads again, then
+# `:greasemonkey-reload` in the browser (a restart is not needed).
+set -uo pipefail
+
+PLUGIN_DIR="${OMARCHY_QUTEBROWSER_DIR:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)}"
+QUTE_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/qutebrowser"
+OUTPUT="$QUTE_DATA_DIR/greasemonkey/cosmetic-filters.js"
+TEMPLATE="$PLUGIN_DIR/userscripts/cosmetic-filters.js"
+
+if [[ ! -f $TEMPLATE ]]; then
+  echo "omarchy-cosmetic-update: no template at $TEMPLATE (set OMARCHY_QUTEBROWSER_DIR)" >&2
+  exit 2
+fi
+
+args=("--output" "$OUTPUT" "--template" "$TEMPLATE")
+dry_run=""
+while (( $# )); do
+  case $1 in
+    --dry-run) args+=("--dry-run"); dry_run="yes"; shift ;;
+    --source=*) args+=("--source" "${1#--source=}"); shift ;;
+    --source)
+      if [[ $# -lt 2 || -z $2 ]]; then
+        echo "omarchy-cosmetic-update: --source needs a URL" >&2
+        exit 2
+      fi
+      args+=("--source" "$2"); shift 2 ;;
+    *) echo "omarchy-cosmetic-update: unknown argument $1" >&2; exit 2 ;;
+  esac
+done
+
+python3 "$PLUGIN_DIR/tools/build_cosmetic.py" "${args[@]}"
+status=$?
+if [[ $status -eq 0 && $dry_run != "yes" ]]; then
+  echo "Reload it in a running browser with: :greasemonkey-reload"
+fi
+exit "$status"
