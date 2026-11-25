@@ -102,6 +102,22 @@ ln -sf "$PLUGIN_DIR/config/site-overrides.py" "$QUTE_CONFIG_DIR/site-overrides.p
 ln -sf "$PLUGIN_DIR/config/omarchy_webauthn.py" "$QUTE_CONFIG_DIR/omarchy_webauthn.py"
 echo "  Linked site-overrides.py -> $QUTE_CONFIG_DIR/"
 
+# ── 4c. Cosmetic filters ─────────────────────────────────────────────────────
+# qutebrowser refuses ad requests but does not hide elements, so a publisher's own ad boxes
+# and sponsored teasers stay on the page (golem.de: .go-ad-slot, the "ANZEIGE" link block).
+# This compiles the hide rules of the same lists into one Greasemonkey script. The download
+# needs the network once; when it fails the previously compiled script is kept, and the
+# message says how to retry rather than pretending the step worked.
+chmod +x "$PLUGIN_DIR/bin/omarchy-cosmetic-update"
+echo "  Cosmetic filters: $PLUGIN_DIR/bin/omarchy-cosmetic-update (rebuild from CLI; no binding)"
+if python3 "$PLUGIN_DIR/tools/build_cosmetic.py" \
+     --template "$PLUGIN_DIR/userscripts/cosmetic-filters.js" \
+     --output "$GREASEMONKEY_DIR/cosmetic-filters.js"; then
+  echo "  Compiled cosmetic filters -> $GREASEMONKEY_DIR/cosmetic-filters.js"
+else
+  echo "  WARNING: cosmetic filters not compiled (offline?); retry with: omarchy-cosmetic-update" >&2
+fi
+
 # ── 5. Theme-set hook ────────────────────────────────────────────────────────
 omarchy hook install theme-set "$PLUGIN_DIR/hooks/qutebrowser-theme-set"
 echo "  Installed theme-set hook -> ~/.config/omarchy/hooks/theme-set.d/qutebrowser-theme-set"
