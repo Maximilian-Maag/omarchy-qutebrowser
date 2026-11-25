@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cookie Banner Remover + Adblock Defuser (Omarchy)
 // @description  Automatic, reject-by-default cookie-consent handling: click "reject all" when it exists, fall back to accept only when there is no reject option, and remove the banner either way. Also defuses anti-adblock detection and removes "disable your ad blocker" walls (e.g. bild.de), plus a generic overlay fallback.
-// @version      4.3
+// @version      4.4
 // @author       omarchy-qutebrowser
 // @namespace    https://github.com/Maximilian-Maag/omarchy-qutebrowser
 // @match        *://*/*
@@ -17,6 +17,20 @@
   try { window.__omarchyConsent = log; } catch (e) {}
   function note(action, detail) {
     try { log.push({ action: action, detail: (detail || '').slice(0, 80), at: Date.now() }); } catch (e) {}
+    // …and the same thing where the *page* can see it. Userscripts run in their own JS
+    // world, so `window.__omarchyConsent` is invisible to the browser's `:jseval` and a page
+    // looks untouched even while the script is removing its UI — which is exactly how a
+    // removed drawer cost an afternoon. The dataset lives on the shared DOM, so
+    // `:jseval document.documentElement.dataset.omarchyConsent` answers "what did the script
+    // do here?" without any tooling.
+    try {
+      var root = document && document.documentElement;
+      if (root && root.dataset) {
+        root.dataset.omarchyConsent = log.slice(-20).map(function (e) {
+          return e.action + ':' + e.detail;
+        }).join(' | ').slice(0, 1000);
+      }
+    } catch (e) {}
   }
 
   // ── 0. Never touch authentication pages ──────────────────────────────────
@@ -125,8 +139,14 @@
   }
 
   // ── 1. CMP containers / overlays ──────────────────────────────────────────
-  // Explicit selectors for the CMPs seen in the wild, then generic patterns.
-  var CMP_SELECTORS = [
+  // Two lists, because the two halves of the old single list are not the same evidence.
+  // CMP_SPECIFIC names ids, classes and vendor paths a consent manager actually ships — a
+  // hit means the site declared this element to be a consent UI, so it can go as it stands.
+  // CMP_GENERIC is attribute *substring* matching, which any element can satisfy: an article
+  // about the GDPR that styles a block `.gdpr-…` matches it too. A generic-only hit is
+  // therefore only a candidate, and `removeMatching()` asks `isConsentPane()` whether it
+  // looks like a banner before removing anything.
+  var CMP_SPECIFIC = [
     // Sourcepoint (golem.de, heise.de, and many news sites) — first-party or CDN.
     '[id^="sp_message_container"]', '[id^="sp_message_iframe"]',
     '.sp_message_container', '.sp_veil', '#sp_veil', '.sp-overlay', '.sp_choice_type_wrapper',
@@ -171,14 +191,20 @@
     // Other common ones
     '.cc-window', '#hs-eu-cookie-confirmation', '#cookieChoiceInfo', '.pea_cook_wrapper',
     '.cookieConsent', '#cookieConsent', '.cc_banner', '#cookiescript_injected', '.cookiescript_injected',
-    '#trustarc-banner-container', '.introjs-overlay', '#gdpr-banner', '.gdpr-banner',
+    '#trustarc-banner-container', '#gdpr-banner', '.gdpr-banner',
     '#consent-banner', '.consent-banner', '.cookie-banner', '.cookie-consent', '.cookie-popup',
-    // Generic attribute patterns
+    // NOTE: `.introjs-overlay` used to be in this list. That is intro.js — a product-tour
+    // layer, not a consent UI — so removing it broke every guided tour that used one.
+  ].join(',');
+
+  var CMP_GENERIC = [
     '[id*="cookie-consent" i]', '[id*="cookieConsent"]', '[id*="cookiebanner" i]', '[id*="cookie-banner" i]',
     '[class*="cookie-banner" i]', '[class*="cookie-consent" i]', '[class*="CookieBanner"]', '[class*="CookieConsent"]',
     '[id*="consent-manager" i]', '[class*="consent-manager" i]', '[class*="gdpr" i]', '[id*="gdpr" i]',
     '[aria-label*="cookie" i][role="dialog"]', '[aria-label*="consent" i][role="dialog"]', '[aria-label*="privacy" i][role="dialog"]',
   ].join(',');
+
+  var CMP_SELECTORS = CMP_SPECIFIC + ',' + CMP_GENERIC;
 
   // Scroll-lock classes CMPs add to <html>/<body> that must be removed.
   var UNLOCK_CLASSES = [
@@ -355,6 +381,42 @@
     } catch (e) { return false; }
   }
 
+  // One gate for the three paths that matched only a *shape* or a *substring*: the overlay
+  // sweep, the bar sweep's ancestor walk, and the selector list's generic half. Consent
+  // wording plus "not a form" are the baseline; a known CMP container inside the box is
+  // evidence on its own, because some CMPS render a full-page layer whose own text is the
+  // article behind it.
+  function isConsentPane(el) {
+    if (!el) return false;
+    if (looksLikeConsent(el)) return true;
+    try {
+      if (!el.querySelector || !el.querySelector(CMP_SPECIFIC)) return false;
+      if (el.querySelector('input, select, textarea, form')) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // Is this element a candidate only because of a generic attribute substring? A vendor
+  // selector outranks the generic pattern, so an element that also matches CMP_SPECIFIC is
+  // left to the unguarded path.
+  function isGenericOnly(el) {
+    try {
+      if (!el || !el.matches) return false;
+      if (el.matches(CMP_SPECIFIC)) return false;
+      return !!el.matches(CMP_GENERIC);
+    } catch (e) { return false; }
+  }
+
+  // A generic-substring hit that covers half the page is page furniture — the article
+  // section such a class usually styles — and not a bar. Size is the one signal the
+  // wording cannot fake: an article about the GDPR quotes "consent" all the way through.
+  function isPageSized(el) {
+    try {
+      var r = el.getBoundingClientRect();
+      return r.width * r.height > 0.5 * window.innerWidth * window.innerHeight;
+    } catch (e) { return false; }
+  }
+
   // Root-aware consent sweep, with a verification pass: if the banner is still
   // there shortly after the click (some CMPs need a moment, or a second event),
   // press again and then simply remove it.
@@ -414,6 +476,11 @@
       for (var i = 0; i < els.length; i++) {
         var el = els[i];
         if (!el || !el.isConnected) continue;
+        // A generic-substring hit is not proof of a banner: an article about the GDPR that
+        // styles a block `.gdpr-…` matches the same pattern. Those have to look like a
+        // banner — and not be page-sized — before anything is removed; a named CMP container
+        // does not.
+        if (isGenericOnly(el) && (!isConsentPane(el) || isPageSized(el))) continue;
         var action = decideConsent(el);          // record the choice first…
         note(action || 'removed', (el.id || el.className || el.tagName) + '');
         try { el.remove(); } catch (e) {}        // …then take the banner away
@@ -441,8 +508,10 @@
         if (!(z >= 1000)) continue;
         var r = el.getBoundingClientRect();
         if (r.width * r.height < 0.25 * vw * vh) continue;
-        var txt = (el.innerText || '').slice(0, 4000);
-        if (!CONSENT_WORDS.test(txt)) continue;
+        // CONSENT_WORDS also matches "privacy", "advert" and "tracking", so the wording
+        // alone would delete an app's privacy-settings dialog; isConsentPane() adds the
+        // "no form controls, bounded length" half of the test.
+        if (!isConsentPane(el)) continue;
         var action = decideConsent(el);
         note(action || 'removed', 'overlay ' + (el.id || el.className || el.tagName));
         try { el.remove(); } catch (e) {}
@@ -658,10 +727,14 @@
           for (p = 0; p < ACCEPT_PATTERNS.length; p++) { if (ACCEPT_PATTERNS[p].test(t)) { isAccept = true; break; } }
         }
         if (!isReject && !isAccept) continue;
-        var el = b, hops = 0, banner = null;
+        // Start at the parent: the button itself is never the bar to take away, and with a
+        // text-only test it never used to match anyway.
+        var el = b.parentElement, hops = 0, banner = null;
         while (el && hops < 8 && el !== document.body) {
-          var txt = el.innerText || '';
-          if (txt.length > 20 && CONSENT_WORDS.test(txt)) { banner = el; break; }
+          // Every ancestor is a candidate, and a click handler on a wrapper can put the
+          // button inside the page's own container — so the ancestor has to read like a
+          // consent bar itself, not merely contain the word somewhere far above.
+          if (isConsentPane(el)) { banner = el; break; }
           el = el.parentElement; hops++;
         }
         if (!banner || seen.indexOf(banner) !== -1) continue;
@@ -689,7 +762,9 @@
         if (st2.position !== 'fixed' && st2.position !== 'sticky') continue;
         var r2 = el2.getBoundingClientRect();
         var area2 = r2.width * r2.height;
-        if (area2 < 0.02 * vw * vh || area2 > 0.6 * vw * vh) continue;
+        // A consent strip is a strip: 2–35 % of the viewport. The old 60 % ceiling let a
+        // page-level container through, and that container was then removed whole.
+        if (area2 < 0.02 * vw * vh || area2 > 0.35 * vw * vh) continue;
         if (el2.querySelector('input, select, textarea, form')) continue;   // not a form
         if (el2.querySelector(BUTTONS)) continue;                          // handled above
         var txt2 = (el2.innerText || '').replace(/\s+/g, ' ');
@@ -703,6 +778,9 @@
   }
 
   // ── 5. Sweep + observe ────────────────────────────────────────────────────
+  var MUTATION_SETTLE = 250;      // ms; the shortest gap between two mutation-driven sweeps
+  var lastSweepAt = 0;
+  var settleTimer = 0;
   function sweep() {
     knownWall();
     defuseFlags();
@@ -718,6 +796,22 @@
   }
 
   function onMutation() {
+    // Five whole-document scans per DOM delta is what this used to do: a selector query over
+    // ~40 attribute patterns, every button's label, every div's innerText. A SPA mutates
+    // continuously, so the same elements were re-examined dozens of times a second for
+    // nothing. Coalesce: one immediate pass, then at most one per MUTATION_SETTLE ms, with a
+    // trailing pass so a banner injected at the end of a burst is still seen.
+    if (settleTimer) return;                       // a pass is already queued
+    var wait = MUTATION_SETTLE - (Date.now() - lastSweepAt);
+    if (wait <= 0) { lastSweepAt = Date.now(); mutationSweep(); return; }
+    settleTimer = setTimeout(function () {
+      settleTimer = 0;
+      lastSweepAt = Date.now();
+      mutationSweep();
+    }, wait);
+  }
+
+  function mutationSweep() {
     try {
       knownWall();
       removeMatching(document);

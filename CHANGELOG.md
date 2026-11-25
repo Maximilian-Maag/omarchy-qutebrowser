@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.18.4
+
+### Fixed
+- **A page's own UI is no longer taken for a cookie banner anywhere in the sweep.** #23 fixed
+  `deepConsentSweep`; the other three paths were still unguarded. The overlay sweep removed any
+  pinned element at `z >= 1000` covering a quarter of the viewport whose text matched
+  `CONSENT_WORDS` — and that regex contains `privacy`, `advert` and `tracking`, so an app's
+  privacy-settings dialog went with it. The bar sweep walked up to eight ancestors looking for
+  the word "consent" and then removed whichever ancestor matched, with no size limit, so a
+  page-level container could go; its no-button branch accepted up to 60 % of the viewport.
+  And `removeMatching` removed anything matching the generic attribute patterns
+  (`[class*="gdpr" i]`, `[id*="cookie-consent" i]`, …) with no check at all: an article about
+  data protection that styles a block `.gdpr-…` lost that block. `.introjs-overlay` was in the
+  container list too — that is intro.js, a product-tour layer, not a consent UI.
+  All of them now pass `isConsentPane()` (consent wording, no form controls, and for the
+  generic half of the selector list an element that is not page-sized), the bar sweep starts
+  its ancestor walk at the button's parent and stops at 35 % of the viewport, and the intro.js
+  selector is gone. `tests/js/cookie.harness.test.js` pins each path: a `.gdpr-…` article block,
+  a consent-worded half-page container, a privacy-settings dialog full of inputs and a
+  drawer with a labelled close button all survive, while a real bar, overlay and named CMP
+  container are still removed.
+
+### Changed
+- **The mutation-driven sweep is coalesced, and its decisions are readable from the page.**
+  `onMutation()` ran five whole-document scans per DOM delta — a selector query over ~40
+  attribute patterns, every button's label, every `div`'s `innerText` — so a SPA that mutates
+  continuously paid that dozens of times a second. It now sweeps immediately and then at most
+  once per 250 ms, with one trailing pass so a banner injected at the end of a burst is still
+  seen. The decision log stays on `window.__omarchyConsent` (userscripts run in their own JS
+  world, so that is invisible to the page) and is now mirrored into
+  `data-omarchy-consent` on `<html>`, last 20 entries, capped at 1000 characters: `,l` shows it
+  in the window title and copies it, and `:jseval document.documentElement.dataset.omarchyConsent`
+  answers "what did the script do here?" — the question that took an afternoon of DOM forensics
+  to answer for #23.
+
 ## 1.18.3
 
 ### Fixed

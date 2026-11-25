@@ -162,6 +162,14 @@ and consent banners are dismissed automatically with a reject-first policy (see
 the banner offers no reject option, a banner with no buttons at all is removed, and
 the sweep reaches inside shadow roots and same-origin iframes.
 
+Before anything is clicked or removed, the candidate has to look like consent at all:
+no form controls inside it, consent wording in its text, and — for the generic
+`[class*="gdpr"]`-style selectors and the overlay/bar shape rules — an element that is
+not page-sized. A site's own drawer or settings dialog therefore survives, which it did
+not before (#23, #25). `,l` shows the last 20 decisions for the page you are on, and the
+same string sits in `data-omarchy-consent` on `<html>` where `:jseval` can read it —
+the log is written in the userscript's own JS world and is otherwise invisible.
+
 ## Reader: embedded media
 
 Articles with audio, video or embeds keep their players in the reader: the media is
@@ -281,6 +289,7 @@ key to it if you want one.
 | `X` | normal | Close tab |
 | `F` | normal | Open link in new tab (hint mode) |
 | `,ab` | normal | Update ad block filter lists |
+| `,l` | normal | Show what the consent userscript decided on this page (title + clipboard) |
 | `,dt` | normal | Toggle dark mode on the current page |
 | `,y` | normal | Open YouTube |
 | `,dv` | normal | Download a video (yt-dlp). On a video page → that video; on any list → hints to pick |
