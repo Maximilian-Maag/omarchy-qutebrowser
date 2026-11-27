@@ -9,6 +9,14 @@
 ! sponsored teasers have since been renamed — the list still says `.go-teaser--variant-affiliate`
 ! while the page serves `.go-teaser--item-variant-affiliate`, and a sponsored career teaser
 ! carries only a `.go-label--sponsored` label. Both stayed visible with the list rules alone.
+!
+! golem.de in-text ad (measured 2026-11-28): the page's own obfuscated ad script creates a
+! `div` with class `go-ad-in-text` and injects it between paragraphs at runtime (`H.adContainer`)
+! — it is not in the served markup, so no list can name it and `.go-ad-slot` does not wrap it.
+! `.go-adsense` is the AdSense unit's own class: inside a `.go-ad-slot` on the homepage today,
+! but cheap insurance for a slot that renders without one.
 golem.de##.go-teaser--item-variant-affiliate
 golem.de##.go-teaser:has(.go-label--sponsored)
 golem.de##.go-ad-slot__wrapper
+golem.de##.go-ad-in-text
+golem.de##.go-adsense
