@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.19.6
+
+### Fixed
+- **golem.de's in-text ad is hidden.** The page's own obfuscated ad script builds a `div`
+  with class `go-ad-in-text` and pushes it between paragraphs after load (`H.adContainer`),
+  so the element exists on screen but never in the served markup — no filter list can name
+  it, and the `.go-ad-slot` rules that hide golem's reserved boxes do not wrap it. That is
+  the ad that stayed visible when everything else on the page was already hidden. The rule
+  lives in `config/cosmetic-extra.txt`, so it survives a state-directory wipe and reaches a
+  second machine, and it takes effect after `bin/omarchy-cosmetic-update` plus
+  `:greasemonkey-reload` — no browser restart. `.go-adsense` is added with it as insurance
+  for an AdSense unit that renders outside a slot; today's homepage puts that class inside
+  `.go-ad-slot`, where it is already covered.
+
 ## 1.19.5
 
 ### Fixed
