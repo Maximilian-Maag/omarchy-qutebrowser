@@ -33,29 +33,34 @@ function sandbox(code, extra = {}) {
   return ctx;
 }
 
-test('ad params are stripped from the outgoing player request', () => {
-  const ctx = sandbox(slice(['var AD_FIELDS', 'stripRequestAds', 'stripAds', 'walkAds', 'patchJson']));
-  const body = JSON.stringify({
+test('the deep sweep removes nested ad fields at any depth and counts them', () => {
+  const ctx = sandbox(slice(['var AD_FIELDS', 'stripAds', 'walkAds']));
+  const payload = {
     videoId: 'dQw4w9WgXcQ',
     context: { client: { clientName: 'WEB' } },
     adSlots: [{ slot: 1 }],
     playerRequest: { adParams: { key: 'x' } },
     streamingData: { nested: { adPlacements: [{ p: 1 }], formats: [{ itag: 18 }] } },
-  });
-  const out = JSON.parse(ctx.stripRequestAds(body));
-  assert.strictEqual(out.videoId, 'dQw4w9WgXcQ');
-  assert.deepStrictEqual(out.context, { client: { clientName: 'WEB' } });
-  assert.strictEqual(out.adSlots, undefined);
-  assert.strictEqual(out.playerRequest.adParams, undefined);
+  };
+  const hits = ctx.stripAds(payload);
+  assert.strictEqual(hits, 3, 'adSlots, adParams and the nested adPlacements');
+  assert.strictEqual(payload.videoId, 'dQw4w9WgXcQ');
+  assert.deepStrictEqual(payload.context, { client: { clientName: 'WEB' } });
+  assert.strictEqual(payload.adSlots, undefined);
+  assert.strictEqual(payload.playerRequest.adParams, undefined);
   // the deep sweep is the regression this pins: a hand-listed path missed nested ads
-  assert.strictEqual(out.streamingData.nested.adPlacements, undefined);
-  assert.deepStrictEqual(out.streamingData.nested.formats, [{ itag: 18 }]);
+  assert.strictEqual(payload.streamingData.nested.adPlacements, undefined);
+  assert.deepStrictEqual(payload.streamingData.nested.formats, [{ itag: 18 }]);
 });
 
-test('a request with no ad fields is returned unchanged', () => {
-  const ctx = sandbox(slice(['var AD_FIELDS', 'stripRequestAds', 'stripAds', 'walkAds', 'patchJson']));
-  const body = JSON.stringify({ videoId: 'abc', context: {} });
-  assert.deepStrictEqual(JSON.parse(ctx.stripRequestAds(body)), { videoId: 'abc', context: {} });
+test('a payload with no ad fields reports zero hits, so callers can skip the copy', () => {
+  const ctx = sandbox(slice(['var AD_FIELDS', 'stripAds', 'walkAds']));
+  const clean = { videoId: 'abc', context: {}, streamingData: { formats: [{ itag: 18 }] } };
+  assert.strictEqual(ctx.stripAds(clean), 0);
+  assert.deepStrictEqual(clean, { videoId: 'abc', context: {}, streamingData: { formats: [{ itag: 18 }] } });
+  // a non-object is not a payload: no hits, no throw
+  assert.strictEqual(ctx.stripAds(null), 0);
+  assert.strictEqual(ctx.stripAds('text'), 0);
 });
 
 test('the video id is read from watch and shorts URLs', () => {
@@ -80,23 +85,131 @@ test('segment lookup respects the end guard that stops a skip loop', () => {
   assert.strictEqual(ctx.sbSegmentAt(0), null);
 });
 
-test('stripRequestAds rejects non-string input and anything that is not JSON', () => {
-  const ctx = sandbox(slice(['var AD_FIELDS', 'stripRequestAds', 'stripAds', 'walkAds', 'patchJson']));
-  // The guard short-circuits on a non-string (`||` must not become `&&`), and a
-  // one-character payload is never JSON.
-  assert.strictEqual(ctx.stripRequestAds(null), null);
-  assert.strictEqual(ctx.stripRequestAds(12345), null);
-  assert.strictEqual(ctx.stripRequestAds('x'), null);
-  // A JSON *number* is parseable but is not a request body: the head check must
-  // reject it rather than ship it back as "1234567".
-  assert.strictEqual(ctx.stripRequestAds('1234567'), null);
-  // The smallest real payload is two characters and must still be handled.
-  assert.strictEqual(ctx.stripRequestAds('{}'), '{}');
-  assert.ok(!ctx.stripRequestAds('{"adSlots":[1],"x":2}').includes('adSlots'));
+test('pruneFetchResponse drops the stale Content-Length and keeps the rest', async () => {
+  function FakeHeaders(init) {
+    this.map = {};
+    const src = init || {};
+    for (const k of Object.keys(src)) this.map[k.toLowerCase()] = String(src[k]);
+  }
+  FakeHeaders.prototype.get = function (k) {
+    const v = this.map[String(k).toLowerCase()];
+    return v === undefined ? null : v;
+  };
+  FakeHeaders.prototype.delete = function (k) { delete this.map[String(k).toLowerCase()]; };
+  function FakeResponse(body, opts) {
+    return {
+      body,
+      status: (opts && opts.status) || 200,
+      statusText: (opts && opts.statusText) || '',
+      headers: (opts && opts.headers) || new FakeHeaders(),
+      json: () => Promise.resolve(JSON.parse(body)),
+    };
+  }
+  const ctx = sandbox(
+    slice(['var AD_FIELDS', 'stripAds', 'walkAds', 'pruneFetchResponse']),
+    { Response: FakeResponse, Headers: FakeHeaders });
+
+  const dirty = {
+    status: 200, statusText: 'OK',
+    headers: { 'content-type': 'application/json', 'content-length': '4096' },
+    clone() { return { json: () => Promise.resolve({ adPlacements: [1], streamingData: { ok: 1 } }) }; },
+  };
+  const out = await ctx.pruneFetchResponse(dirty);
+  assert.strictEqual(out.status, 200, 'status is carried over');
+  assert.strictEqual(out.statusText, 'OK');
+  assert.strictEqual(out.headers.get('content-type'), 'application/json', 'real headers survive');
+  // A kept Content-Length is a lie about a shorter body: Chromium then truncates
+  // or refuses the read and the player wedges. This is the uBO behaviour too.
+  assert.strictEqual(out.headers.get('content-length'), null, 'the stale length is dropped');
+  const body = JSON.parse(out.body);
+  assert.strictEqual(body.adPlacements, undefined);
+  assert.deepStrictEqual(body.streamingData, { ok: 1 });
+
+  // no ad fields -> the very same Response object, not a rebuilt one
+  const clean = { status: 200, clone() { return { json: () => Promise.resolve({ videoId: 'x' }) }; } };
+  assert.strictEqual(await ctx.pruneFetchResponse(clean), clean);
+  // a non-JSON body must not throw; the original response is returned
+  const broken = { status: 200, clone() { return { json: () => Promise.reject(new Error('nope')) }; } };
+  assert.strictEqual(await ctx.pruneFetchResponse(broken), broken);
+});
+
+test('scaleAdTimers compresses only the 17 s ad countdown, once', () => {
+  const calls = [];
+  const ctx = sandbox(slice(['scaleAdTimers']), {
+    window: { setTimeout: (fn, ms) => { calls.push(ms); return 1; } },
+  });
+  ctx.scaleAdTimers();
+  ctx.scaleAdTimers();                      // idempotent: wrapping twice would double-scale
+  ctx.window.setTimeout(() => {}, 17000);
+  assert.deepStrictEqual(calls, [17], 'the ad countdown is compressed to 17 ms');
+  ctx.window.setTimeout(() => {}, 3000);
+  ctx.window.setTimeout(() => {}, 20000);
+  ctx.window.setTimeout(() => {}, 17001);
+  assert.deepStrictEqual(calls, [17, 3000, 20000, 17001],
+    'no other delay is touched — 20 s is the "still watching" prompt, not an ad');
+});
+
+test('adBlockedUnplayable recognises only the ad-blocked error', () => {
+  const ctx = sandbox(slice(['adBlockedUnplayable']));
+  const sub = { runs: [{ text: 'WEB_PAGE_TYPE_UNKNOWN' },
+                       { text: 'https://support.google.com/youtube/answer/3037019' }] };
+  const blocked = { playabilityStatus: {
+    status: 'UNPLAYABLE',
+    errorScreen: { playerErrorMessageRenderer: { subreason: sub } } } };
+  assert.strictEqual(ctx.adBlockedUnplayable(blocked), true);
+
+  // a captcha wall is a different problem: reloading must not be attempted
+  const captcha = { playabilityStatus: {
+    status: 'UNPLAYABLE',
+    errorScreen: { playerCaptchaViewModel: {},
+                   playerErrorMessageRenderer: { subreason: sub } } } };
+  assert.strictEqual(ctx.adBlockedUnplayable(captcha), false);
+
+  // right subreason text, wrong status
+  const ok = { playabilityStatus: { status: 'OK',
+    errorScreen: { playerErrorMessageRenderer: { subreason: sub } } } };
+  assert.strictEqual(ctx.adBlockedUnplayable(ok), false);
+  // only one of the two markers
+  const half = { playabilityStatus: { status: 'UNPLAYABLE',
+    errorScreen: { playerErrorMessageRenderer: { subreason: { runs: [{ text: 'WEB_PAGE_TYPE_UNKNOWN' }] } } } } };
+  assert.strictEqual(ctx.adBlockedUnplayable(half), false);
+  assert.strictEqual(ctx.adBlockedUnplayable(null), false);
+  assert.strictEqual(ctx.adBlockedUnplayable({}), false);
+});
+
+test('repairBlockedVideo reloads once per id and then backs off for 30 s', () => {
+  const loads = [];
+  const player = {
+    getPlayerResponse: () => ({ playabilityStatus: {
+      status: 'UNPLAYABLE',
+      errorScreen: { playerErrorMessageRenderer: { subreason: { runs: [
+        { text: 'WEB_PAGE_TYPE_UNKNOWN' },
+        { text: 'https://support.google.com/youtube/answer/3037019' }] } } } },
+      videoDetails: { videoId: 'dQw4w9WgXcQ' },
+      playerConfig: { playbackStartConfig: { startSeconds: 42 } } }),
+    loadVideoById: (id, start) => loads.push([id, start]),
+  };
+  const ctx = sandbox(
+    slice(['adBlockedUnplayable', 'var repair', 'repairBlockedVideo']),
+    { document: { querySelector: () => player } });
+  assert.strictEqual(ctx.repairBlockedVideo(1000), true);
+  assert.deepStrictEqual(loads, [['dQw4w9WgXcQ', 42]], 'reloads at the saved position');
+  assert.strictEqual(ctx.repairBlockedVideo(2000), false, 'no second reload inside 30 s');
+  assert.strictEqual(loads.length, 1);
+  assert.strictEqual(ctx.repairBlockedVideo(31001), true, 'past the window it may try again');
+  assert.strictEqual(loads.length, 2);
+
+  // a healthy player is never touched
+  const healthy = { getPlayerResponse: () => ({ playabilityStatus: { status: 'OK' } }),
+                    loadVideoById: () => { throw new Error('must not reload'); } };
+  const clean = sandbox(
+    slice(['adBlockedUnplayable', 'var repair', 'repairBlockedVideo']),
+    { document: { querySelector: () => healthy } });
+  assert.strictEqual(clean.repairBlockedVideo(1000), false);
 });
 
 test('the ad sweep reaches exactly the depth limit, in objects and arrays', () => {
-  const ctx = sandbox(slice(['var AD_FIELDS', 'stripRequestAds', 'stripAds', 'walkAds', 'patchJson']));
+  const ctx = sandbox(slice(['var AD_FIELDS', 'stripAds', 'walkAds', 'patchJson']));
   const nest = (levels, leaf) => { let n = leaf; for (let i = 0; i < levels; i++) n = { child: n }; return n; };
   const nestArr = (levels, leaf) => { let n = leaf; for (let i = 0; i < levels; i++) n = [n]; return n; };
   const drillObj = (root, levels) => { let n = root; for (let i = 0; i < levels; i++) n = n.child; return n; };
@@ -118,8 +231,65 @@ test('the ad sweep reaches exactly the depth limit, in objects and arrays', () =
   assert.deepStrictEqual(drillArr(arr13, 13).adPlacements, [1], 'arrays must count toward the depth bound');
 });
 
+test('repairStalledVideo re-loads a wedged player once and backs off', () => {
+  const loads = [];
+  const video = { currentTime: 10, duration: 635, readyState: 4 };
+  const player = {
+    classList: { contains: () => false },
+    getPlayerState: () => 1,
+    loadVideoById: (id, start) => loads.push([id, start]),
+  };
+  const ctx = sandbox(
+    slice(['adShowing', 'sbVideoId', 'var progress', 'repairStalledVideo']),
+    {
+      document: { querySelector: (sel) => (sel.indexOf('ad-showing') !== -1 ? null
+        : (sel.indexOf('video.html5-main-video') !== -1 ? video : player)) },
+      location: { search: '?v=dQw4w9WgXcQ', pathname: '/watch' },
+    });
+  // healthy: nothing to do
+  assert.strictEqual(ctx.repairStalledVideo(1000), false);
+  assert.strictEqual(loads.length, 0);
+
+  // the mid-roll detach: duration gone, no media, player reports -1
+  video.duration = NaN;
+  video.readyState = 0;
+  player.getPlayerState = () => -1;
+  assert.strictEqual(ctx.repairStalledVideo(2000), false, 'one bad sample is not enough');
+  assert.strictEqual(ctx.repairStalledVideo(2100), false);
+  assert.strictEqual(ctx.repairStalledVideo(2200), true, 'three bad samples re-load');
+  assert.deepStrictEqual(loads, [['dQw4w9WgXcQ', 9]], 'resumes one second before the stall');
+
+  // still broken: the 30 s back-off keeps it from becoming a reload loop
+  assert.strictEqual(ctx.repairStalledVideo(2300), false);
+  assert.strictEqual(ctx.repairStalledVideo(2400), false);
+  assert.strictEqual(ctx.repairStalledVideo(2500), false);
+  assert.strictEqual(loads.length, 1);
+
+  // a viewer who pressed pause must never be overruled
+  const pausedLoads = [];
+  const pausedVideo = { currentTime: 5, duration: 600, readyState: 4 };
+  const paused = {
+    classList: { contains: () => false }, getPlayerState: () => 2,
+    loadVideoById: () => pausedLoads.push(1),
+  };
+  pausedVideo.duration = NaN;
+  pausedVideo.readyState = 0;
+  const ctx2 = sandbox(
+    slice(['adShowing', 'sbVideoId', 'var progress', 'repairStalledVideo']),
+    {
+      document: { querySelector: (sel) => (sel.indexOf('ad-showing') !== -1 ? null
+        : (sel.indexOf('video.html5-main-video') !== -1 ? pausedVideo : paused)) },
+      location: { search: '?v=dQw4w9WgXcQ', pathname: '/watch' },
+    });
+  ctx2.repairStalledVideo(1000);          // learns the duration
+  pausedVideo.duration = NaN;
+  pausedVideo.readyState = 0;
+  for (let i = 0; i < 6; i++) assert.strictEqual(ctx2.repairStalledVideo(2000 + i * 100), false);
+  assert.strictEqual(pausedLoads.length, 0);
+});
+
 test('patchJson keeps the type it was given and strips on the way through', () => {
-  const ctx = sandbox(slice(['var AD_FIELDS', 'stripRequestAds', 'stripAds', 'walkAds', 'patchJson']));
+  const ctx = sandbox(slice(['var AD_FIELDS', 'stripAds', 'walkAds', 'patchJson']));
   const text = JSON.stringify({ adSlots: [1], ok: true });
   const out = ctx.patchJson(text);
   // string in -> a JSON *object* string out (not the original text, not a re-quoted string)
@@ -187,7 +357,8 @@ test('forceEnd ends a live ad but leaves a zero-length video alone', () => {
 test('tick puts the viewer speed back only after an ad actually played', () => {
   const ctx = sandbox(
     slice(['var AD_DOM', 'removeAdElements', 'adShowing', 'clickSkip', 'var adWasOn',
-           'var savedRate', 'forceEnd', 'restore', 'tick']),
+           'var savedRate', 'forceEnd', 'restore',
+           'adBlockedUnplayable', 'var repair', 'repairBlockedVideo', 'sbVideoId', 'var progress', 'repairStalledVideo', 'tick']),
     { sbEnsurePolling: () => {} });
   const video = { duration: 30, currentTime: 2, playbackRate: 1 };
   const player = { classList: { contains: () => false } };
@@ -206,13 +377,23 @@ test('tick puts the viewer speed back only after an ad actually played', () => {
 // The setup blocks (window property setters, fetch/XHR interception, the timers)
 // are not declarations the slicer can pull out, so here the entire shipped file
 // runs in a vm with just enough of a browser: no npm, no jsdom.
+class FakeHeaders {
+  constructor(init) {
+    this.map = {};
+    const src = init && init.map ? init.map : (init || {});
+    for (const k of Object.keys(src)) this.map[k.toLowerCase()] = String(src[k]);
+  }
+  get(k) { const v = this.map[String(k).toLowerCase()]; return v === undefined ? null : v; }
+  delete(k) { delete this.map[String(k).toLowerCase()]; }
+}
+
 function makeResponse(body, opts = {}) {
   const status = opts.status === undefined ? 200 : opts.status;
   return {
     body,
     status,
     statusText: opts.statusText || '',
-    headers: opts.headers || {},
+    headers: opts.headers || new FakeHeaders(),
     ok: status >= 200 && status < 300,
     clone() { return makeResponse(this.body, { status: this.status, statusText: this.statusText, headers: this.headers }); },
     text() { return Promise.resolve(this.body); },
@@ -253,6 +434,7 @@ function boot(over = {}) {
     XMLHttpRequest: FakeXHR,
     MutationObserver: class { constructor(cb) { this.cb = cb; } observe() {} },
     Response: function (body, opts) { return makeResponse(body, opts); },
+    Headers: FakeHeaders,
     Date: { now: () => now },
     setInterval: (cb, ms) => { const id = log.intervals.length + 1; log.intervals.push({ id, cb, ms }); return id; },
     clearInterval: (id) => { log.cleared.push(id); },
@@ -316,15 +498,16 @@ test('an ad URL keeps its XHR address instead of being redirected to about:blank
   assert.strictEqual(xhr.sentBody, null);
 });
 
-test('fetch strips ad params from player requests only, and survives a missing init', async () => {
+test('the outgoing player request has its ad fields stripped, and only that request', async () => {
   const { ctx, log } = boot();
-  const body = JSON.stringify({ adSlots: [1], videoId: 'x' });
+  const body = JSON.stringify({ adSlots: [1], videoId: 'x', streamingData: { formats: [{ itag: 18 }] } });
   await ctx.window.fetch('https://www.youtube.com/youtubei/v1/player?key=1', { method: 'POST', body });
   assert.strictEqual(log.fetch.length, 1);
-  assert.strictEqual(JSON.parse(log.fetch[0].init.body).adSlots, undefined,
-    'the outgoing player request must have its ad params stripped');
-  assert.strictEqual(JSON.parse(log.fetch[0].init.body).videoId, 'x');
-  // a NON-player endpoint must be left untouched
+  const sent = JSON.parse(log.fetch[0].init.body);
+  assert.strictEqual(sent.adSlots, undefined, 'the ad schedule must not be requested');
+  assert.strictEqual(sent.videoId, 'x', 'everything else survives');
+  assert.deepStrictEqual(sent.streamingData, { formats: [{ itag: 18 }] });
+  // a NON-player endpoint must keep its exact bytes
   await ctx.window.fetch('https://www.youtube.com/api/stats/watchtime', { body });
   assert.strictEqual(log.fetch[1].init.body, body, 'non-player bodies must not be rewritten');
   // a player URL with no init at all must not throw
@@ -332,12 +515,72 @@ test('fetch strips ad params from player requests only, and survives a missing i
   assert.strictEqual(log.fetch.length, 3);
 });
 
+test('stripRequestAds only ever touches a JSON object request body', () => {
+  const ctx = sandbox(slice(['var AD_FIELDS', 'stripAds', 'walkAds', 'stripRequestAds']));
+  assert.strictEqual(ctx.stripRequestAds(null), null);
+  assert.strictEqual(ctx.stripRequestAds(12345), null);
+  assert.strictEqual(ctx.stripRequestAds('x'), null);
+  // a JSON *number* parses but is not a request body: the head check rejects it
+  assert.strictEqual(ctx.stripRequestAds('1234567'), null);
+  // a body with no ad fields is handed back untouched (null = "keep the original")
+  assert.strictEqual(ctx.stripRequestAds('{}'), null);
+  assert.ok(!ctx.stripRequestAds('{"adSlots":[1],"x":2}').includes('adSlots'));
+});
+
+test('the player response is pruned before the page reads it', async () => {
+  const handle = boot();
+  handle.setNextBody(JSON.stringify({ adPlacements: [1], streamingData: { ok: 1 } }));
+  const resp = await handle.ctx.window.fetch('https://www.youtube.com/youtubei/v1/player?key=1');
+  const out = JSON.parse(await resp.text());
+  assert.strictEqual(out.adPlacements, undefined, 'the ad schedule must not reach the player');
+  assert.deepStrictEqual(out.streamingData, { ok: 1 });
+});
+
+test('an XHR to a non-player endpoint keeps its own body', () => {
+  const { ctx } = boot();
+  const xhr = new ctx.XMLHttpRequest();
+  xhr.open('POST', 'https://www.youtube.com/api/stats/playback');
+  xhr.readyState = 4;
+  xhr.responseType = '';
+  xhr._responseText = JSON.stringify({ adSlots: [1], ok: true });
+  xhr.fire('readystatechange');
+  assert.deepStrictEqual(JSON.parse(xhr.responseText).adSlots, [1],
+    'only player/next responses may be rewritten');
+});
+
+test('a fetch with no arguments is passed through, not thrown on', async () => {
+  const { ctx, log } = boot();
+  await ctx.window.fetch();
+  assert.strictEqual(log.fetch.length, 1, 'the call still reaches the network layer');
+  assert.strictEqual(log.fetch[0].input, undefined);
+});
+
+test('a first sample with no media never triggers a repair', () => {
+  const loads = [];
+  const video = { currentTime: 0, duration: NaN, readyState: 0 };
+  const player = {
+    classList: { contains: () => false }, getPlayerState: () => -1,
+    loadVideoById: () => loads.push(1),
+  };
+  const ctx = sandbox(
+    slice(['adShowing', 'sbVideoId', 'var progress', 'repairStalledVideo']),
+    {
+      document: { querySelector: (sel) => (sel.indexOf('ad-showing') !== -1 ? null
+        : (sel.indexOf('video.html5-main-video') !== -1 ? video : player)) },
+      location: { search: '?v=dQw4w9WgXcQ', pathname: '/watch' },
+    });
+  // The player has never had a duration: this is a page still loading, not a stall.
+  for (let i = 0; i < 8; i++) assert.strictEqual(ctx.repairStalledVideo(1000 + i * 100), false);
+  assert.strictEqual(loads.length, 0);
+});
+
 test('XHR responses are stripped at readystatechange and the patch stays configurable', () => {
   const { ctx } = boot();
   const xhr = new ctx.XMLHttpRequest();
   xhr.open('POST', 'https://www.youtube.com/youtubei/v1/player?key=1');
   xhr.send(JSON.stringify({ adSlots: [1], videoId: 'x' }));
-  assert.strictEqual(JSON.parse(xhr.sentBody).adSlots, undefined, 'request ads are stripped');
+  assert.strictEqual(JSON.parse(xhr.sentBody).adSlots, undefined,
+    'request ads are stripped on the XHR path too');
   xhr.readyState = 4;
   xhr.responseType = '';
   xhr._responseText = JSON.stringify({ adSlots: [1], streamingData: { ok: 1 } });

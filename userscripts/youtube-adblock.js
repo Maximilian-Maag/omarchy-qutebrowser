@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Ad-Free
-// @description  Remove YouTube ads, especially pre-roll/mid-roll video ads: strip ad data out of the player response before YouTube's player reads it, then skip or force-end any ad that still slips through. Ad requests are never answered locally — a fabricated response makes the player stop the video.
-// @version      3.1
+// @description  Remove YouTube ads: strip the ad fields from the player request and prune them from the response (uBO's json-prune-fetch-response, minus the stale Content-Length), compress the 17 s ad countdown, re-load a video that came back ad-blocked or wedged, then skip or force-end any ad that still slips through.
+// @version      3.2
 // @author       omarchy-qutebrowser
 // @namespace    https://github.com/Maximilian-Maag/omarchy-qutebrowser
 // @match        *://*.youtube.com/*
@@ -24,47 +24,56 @@
     'adSignalsInfo', 'adBreakHeartbeatParams2', 'playerAdParamsRenderer',
   ];
 
-  // Strip the ad parameters from an OUTGOING player/next request body. YouTube
-  // builds the ad schedule from these, so removing them means the response comes
-  // back with no pre-roll or mid-roll ad to play at all — the difference between
-  // "skip the ad quickly" and "the ad never exists".
+  // Strip the ad fields out of an OUTGOING player/next request body.
+  // Kept after an A/B on a live watch page (Nov 2026): without it the server
+  // schedules a mid-roll and the player briefly detaches the stream at each break
+  // — duration NaN, state -1 — even when the response is pruned; with it the break
+  // is never scheduled and playback is continuous. Separately: a pruned fetch
+  // response that keeps its old Content-Length is what actually kills a player, so
+  // pruneFetchResponse drops that header. Do not remove one without testing the
+  // other on a monetised video.
   function stripRequestAds(text) {
     if (typeof text !== 'string' || text.length < 2) return null;
-    var head = text.trim().charAt(0);
-    if (head !== '{' && head !== '[') return null;
-    try {
-      return JSON.stringify(stripAds(JSON.parse(text)));
-    } catch (e) {
-      return null;
-    }
+    // Anything that is not a JSON object is not a request body. A JSON number
+    // parses fine, which is why the head check comes before JSON.parse.
+    if (text.trim().charAt(0) !== '{') return null;
+    var body;
+    try { body = JSON.parse(text); } catch (e) { return null; }
+    if (!stripAds(body)) return null;          // unchanged: keep the original bytes
+    try { return JSON.stringify(body); } catch (e) { return null; }
   }
 
   // Strip every ad field out of a player / next / ytInitialData payload, at any
   // depth. YouTube nests them (playerResponse, streamingData, overlay renderers,
   // feed payloads) and no playback path needs any of them, so a bounded deep sweep
-  // beats enumerating the places they hide.
+  // beats enumerating the places they hide. Returns how many fields were removed,
+  // so a response that carries no ads is handed back untouched (uBO's
+  // json-prune-fetch-response does the same — never reserialise for nothing).
   function stripAds(obj) {
     try {
-      walkAds(obj, 0);
-    } catch (e) {}
-    return obj;
+      return walkAds(obj, 0);
+    } catch (e) {
+      return 1;
+    }
   }
 
   function walkAds(node, depth) {
-    if (!node || typeof node !== 'object' || depth > 12) return;
-    var i, k;
+    if (!node || typeof node !== 'object' || depth > 12) return 0;
+    var i, k, hits = 0;
     if (Array.isArray(node)) {
-      for (i = 0; i < node.length; i++) walkAds(node[i], depth + 1);
-      return;
+      for (i = 0; i < node.length; i++) hits += walkAds(node[i], depth + 1);
+      return hits;
     }
     for (i = 0; i < AD_FIELDS.length; i++) {
       if (Object.prototype.hasOwnProperty.call(node, AD_FIELDS[i])) {
         try { delete node[AD_FIELDS[i]]; } catch (e) { node[AD_FIELDS[i]] = undefined; }
+        hits++;
       }
     }
     for (k in node) {
-      if (Object.prototype.hasOwnProperty.call(node, k)) walkAds(node[k], depth + 1);
+      if (Object.prototype.hasOwnProperty.call(node, k)) hits += walkAds(node[k], depth + 1);
     }
+    return hits;
   }
 
   function patchJson(textOrObj) {
@@ -73,6 +82,28 @@
       stripAds(obj);
       return typeof textOrObj === 'string' ? JSON.stringify(obj) : obj;
     } catch (e) { return textOrObj; }
+  }
+
+  // uBO's json-prune-fetch-response: prune the object the page will read and hand
+  // back a Response built from it, keeping status/statusText/headers. Reading
+  // `.json()` (not `.text()` + reserialise) is what keeps the content-type and the
+  // bytes the page's own parser sees in step.
+  function pruneFetchResponse(resp) {
+    try {
+      return resp.clone().json().then(function (obj) {
+        if (!obj || typeof obj !== 'object') return resp;
+        if (!stripAds(obj)) return resp;
+        // The body got shorter, so the original Content-Length is now a lie and
+        // Chromium refuses/truncates the read. uBO drops both of these too — a
+        // kept Content-Length is exactly how a pruned response kills the player.
+        var headers = new Headers(resp.headers);
+        headers.delete('content-length');
+        headers.delete('content-encoding');
+        return new Response(JSON.stringify(obj), {
+          status: resp.status, statusText: resp.statusText, headers: headers,
+        });
+      }).catch(function () { return resp; });
+    } catch (e) { return resp; }
   }
 
   // Player / watch-next endpoints that carry the ad schedule.
@@ -90,7 +121,7 @@
           configurable: true,
           enumerable: true,
           get: function () { return _saved[name]; },
-          set: function (v) { _saved[name] = stripAds(v); },
+          set: function (v) { stripAds(v); _saved[name] = v; },
         });
       } catch (e) {}
     });
@@ -107,19 +138,13 @@
     window.fetch = function (input, init) {
       var url = typeof input === 'string' ? input : (input && input.url) || '';
       if (PLAYER_RE.test(url) && init && typeof init.body === 'string') {
-        var reqClean = stripRequestAds(init.body);
-        if (reqClean !== null) init = Object.assign({}, init, { body: reqClean });
+        var clean = stripRequestAds(init.body);
+        if (clean !== null) init = Object.assign({}, init, { body: clean });
       }
       var p = _fetch.call(this, input, init);
       if (PLAYER_RE.test(url)) {
         return p.then(function (resp) {
-          try {
-            return resp.clone().text().then(function (txt) {
-              var mod = patchJson(txt);
-              if (mod === txt) return resp;
-              return new Response(mod, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
-            }).catch(function () { return resp; });
-          } catch (e) { return resp; }
+          try { return pruneFetchResponse(resp); } catch (e) { return resp; }
         });
       }
       return p;
@@ -143,7 +168,7 @@
         if (self.__yt_url && PLAYER_RE.test(self.__yt_url)) {
           if (typeof body === 'string') {
             var bodyClean = stripRequestAds(body);
-            if (bodyClean !== null) { arguments[0] = bodyClean; }
+            if (bodyClean !== null) arguments[0] = bodyClean;
           }
           // Patch at readystatechange(4): that fires BEFORE load/onload, so the
           // site's own onload handler already sees the stripped body.
@@ -236,6 +261,8 @@
     try {
       var player = document.querySelector('#movie_player, .html5-video-player');
       var video = document.querySelector('video.html5-main-video, video');
+      repairBlockedVideo();
+      repairStalledVideo();
       if (adShowing(player)) {
         adWasOn = true;
         clickSkip();                             // click it if this ad is skippable
@@ -261,6 +288,114 @@
         restore(document.querySelector('video'));
       }
     }, 100);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 2b. The two repairs uBlock Origin does that a response prune cannot
+  // ═══════════════════════════════════════════════════════════════════════════
+  // nano-stb (uBO's adjust-setTimeout): YouTube opens an ad by scheduling a 17 s
+  // countdown and only then asking the player for the ad. Compressing that one
+  // delay to ~17 ms is uBO's `nano-stb, [native code], 17000, 0.001` rule — no
+  // other delay is touched — and it ends an ad that has no skip button without
+  // seeking the media element (which SSAP ads ignore anyway).
+  function scaleAdTimers() {
+    var _setTimeout = window.setTimeout;
+    if (!_setTimeout || _setTimeout.__omarchyScaled) return;
+    var wrapped = function (fn, delay) {
+      try {
+        if (delay === 17000) arguments[1] = 17;
+      } catch (e) {}
+      return _setTimeout.apply(this, arguments);
+    };
+    wrapped.__omarchyScaled = true;
+    window.setTimeout = wrapped;
+  }
+
+  // The other half of uBO's rpnt scriptlet. An ad-blocked watch page can come
+  // back UNPLAYABLE with a "web page type unknown" subreason pointing at
+  // support.google.com/youtube/answer/3037019; the player cannot recover from
+  // that on its own, but loading the same id again can. Once per id per 30 s, so
+  // a genuinely broken video does not turn into a reload loop.
+  function adBlockedUnplayable(response) {
+    try {
+      var status = response && response.playabilityStatus;
+      if (!status || status.status !== 'UNPLAYABLE') return false;
+      var screen = status.errorScreen || {};
+      if (screen.playerCaptchaViewModel) return false;        // a captcha is not this error
+      var sub = screen.playerErrorMessageRenderer && screen.playerErrorMessageRenderer.subreason;
+      var text = JSON.stringify((sub && sub.runs) || []);
+      return text.indexOf('WEB_PAGE_TYPE_UNKNOWN') !== -1 &&
+             text.indexOf('3037019') !== -1;
+    } catch (e) { return false; }
+  }
+
+  var repair = { id: null, at: 0 };
+
+  function repairBlockedVideo(now) {
+    try {
+      var player = document.querySelector('#movie_player, .html5-video-player');
+      if (!player || typeof player.getPlayerResponse !== 'function') return false;
+      var response = player.getPlayerResponse();
+      if (!adBlockedUnplayable(response)) return false;
+      var id = response.videoDetails && response.videoDetails.videoId;
+      if (!id) return false;
+      now = now || Date.now();
+      if (repair.id === id && now - repair.at < 30000) return false;
+      repair.id = id;
+      repair.at = now;
+      var start = (response.playerConfig &&
+                   response.playerConfig.playbackStartConfig &&
+                   response.playerConfig.playbackStartConfig.startSeconds) || 0;
+      if (typeof player.loadVideoById === 'function') player.loadVideoById(id, start);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // A pruned ad payload can leave the player wedged: at a scheduled mid-roll the
+  // stream detaches — duration goes NaN, readyState 0, state -1 — and it never
+  // recovers on its own. uBO's rpnt scriptlet handles this by watching progress
+  // rather than waiting for an error code; same here. Three consecutive polls
+  // with no media (or no movement while supposedly playing) re-load the same id
+  // at the last known second, at most once per 30 s per video.
+  var progress = { id: null, t: 0, dur: 0, stuck: 0, at: 0 };
+
+  function repairStalledVideo(now) {
+    try {
+      var player = document.querySelector('#movie_player, .html5-video-player');
+      var video = document.querySelector('video.html5-main-video, video');
+      if (!player || !video) return false;
+      var id = (typeof sbVideoId === 'function') ? sbVideoId() : '';
+      if (!id) return false;
+      if (id !== progress.id) {
+        progress.id = id; progress.t = 0; progress.dur = 0;
+        progress.stuck = 0; progress.at = 0;
+      }
+      if (adShowing(player)) {          // an ad's own stall is what we are here to end
+        progress.stuck = 0;
+        return false;
+      }
+      var state = player.getPlayerState ? player.getPlayerState() : 1;
+      var known = progress.dur > 0;                     // after the first good sample
+      var moved = Math.abs(video.currentTime - progress.t) > 0.25;
+      // no media at all after we know there was some, or "playing" without progress
+      var dead = known && (!isFinite(video.duration) || video.readyState < 1) && state !== 2;
+      var stalled = known && state === 1 && !moved;
+      if (dead || stalled) {
+        progress.stuck++;
+      } else {
+        progress.stuck = 0;
+        progress.t = video.currentTime;
+      }
+      if (isFinite(video.duration) && video.duration > 0) progress.dur = video.duration;
+      if (progress.stuck < 3) return false;
+      progress.stuck = 0;
+      now = now || Date.now();
+      if (progress.at && now - progress.at < 30000) return false;
+      progress.at = now;
+      var resume = progress.t > 1 ? Math.max(0, progress.t - 1) : 0;
+      if (typeof player.loadVideoById === 'function') player.loadVideoById(id, resume);
+      return true;
+    } catch (e) { return false; }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -361,6 +496,8 @@
     sbTimer = setInterval(function () {
       try {
         sbFetch(sbVideoId());
+        repairBlockedVideo();
+        repairStalledVideo();
         var v = document.querySelector('video.html5-main-video, video');
         var player = document.querySelector('#movie_player, .html5-video-player');
         if (v && !adShowing(player)) sbApply(v);
@@ -416,6 +553,9 @@
     removeAdElements();
     ensurePolling();
   }
+
+  // Compress YouTube's 17 s ad countdown (nano-stb) before any player code runs.
+  try { scaleAdTimers(); } catch (e) {}
 
   // A pre-roll can start before any mutation we notice, so poll eagerly for the
   // first 90 s after load (cheap: tick() no-ops when no ad is showing) instead of
