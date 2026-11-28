@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.19.7
+
+### Fixed
+- **YouTube: no more mid-roll black frames, and a wedged player repairs itself.** The userscript
+  now mirrors the parts of uBlock Origin's YouTube scriptlets that a pure response prune cannot
+  reach. A pruned fetch response kept the original `Content-Length`, so Chromium truncated the
+  shorter body at the next ad break and the player detached the stream — duration `NaN`,
+  state `-1`, no recovery. That header is dropped now, as uBO does. On top of it: the 17 s ad
+  countdown is compressed to ~17 ms (uBO's `nano-stb`), a video that comes back `UNPLAYABLE` with
+  the "web page type unknown" subreason is re-loaded once per 30 s (uBO's `rpnt` recovery), and a
+  player that loses its media or stops advancing is re-loaded at the last known second. Request
+  and response both stay pruned — an A/B on a live watch page showed the request strip is what
+  keeps YouTube from scheduling a mid-roll at all.
+
 ## 1.19.5
 
 ### Fixed
