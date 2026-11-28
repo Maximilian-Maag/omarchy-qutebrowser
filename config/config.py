@@ -46,6 +46,21 @@ except Exception:  # never let this stop the browser from starting
     pass
 
 # ---------------------------------------------------------------------------
+# Renderer crashes — reload the tab instead of leaving it dead
+# ---------------------------------------------------------------------------
+# QtWebEngine 6.11.2 (the stable channel) dies with SIGTRAP on some pages — a frame that
+# declares a legacy charset is enough — and qutebrowser only prints "Renderer process
+# crashed": the tab stays dead until the user reloads it. The engine fix is not available on
+# this channel, so omarchy_crashguard reloads the tab for us, at most twice per URL per five
+# minutes so a page that always crashes does not turn into a reload loop.
+try:
+    import omarchy_crashguard
+
+    omarchy_crashguard.install()
+except Exception:  # never let this stop the browser from starting
+    pass
+
+# ---------------------------------------------------------------------------
 # Theme
 # ---------------------------------------------------------------------------
 apply_theme(c)  # noqa: F821  (c is injected by qutebrowser)
