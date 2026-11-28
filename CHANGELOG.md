@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.19.6
+## 1.19.7
 
 ### Fixed
 - **YouTube: no more mid-roll black frames, and a wedged player repairs itself.** The userscript
