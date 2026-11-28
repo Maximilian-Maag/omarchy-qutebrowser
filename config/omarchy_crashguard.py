@@ -82,11 +82,15 @@ def handle_termination(url, now, history, crashed):
     return True
 
 
-def _on_terminated(page, status, code, message, now_ms):
-    """Qt slot: book the crash and send the page back when the budget allows."""
+def _qurl(url):
+    """Build a QUrl. Imported here because the unit tests run without Qt installed."""
     from qutebrowser.qt.core import QUrl
-    from qutebrowser.utils import log
 
+    return QUrl(url)
+
+
+def _on_terminated(page, status, code, message, now_ms, to_url=_qurl):
+    """Qt slot: book the crash and send the page back when the budget allows."""
     try:
         url = _last_url.get(id(page), "")
         crashed = "crashed" in str(status).lower()
@@ -95,14 +99,19 @@ def _on_terminated(page, status, code, message, now_ms):
         if handle_termination(url, now_ms, history, crashed):
             message.info("Renderer crashed; reloading {} (attempt {}/{})".format(
                 url, attempt, MAX_RELOADS))
-            page.setUrl(QUrl(url))
+            page.setUrl(to_url(url))
         elif crashed and is_worth_reloading(url):
             message.warning("Renderer keeps crashing on {}; leaving the error page".format(url))
     except Exception:                   # never let a crash handler crash the browser
-        log.webview.exception("crash guard failed")
+        try:
+            from qutebrowser.utils import log
+
+            log.webview.exception("crash guard failed")
+        except Exception:               # not even the logging is guaranteed (unit tests)
+            pass
 
 
-def attach(page, now_ms, message):
+def attach(page, now_ms, message, to_url=_qurl):
     """Connect the guard to one page. Returns False if it was already connected."""
     if getattr(page, "_omarchy_crash_guard", False):
         return False
@@ -114,7 +123,8 @@ def attach(page, now_ms, message):
     page.urlChanged.connect(
         lambda url, page=page: remember(_last_url, id(page), url.toString()))
     page.renderProcessTerminated.connect(
-        lambda status, code, page=page: _on_terminated(page, status, code, message, now_ms()))
+        lambda status, code, page=page: _on_terminated(
+            page, status, code, message, now_ms(), to_url))
     return True
 
 

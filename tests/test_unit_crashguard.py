@@ -121,8 +121,8 @@ class Attach(unittest.TestCase):
                 return self._url
 
             def setUrl(self, qurl):
-                # a real QUrl's toString() is the URL; str() is its repr
-                self.visited.append(qurl.toString())
+                # a real QUrl's toString() is the URL; the tests inject to_url=str
+                self.visited.append(qurl.toString() if hasattr(qurl, "toString") else qurl)
 
         return Page(url)
 
@@ -145,8 +145,8 @@ class Attach(unittest.TestCase):
     def test_attach_is_idempotent(self):
         cg = load()
         page = self.page()
-        self.assertTrue(cg.attach(page, lambda: 1000, self.message()))
-        self.assertFalse(cg.attach(page, lambda: 1000, self.message()))
+        self.assertTrue(cg.attach(page, lambda: 1000, self.message(), to_url=str))
+        self.assertFalse(cg.attach(page, lambda: 1000, self.message(), to_url=str))
         self.assertEqual(len(page.renderProcessTerminated.slots), 1,
                          "a second sweep must not connect a second slot")
 
@@ -154,7 +154,7 @@ class Attach(unittest.TestCase):
         cg = load()
         page = self.page("https://forum.golem.de/read.php?1,2")
         msg = self.message()
-        cg.attach(page, lambda: 1000, msg)
+        cg.attach(page, lambda: 1000, msg, to_url=str)
         crash, code = "RenderProcessTerminationStatus.CrashedTerminationStatus", 133
         page.renderProcessTerminated.slots[0](crash, code)
         self.assertEqual(page.visited, ["https://forum.golem.de/read.php?1,2"])
@@ -165,7 +165,7 @@ class Attach(unittest.TestCase):
         cg = load()
         page = self.page("https://forum.golem.de/")
         msg = self.message()
-        cg.attach(page, lambda: 1000, msg)
+        cg.attach(page, lambda: 1000, msg, to_url=str)
         # qutebrowser swaps the page to a data: error page before our slot runs
         page.urlChanged.slots[0](type("U", (), {"toString": lambda self: "data:text/html,x"})())
         page.renderProcessTerminated.slots[0](
@@ -177,7 +177,7 @@ class Attach(unittest.TestCase):
         cg = load()
         page = self.page("https://a.test/")
         msg = self.message()
-        cg.attach(page, lambda: 5000, msg)
+        cg.attach(page, lambda: 5000, msg, to_url=str)
         slot = page.renderProcessTerminated.slots[0]
         crash = "RenderProcessTerminationStatus.CrashedTerminationStatus"
         slot(crash, 133)
