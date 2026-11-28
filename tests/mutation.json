@@ -36,7 +36,18 @@
       ]
     },
     {
-      "path": "userscripts/qute-keepassxc-fill",
+       "path": "config/omarchy_crashguard.py",
+       "lang": "python",
+       "tests": [
+        "python3",
+        "-m",
+        "unittest",
+        "tests.test_unit_crashguard",
+        "-q"
+       ]
+      },
+      {
+       "path": "userscripts/qute-keepassxc-fill",
       "lang": "python",
       "tests": [
         "python3",

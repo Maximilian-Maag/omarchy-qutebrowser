@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.19.8
+
+### Fixed
+- **A crashed tab reloads itself instead of dying.** QtWebEngine 6.11.2 — what the stable
+  package channel ships — aborts the renderer with SIGTRAP on some pages; a frame declaring a
+  legacy charset such as iso-8859-2 is enough to trigger it. qutebrowser only printed
+  "Renderer process crashed" and left the tab dead until it was reloaded by hand, which is the
+  wrong outcome for the one browser on this machine. `config/omarchy_crashguard.py` now reloads
+  the tab, at most twice per URL per five minutes, so a page that crashes on every load ends on
+  the error page rather than in a reload loop. This is damage control for the stable channel:
+  the engine fix (QTBUG-149435, fixed in 6.11.3) is not available there yet.
+
 ## 1.19.5
 
 ### Fixed

@@ -29,7 +29,9 @@ MIME_STATE="$STATE_DIR/mime-defaults"
 # site-overrides.py — generated per-domain fixes, loaded by config.py.
 # omarchy_webauthn.py — the WebAuthn UX handler: qutebrowser never answers Qt's
 #                  WebAuthn UX request, so without it passkeys hang.
-CONFIG_MODULES=(config.py themes.py site-overrides.py omarchy_webauthn.py)
+# omarchy_crashguard.py — reload a tab whose renderer died, so a QtWebEngine crash
+#                  on the stable channel costs a reload instead of a dead tab.
+CONFIG_MODULES=(config.py themes.py site-overrides.py omarchy_webauthn.py omarchy_crashguard.py)
 
 # Greasemonkey scripts, each scoped to the hosts it is for:
 #   youtube-adblock                    — strip the ad payload out of the player response

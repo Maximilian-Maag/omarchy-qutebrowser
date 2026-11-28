@@ -39,7 +39,7 @@ QUTE_DESKTOP="org.qutebrowser.qutebrowser.desktop"
 
 # The artifacts the docs say install adds. Written out here rather than read from
 # install.sh: this is the spec the uninstall is checked against, not an echo of it.
-CONFIG_MODULES=(config.py themes.py site-overrides.py omarchy_webauthn.py)
+CONFIG_MODULES=(config.py themes.py site-overrides.py omarchy_webauthn.py omarchy_crashguard.py)
 GREASEMONKEY_SCRIPTS=(
   youtube-adblock.js
   cookie-banner-remover.js
